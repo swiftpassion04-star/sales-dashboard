@@ -1,9 +1,14 @@
 import streamlit as st
 import pandas as pd
 import requests
+import json
 from urllib.parse import quote
 
-st.set_page_config(page_title="Sales Dashboard Pro", layout="wide")
+st.set_page_config(
+    page_title="Sales Dashboard Pro Ultra",
+    page_icon="📊",
+    layout="wide"
+)
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
@@ -14,149 +19,202 @@ HEADERS = {
     "Prefer": "count=exact"
 }
 
-PAGE_LIMIT_OPTIONS = [50, 100, 200]
+PAGE_LIMIT_OPTIONS = [50, 100, 200, 500]
 SUMMARY_PAGE_SIZE = 1000
 SUMMARY_MAX_ROWS = 500000
 
-st.title("📊 Sales Dashboard Pro")
 
+# =========================
+# ULTRA THEME CSS
+# =========================
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-/* ===== พื้นหลังหลัก ===== */
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
 .stApp {
-    background-color: #F8FAFC;
+    background:
+        radial-gradient(circle at top left, rgba(255,122,0,0.13), transparent 30%),
+        linear-gradient(135deg, #FFF7ED 0%, #F8FAFC 42%, #FFFFFF 100%);
     color: #111827;
 }
 
-/* ===== Sidebar ===== */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(
-        180deg,
-        #FFFFFF 0%,
-        #FFF7ED 100%
-    );
+    background: linear-gradient(180deg, #FFFFFF 0%, #FFF7ED 100%);
     border-right: 1px solid #FED7AA;
+    box-shadow: 8px 0 30px rgba(251,146,60,0.08);
 }
 
-/* ===== Sidebar Text ===== */
 section[data-testid="stSidebar"] * {
     color: #111827 !important;
 }
 
-/* ===== Metric Card ===== */
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
 [data-testid="stMetric"] {
-    background: white;
+    background: rgba(255,255,255,0.92);
     border: 1px solid #FED7AA;
-    border-radius: 18px;
-    padding: 18px;
-    box-shadow: 0 4px 12px rgba(255,122,0,0.08);
+    border-radius: 22px;
+    padding: 20px;
+    box-shadow: 0 10px 30px rgba(255,122,0,0.10);
 }
 
-/* ===== Card ลูกค้า ===== */
-.customer-card {
-    background: white;
-    border: 1px solid #FED7AA;
-    border-radius: 18px;
-    padding: 18px;
-    margin-bottom: 14px;
-    box-shadow: 0 4px 12px rgba(255,122,0,0.06);
-}
-
-/* ===== Card ออเดอร์ ===== */
-.order-card {
-    background: #FFF7ED;
-    border: 1px solid #FDBA74;
-    border-radius: 14px;
-    padding: 14px;
-    margin-bottom: 10px;
-}
-
-/* ===== ตัวเลขสีเขียว ===== */
-.green {
-    color: #16A34A;
+[data-testid="stMetricLabel"] {
+    color: #92400E !important;
     font-weight: 700;
 }
 
-/* ===== Badge ===== */
+[data-testid="stMetricValue"] {
+    color: #111827 !important;
+    font-size: 34px !important;
+    font-weight: 800 !important;
+}
+
+.hero-card {
+    background: linear-gradient(135deg, #FF7A00 0%, #FB923C 48%, #FDBA74 100%);
+    border-radius: 28px;
+    padding: 34px;
+    margin-bottom: 26px;
+    color: white;
+    box-shadow: 0 20px 45px rgba(255,122,0,0.28);
+}
+
+.hero-title {
+    font-size: 42px;
+    font-weight: 900;
+    margin-bottom: 6px;
+}
+
+.hero-subtitle {
+    font-size: 16px;
+    opacity: 0.95;
+}
+
+.glass-card {
+    background: rgba(255,255,255,0.90);
+    border: 1px solid #FED7AA;
+    border-radius: 24px;
+    padding: 22px;
+    box-shadow: 0 12px 28px rgba(17,24,39,0.06);
+    margin-bottom: 18px;
+}
+
+.customer-card {
+    background: rgba(255,255,255,0.96);
+    border: 1px solid #FED7AA;
+    border-left: 8px solid #FF7A00;
+    border-radius: 22px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 24px rgba(255,122,0,0.08);
+}
+
+.order-card {
+    background: #FFF7ED;
+    border: 1px solid #FDBA74;
+    border-radius: 18px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
+.green {
+    color: #16A34A;
+    font-weight: 800;
+}
+
 .badge {
     display:inline-block;
-    padding:6px 12px;
+    padding:7px 13px;
     border-radius:999px;
     background:#FF7A00;
     color:white;
     font-size:13px;
-    font-weight:700;
+    font-weight:800;
 }
 
-/* ===== ปุ่ม ===== */
 .stButton > button {
-    background: linear-gradient(
-        90deg,
-        #FF7A00 0%,
-        #FB923C 100%
-    );
-    color: white;
+    background: linear-gradient(90deg, #FF7A00 0%, #FB923C 100%);
+    color: white !important;
     border: none;
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 10px 18px;
-    font-weight: 700;
+    font-weight: 800;
     transition: all 0.2s ease;
+    box-shadow: 0 8px 18px rgba(255,122,0,0.18);
 }
 
 .stButton > button:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 14px rgba(255,122,0,0.25);
+    box-shadow: 0 12px 24px rgba(255,122,0,0.28);
 }
 
-/* ===== Selectbox ===== */
 div[data-baseweb="select"] > div {
     background: white !important;
     border: 1px solid #FDBA74 !important;
-    border-radius: 12px !important;
+    border-radius: 14px !important;
 }
 
-/* ===== Input ===== */
 input {
     background: white !important;
     border: 1px solid #FDBA74 !important;
-    border-radius: 12px !important;
+    border-radius: 14px !important;
 }
 
-/* ===== ตาราง ===== */
 [data-testid="stDataFrame"] {
     border: 1px solid #FED7AA;
-    border-radius: 18px;
+    border-radius: 20px;
     overflow: hidden;
+    box-shadow: 0 10px 24px rgba(17,24,39,0.05);
 }
 
-/* ===== Header ===== */
 h1, h2, h3 {
     color: #EA580C !important;
+    font-weight: 900 !important;
 }
 
-/* ===== Divider ===== */
 hr {
     border-color: #FED7AA;
 }
 
+div[data-testid="stExpander"] {
+    background: white;
+    border: 1px solid #FED7AA;
+    border-radius: 16px;
+}
+
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
 
+# =========================
+# API
+# =========================
 def api_get(path, params):
     url = f"{SUPABASE_URL}/rest/v1/{path}?{'&'.join(params)}"
     res = requests.get(url, headers=HEADERS)
+
     if res.status_code not in [200, 206]:
         st.error(res.text)
         return [], 0
+
     total = 0
     content_range = res.headers.get("Content-Range", "")
+
     if "/" in content_range:
         try:
             total = int(content_range.split("/")[-1])
         except:
             total = 0
+
     return res.json(), total
 
 
@@ -187,12 +245,16 @@ def build_filter_params(keyword, year, province, channel, sales_staff, source_sh
     return params
 
 
-@st.cache_data(ttl=120)
+# =========================
+# DATA LOADERS
+# =========================
+@st.cache_data(ttl=180)
 def get_filter_options():
     rows, _ = api_get(
         "orders",
         ["select=year,province,channel,sales_staff,source_sheet", "limit=50000"]
     )
+
     df = pd.DataFrame(rows)
 
     if df.empty:
@@ -218,7 +280,7 @@ def get_filter_options():
     }
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=90)
 def load_summary(keyword, year, province, channel, sales_staff, source_sheet):
     base_filters = build_filter_params(keyword, year, province, channel, sales_staff, source_sheet)
     all_rows = []
@@ -246,7 +308,7 @@ def load_summary(keyword, year, province, channel, sales_staff, source_sheet):
     return pd.DataFrame(all_rows)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=90)
 def load_page(keyword, year, province, channel, sales_staff, source_sheet, limit, offset):
     base_filters = build_filter_params(keyword, year, province, channel, sales_staff, source_sheet)
 
@@ -260,13 +322,23 @@ def load_page(keyword, year, province, channel, sales_staff, source_sheet, limit
     return pd.DataFrame(rows), total
 
 
+# =========================
+# HELPERS
+# =========================
 def to_number(s):
     return pd.to_numeric(s, errors="coerce").fillna(0)
 
 
 def product_text(products):
+    if isinstance(products, str):
+        try:
+            products = json.loads(products)
+        except:
+            return products
+
     if not isinstance(products, list):
         return ""
+
     out = []
     for p in products:
         if isinstance(p, dict):
@@ -277,9 +349,37 @@ def product_text(products):
     return "\n".join(out)
 
 
+def safe_group_sum(df, group_col, value_col="total_sales", top=None):
+    if group_col not in df.columns or value_col not in df.columns:
+        return pd.Series(dtype=float)
+
+    s = df.groupby(group_col)[value_col].sum().sort_values(ascending=False)
+
+    if top:
+        return s.head(top)
+
+    return s
+
+
+def safe_group_count(df, group_col, count_col="order_id", top=None):
+    if group_col not in df.columns or count_col not in df.columns:
+        return pd.Series(dtype=float)
+
+    s = df.groupby(group_col)[count_col].nunique().sort_values(ascending=False)
+
+    if top:
+        return s.head(top)
+
+    return s
+
+
+# =========================
+# SIDEBAR
+# =========================
 options = get_filter_options()
 
-st.sidebar.header("🔎 ตัวกรอง")
+st.sidebar.markdown("## 🔎 ตัวกรอง")
+st.sidebar.caption("กรองข้อมูลยอดขาย ลูกค้า และแหล่งข้อมูล")
 
 keyword = st.sidebar.text_input("ค้นหา ชื่อ / เบอร์ / เลขออเดอร์")
 
@@ -295,6 +395,7 @@ if "page" not in st.session_state:
     st.session_state.page = 1
 
 col_prev, col_next = st.sidebar.columns(2)
+
 if col_prev.button("⬅️ ย้อนกลับ") and st.session_state.page > 1:
     st.session_state.page -= 1
 
@@ -305,11 +406,29 @@ if st.sidebar.button("🔄 ล้าง Cache / Refresh"):
     st.cache_data.clear()
     st.rerun()
 
+
+# =========================
+# HERO
+# =========================
+st.markdown("""
+<div class="hero-card">
+    <div class="hero-title">📊 Sales Dashboard Pro Ultra</div>
+    <div class="hero-subtitle">
+        ระบบวิเคราะห์ยอดขาย ลูกค้า ช่องทาง พนักงาน และแหล่งข้อมูลแบบรวมศูนย์
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# =========================
+# LOAD DATA
+# =========================
 page = st.session_state.page
 offset = (page - 1) * limit
 
-summary_df = load_summary(keyword, year, province, channel, sales_staff, source_sheet)
-page_df, total_count = load_page(keyword, year, province, channel, sales_staff, source_sheet, limit, offset)
+with st.spinner("กำลังโหลดข้อมูล Dashboard..."):
+    summary_df = load_summary(keyword, year, province, channel, sales_staff, source_sheet)
+    page_df, total_count = load_page(keyword, year, province, channel, sales_staff, source_sheet, limit, offset)
 
 if summary_df.empty:
     st.warning("❌ ไม่พบข้อมูลตามตัวกรอง")
@@ -317,12 +436,17 @@ if summary_df.empty:
 
 summary_df["total_sales"] = to_number(summary_df["total_sales"])
 
-if not page_df.empty:
+if not page_df.empty and "total_sales" in page_df.columns:
     page_df["total_sales"] = to_number(page_df["total_sales"])
 
 total_pages = max(1, (total_count + limit - 1) // limit)
 
+
+# =========================
+# KPI
+# =========================
 k1, k2, k3, k4 = st.columns(4)
+
 k1.metric("💰 ยอดขายรวม", f"{summary_df['total_sales'].sum():,.0f}")
 k2.metric("📦 ออเดอร์ทั้งหมด", f"{summary_df['order_id'].nunique():,}")
 k3.metric("👤 ลูกค้าทั้งหมด", f"{summary_df['phone1'].nunique():,}")
@@ -330,7 +454,12 @@ k4.metric("📄 หน้า", f"{page:,} / {total_pages:,}")
 
 st.divider()
 
+
+# =========================
+# CUSTOMER SEARCH
+# =========================
 if keyword and not page_df.empty:
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("👥 ผลการค้นหาลูกค้า")
 
     customer_df = (
@@ -341,6 +470,7 @@ if keyword and not page_df.empty:
             latest_date=("date_text", "max")
         )
         .reset_index()
+        .sort_values("total_sales", ascending=False)
     )
 
     for _, c in customer_df.iterrows():
@@ -358,7 +488,7 @@ if keyword and not page_df.empty:
 
         history = summary_df[summary_df["phone1"] == c["phone1"]].sort_values("date_text", ascending=False)
 
-        with st.expander("📜 ดูประวัติการซื้อ"):
+        with st.expander("📜 ดูประวัติการซื้อทั้งหมด"):
             for _, h in history.iterrows():
                 st.markdown(f"""
                 <div class="order-card">
@@ -371,34 +501,57 @@ if keyword and not page_df.empty:
                 </div>
                 """, unsafe_allow_html=True)
 
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# =========================
+# DASHBOARD
+# =========================
 st.subheader("📈 Dashboard รวมตามตัวกรอง")
 
 c1, c2 = st.columns(2)
 
 with c1:
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.markdown("### 📈 ยอดขายตามช่องทาง")
-    if "channel" in summary_df.columns:
-        st.bar_chart(summary_df.groupby("channel")["total_sales"].sum().sort_values(ascending=False))
+    channel_sales = safe_group_sum(summary_df, "channel")
+    if not channel_sales.empty:
+        st.bar_chart(channel_sales)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with c2:
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.markdown("### 🏆 จังหวัดยอดขายสูงสุด")
-    if "province" in summary_df.columns:
-        st.bar_chart(summary_df.groupby("province")["total_sales"].sum().sort_values(ascending=False).head(10))
+    province_sales = safe_group_sum(summary_df, "province", top=10)
+    if not province_sales.empty:
+        st.bar_chart(province_sales)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 c3, c4 = st.columns(2)
 
 with c3:
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.markdown("### 👨‍💼 ยอดขายตามพนักงานขาย")
-    if "sales_staff" in summary_df.columns:
-        st.bar_chart(summary_df.groupby("sales_staff")["total_sales"].sum().sort_values(ascending=False).head(10))
+    staff_sales = safe_group_sum(summary_df, "sales_staff", top=10)
+    if not staff_sales.empty:
+        st.bar_chart(staff_sales)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with c4:
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.markdown("### 📦 จำนวนออเดอร์ตามแหล่งข้อมูล")
-    if "source_sheet" in summary_df.columns:
-        st.bar_chart(summary_df.groupby("source_sheet")["order_id"].nunique().sort_values(ascending=False))
+    source_orders = safe_group_count(summary_df, "source_sheet")
+    if not source_orders.empty:
+        st.bar_chart(source_orders)
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 st.divider()
 
+
+# =========================
+# DATA TABLE
+# =========================
 st.subheader("📋 รายการข้อมูล")
 
 if page_df.empty:
@@ -424,13 +577,10 @@ else:
     ]
 
     show_cols = [c for c in show_cols if c in page_df.columns]
-
-    # กัน column ซ้ำ
     show_cols = list(dict.fromkeys(show_cols))
 
     display_df = page_df[show_cols].copy()
 
-    # แปลง object เป็นข้อความ
     for col in display_df.columns:
         if display_df[col].dtype == "object":
             display_df[col] = display_df[col].fillna("").astype(str)
@@ -438,9 +588,10 @@ else:
     st.dataframe(
         display_df,
         use_container_width=True,
-        height=520
+        height=540
     )
 
+
 st.caption(
-    f"แสดงหน้า {page:,} จากทั้งหมด {total_pages:,} หน้า | รวม {total_count:,} รายการตามตัวกรองครับ"
+    f"แสดงหน้า {page:,} จากทั้งหมด {total_pages:,} หน้า | รวม {total_count:,} รายการตามตัวกรอง"
 )
