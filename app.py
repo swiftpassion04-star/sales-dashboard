@@ -10,8 +10,8 @@ st.set_page_config(
     layout="wide"
 )
 
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
+SUPABASE_URL = "https://zctqbrlqtomopsblazwq.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpjdHFicmxxdG9tb3BzYmxhendxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMzIzOTMsImV4cCI6MjA5MzgwODM5M30.nc5rXJlMBb_hTVL4dD1vT5JuYfkkqdF85DDfjSuOKNQ"
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
