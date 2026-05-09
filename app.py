@@ -22,36 +22,124 @@ st.title("📊 Sales Dashboard Pro")
 
 st.markdown("""
 <style>
+
+/* ===== พื้นหลังหลัก ===== */
+.stApp {
+    background-color: #F8FAFC;
+    color: #111827;
+}
+
+/* ===== Sidebar ===== */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(
+        180deg,
+        #FFFFFF 0%,
+        #FFF7ED 100%
+    );
+    border-right: 1px solid #FED7AA;
+}
+
+/* ===== Sidebar Text ===== */
+section[data-testid="stSidebar"] * {
+    color: #111827 !important;
+}
+
+/* ===== Metric Card ===== */
 [data-testid="stMetric"] {
-    background: #111827;
-    padding: 16px;
-    border-radius: 16px;
-    border: 1px solid #1f2937;
+    background: white;
+    border: 1px solid #FED7AA;
+    border-radius: 18px;
+    padding: 18px;
+    box-shadow: 0 4px 12px rgba(255,122,0,0.08);
 }
+
+/* ===== Card ลูกค้า ===== */
 .customer-card {
-    background:#111827;
-    border:1px solid #1f2937;
-    border-radius:18px;
-    padding:18px;
-    margin-bottom:14px;
+    background: white;
+    border: 1px solid #FED7AA;
+    border-radius: 18px;
+    padding: 18px;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 12px rgba(255,122,0,0.06);
 }
+
+/* ===== Card ออเดอร์ ===== */
 .order-card {
-    background:#0f172a;
-    border:1px solid #1e293b;
-    border-radius:14px;
-    padding:14px;
-    margin-bottom:10px;
+    background: #FFF7ED;
+    border: 1px solid #FDBA74;
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 10px;
 }
-.green { color:#00e676; font-weight:700; }
+
+/* ===== ตัวเลขสีเขียว ===== */
+.green {
+    color: #16A34A;
+    font-weight: 700;
+}
+
+/* ===== Badge ===== */
 .badge {
     display:inline-block;
-    padding:5px 10px;
+    padding:6px 12px;
     border-radius:999px;
-    background:#2563eb;
+    background:#FF7A00;
     color:white;
     font-size:13px;
     font-weight:700;
 }
+
+/* ===== ปุ่ม ===== */
+.stButton > button {
+    background: linear-gradient(
+        90deg,
+        #FF7A00 0%,
+        #FB923C 100%
+    );
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-weight: 700;
+    transition: all 0.2s ease;
+}
+
+.stButton > button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(255,122,0,0.25);
+}
+
+/* ===== Selectbox ===== */
+div[data-baseweb="select"] > div {
+    background: white !important;
+    border: 1px solid #FDBA74 !important;
+    border-radius: 12px !important;
+}
+
+/* ===== Input ===== */
+input {
+    background: white !important;
+    border: 1px solid #FDBA74 !important;
+    border-radius: 12px !important;
+}
+
+/* ===== ตาราง ===== */
+[data-testid="stDataFrame"] {
+    border: 1px solid #FED7AA;
+    border-radius: 18px;
+    overflow: hidden;
+}
+
+/* ===== Header ===== */
+h1, h2, h3 {
+    color: #EA580C !important;
+}
+
+/* ===== Divider ===== */
+hr {
+    border-color: #FED7AA;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
