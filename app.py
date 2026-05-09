@@ -319,7 +319,8 @@ else:
     show_cols = [
         "order_id", "year", "source_sheet", "date_text", "customer",
         "phone1", "province", "district", "channel",
-        "sales_staff", "upsell_staff", "total_sales"
+        "shipping","tracking_no","address","district",
+        "subdistrict","sales_staff", "upsell_staff", "total_sales"
     ]
     show_cols = [c for c in show_cols if c in page_df.columns]
 
