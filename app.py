@@ -404,16 +404,27 @@ st.subheader("📋 รายการข้อมูล")
 if page_df.empty:
     st.warning("หน้านี้ไม่มีข้อมูล")
 else:
-    show_cols = [
+        show_cols = [
         "order_id", "year", "source_sheet", "date_text", "customer",
-        "phone1", "province", "district", "channel",
-        "shipping","tracking_no","address","district",
-        "subdistrict","sales_staff", "upsell_staff", "total_sales"
+        "phone1", "address", "subdistrict", "district", "province",
+        "shipping", "tracking_no", "channel",
+        "sales_staff", "upsell_staff", "total_sales"
     ]
+
     show_cols = [c for c in show_cols if c in page_df.columns]
 
+    # กัน column ซ้ำ ทำให้ Streamlit/Arrow error
+    show_cols = list(dict.fromkeys(show_cols))
+
+    display_df = page_df[show_cols].copy()
+
+    # แปลง object ทุกคอลัมน์ให้เป็นข้อความ กัน error จากชนิดข้อมูลปนกัน
+    for col in display_df.columns:
+        if display_df[col].dtype == "object":
+            display_df[col] = display_df[col].fillna("").astype(str)
+
     st.dataframe(
-        page_df[show_cols],
+        display_df,
         use_container_width=True,
         height=520
     )
