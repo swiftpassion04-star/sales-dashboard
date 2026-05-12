@@ -136,7 +136,7 @@ def sort_months(values):
 @st.cache_data(ttl=300)
 def load_summary_all():
     rows = api_get(
-        "v_dashboard_summary",
+        "dashboard_summary",
         [
             "select=year,month,province,channel,sales_staff,source_sheet,total_sales,total_orders,total_customers",
             "limit=50000"
@@ -159,7 +159,7 @@ def load_summary_filtered(year, month, province, channel, sales_staff, source_sh
     filters = build_filter_params(year, month, province, channel, sales_staff, source_sheet)
 
     rows = api_get(
-        "v_dashboard_summary",
+        "dashboard_summary",
         [
             "select=year,month,province,channel,sales_staff,source_sheet,total_sales,total_orders,total_customers"
         ] + filters + [
