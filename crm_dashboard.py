@@ -216,13 +216,18 @@ def count_summary(df: pd.DataFrame, group_col: str, label: str) -> pd.DataFrame:
 
     summary = (
         df.groupby(group_col, dropna=False)
-        .agg(จำนวนลูกค้า=("customer_id", "nunique"), จำนวนแถว=("customer_id", "count"))
+        .agg(customer_count=("customer_id", "nunique"), row_count=("customer_id", "count"))
         .reset_index()
-        .rename(columns={group_col: label})
-        .sort_values(["จำนวนลูกค้า", "จำนวนแถว"], ascending=False)
+        .sort_values(["customer_count", "row_count"], ascending=False)
     )
-    summary[label] = summary[label].fillna("ไม่ระบุ").replace("", "ไม่ระบุ")
-    return summary
+    summary[group_col] = summary[group_col].fillna("ไม่ระบุ").replace("", "ไม่ระบุ")
+    return summary.rename(
+        columns={
+            group_col: label,
+            "customer_count": "จำนวนลูกค้า",
+            "row_count": "จำนวนแถว",
+        }
+    )
 
 
 st.title("Project CRM Dashboard")
