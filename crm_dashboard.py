@@ -1,4 +1,5 @@
 import os
+import html
 from datetime import date
 
 import pandas as pd
@@ -23,20 +24,48 @@ st.markdown(
     """
     <style>
     :root {
-      --crm-bg: #f8fafc;
+      --crm-bg: #fff7ed;
       --crm-panel: #ffffff;
-      --crm-border: #e5e7eb;
+      --crm-border: #fed7aa;
+      --crm-soft-border: #e5e7eb;
       --crm-text: #111827;
-      --crm-muted: #64748b;
-      --crm-accent: #2563eb;
+      --crm-muted: #475569;
+      --crm-accent: #f97316;
+      --crm-accent-dark: #ea580c;
+      --crm-dark: #111827;
     }
     .stApp {
       background: var(--crm-bg);
       color: var(--crm-text);
     }
     [data-testid="stSidebar"] {
-      background: #ffffff;
+      background: #fffaf5;
       border-right: 1px solid var(--crm-border);
+    }
+    [data-testid="stSidebar"] * {
+      color: var(--crm-text) !important;
+    }
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] [data-baseweb="select"] > div {
+      background: #ffffff !important;
+      color: var(--crm-text) !important;
+      border-color: var(--crm-accent) !important;
+      border-radius: 8px !important;
+    }
+    [data-testid="stSidebar"] input::placeholder {
+      color: #94a3b8 !important;
+      opacity: 1 !important;
+    }
+    [data-testid="stSidebarNav"] a {
+      color: var(--crm-text) !important;
+      border-radius: 6px;
+    }
+    [data-testid="stSidebarNav"] a[aria-current="page"],
+    [data-testid="stSidebarNav"] a:hover {
+      background: #ffedd5 !important;
+      color: var(--crm-accent-dark) !important;
+      font-weight: 700;
     }
     [data-testid="stMetric"] {
       background: var(--crm-panel);
@@ -50,22 +79,65 @@ st.markdown(
       font-size: 0.9rem;
     }
     [data-testid="stMetricValue"] {
-      color: var(--crm-text);
+      color: var(--crm-accent-dark);
       font-weight: 700;
     }
     h1 {
       color: var(--crm-text);
       letter-spacing: 0;
+      border-left: 6px solid var(--crm-accent);
+      padding-left: 14px;
     }
     .block-container {
       padding-top: 2rem;
       padding-bottom: 3rem;
     }
-    div[data-testid="stDataFrame"] {
-      border: 1px solid var(--crm-border);
+    .crm-table-wrap {
+      border: 1px solid var(--crm-soft-border);
       border-radius: 8px;
       overflow: hidden;
       background: #ffffff;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+      margin-top: 12px;
+    }
+    .crm-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      color: var(--crm-text);
+      background: #ffffff;
+    }
+    .crm-table thead th {
+      background: #ffedd5;
+      color: #7c2d12;
+      font-weight: 700;
+      text-align: left;
+      padding: 11px 12px;
+      border-bottom: 1px solid #fdba74;
+      white-space: nowrap;
+    }
+    .crm-table tbody td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      color: var(--crm-text);
+      vertical-align: top;
+    }
+    .crm-table tbody tr:nth-child(even) {
+      background: #fffaf5;
+    }
+    .crm-table tbody tr:hover {
+      background: #ffedd5;
+    }
+    .crm-table .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      color: var(--crm-accent-dark);
+    }
+    .crm-table-caption {
+      color: var(--crm-muted);
+      font-size: 13px;
+      margin-top: 6px;
     }
     .stTabs [data-baseweb="tab-list"] {
       gap: 8px;
@@ -76,8 +148,9 @@ st.markdown(
       color: var(--crm-muted);
     }
     .stTabs [aria-selected="true"] {
-      color: var(--crm-accent);
+      color: var(--crm-accent-dark);
       border-bottom-color: var(--crm-accent);
+      font-weight: 700;
     }
     </style>
     """,
@@ -230,6 +303,31 @@ def count_summary(df: pd.DataFrame, group_col: str, label: str) -> pd.DataFrame:
     )
 
 
+def render_html_table(df: pd.DataFrame, numeric_cols: list[str] | None = None) -> None:
+    numeric_cols = numeric_cols or []
+    display = df.copy().fillna("")
+
+    html = ['<div class="crm-table-wrap"><table class="crm-table">']
+    html.append("<thead><tr>")
+    for col in display.columns:
+        html.append(f"<th>{html_escape_(col)}</th>")
+    html.append("</tr></thead><tbody>")
+
+    for _, row in display.iterrows():
+        html.append("<tr>")
+        for col in display.columns:
+            klass = ' class="num"' if col in numeric_cols else ""
+            html.append(f"<td{klass}>{html_escape_(row[col])}</td>")
+        html.append("</tr>")
+
+    html.append("</tbody></table></div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def html_escape_(value: object) -> str:
+    return html.escape(str(value), quote=True)
+
+
 st.title("Project CRM Dashboard")
 
 df = normalize_dates(load_customers())
@@ -248,12 +346,19 @@ col4.metric("ผู้ดูแล", f"{filtered['sales_staff'].nunique():,}")
 tab_table, tab_group, tab_staff = st.tabs(["ข้อมูลลูกค้า", "ตามกลุ่มสินค้า", "ตามพนักงาน"])
 
 with tab_table:
-    st.dataframe(customer_table(filtered), use_container_width=True, hide_index=True)
+    table_df = customer_table(filtered)
+    page_size = st.selectbox("จำนวนแถวต่อหน้า", [50, 100, 200], index=1, key="customer_page_size")
+    total_pages = max((len(table_df) - 1) // page_size + 1, 1)
+    page = st.number_input("หน้า", min_value=1, max_value=total_pages, value=1, step=1)
+    start = (page - 1) * page_size
+    end = start + page_size
+    render_html_table(table_df.iloc[start:end])
+    st.caption(f"แสดง {start + 1 if len(table_df) else 0}-{min(end, len(table_df))} จาก {len(table_df):,} แถว")
 
 with tab_group:
     group_df = count_summary(filtered, "product_group", "กลุ่มสินค้า")
-    st.dataframe(group_df, use_container_width=True, hide_index=True)
+    render_html_table(group_df, numeric_cols=["จำนวนลูกค้า", "จำนวนแถว"])
 
 with tab_staff:
     staff_df = count_summary(filtered, "sales_staff", "ผู้ดูแล")
-    st.dataframe(staff_df, use_container_width=True, hide_index=True)
+    render_html_table(staff_df, numeric_cols=["จำนวนลูกค้า", "จำนวนแถว"])
