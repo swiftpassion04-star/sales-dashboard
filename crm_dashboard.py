@@ -135,13 +135,28 @@ with tab_table:
         "product_name",
         "phone1",
         "phone2",
-        "product_url",
         "note",
         "updated_at",
         "synced_at",
     ]
     cols = [col for col in display_cols if col in filtered.columns]
-    st.dataframe(filtered[cols], use_container_width=True, hide_index=True)
+    table_df = filtered[cols].copy()
+    table_df = table_df.rename(
+        columns={
+            "customer": "ชื่อลูกค้า",
+            "sales_staff": "ผู้ดูแล",
+            "product_group": "กลุ่มสินค้า",
+            "product_name": "สินค้า",
+            "phone1": "เบอร์โทรติดต่อ",
+            "phone2": "เบอร์โทรสำรอง",
+            "note": "โน๊ต",
+            "updated_at": "อัพเดต",
+            "synced_at": "สถานะ",
+        }
+    )
+    if "สถานะ" in table_df.columns:
+        table_df["สถานะ"] = "ซิงก์แล้ว"
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
 
 with tab_group:
     group_df = (
