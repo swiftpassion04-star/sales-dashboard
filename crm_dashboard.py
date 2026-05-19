@@ -11,6 +11,8 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="Project CRM Dashboard", layout="wide")
 
 AUTO_REFRESH_SECONDS = 60
+SUPABASE_PAGE_SIZE = 1000
+SUPABASE_MAX_ROWS = 100000
 
 PRODUCT_GROUP_ORDER = [
     "ยา/อาหารเสริม",
@@ -196,17 +198,33 @@ def load_customers() -> pd.DataFrame:
     headers = {
         "apikey": SUPABASE_ANON_KEY,
         "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "Prefer": "count=exact",
     }
     params = {
         "select": "*",
         "order": "updated_at.desc",
-        "limit": "50000",
     }
-    response = requests.get(endpoint, headers=headers, params=params, timeout=30)
-    if response.status_code >= 300:
-        st.error(response.text)
-        st.stop()
-    return pd.DataFrame(response.json())
+
+    rows = []
+    start = 0
+    while start < SUPABASE_MAX_ROWS:
+        end = start + SUPABASE_PAGE_SIZE - 1
+        page_headers = dict(headers)
+        page_headers["Range-Unit"] = "items"
+        page_headers["Range"] = f"{start}-{end}"
+
+        response = requests.get(endpoint, headers=page_headers, params=params, timeout=30)
+        if response.status_code >= 300:
+            st.error(response.text)
+            st.stop()
+
+        page = response.json()
+        rows.extend(page)
+        if len(page) < SUPABASE_PAGE_SIZE:
+            break
+        start += SUPABASE_PAGE_SIZE
+
+    return pd.DataFrame(rows)
 
 
 def normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
