@@ -1,13 +1,16 @@
 import os
 import html
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 st.set_page_config(page_title="Project CRM Dashboard", layout="wide")
+
+AUTO_REFRESH_SECONDS = 60
 
 PRODUCT_GROUP_ORDER = [
     "ยา/อาหารเสริม",
@@ -186,7 +189,7 @@ def require_config() -> None:
         st.stop()
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def load_customers() -> pd.DataFrame:
     require_config()
     endpoint = f"{SUPABASE_URL}/rest/v1/crm_customers"
@@ -246,6 +249,33 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
             & (filtered["updated_at"].dt.date <= end)
         ]
     return filtered
+
+
+def sidebar_refresh_controls() -> None:
+    st.sidebar.header("อัปเดตข้อมูล")
+    auto_refresh = st.sidebar.toggle(
+        f"รีเฟรชอัตโนมัติทุก {AUTO_REFRESH_SECONDS} วินาที",
+        value=True,
+    )
+    if st.sidebar.button("รีเฟรชข้อมูลตอนนี้", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    if auto_refresh:
+        schedule_auto_refresh(AUTO_REFRESH_SECONDS)
+
+
+def schedule_auto_refresh(seconds: int) -> None:
+    components.html(
+        f"""
+        <script>
+          window.setTimeout(function() {{
+            window.parent.location.reload();
+          }}, {seconds * 1000});
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def customer_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -329,6 +359,7 @@ def html_escape_(value: object) -> str:
 
 
 st.title("Project CRM Dashboard")
+sidebar_refresh_controls()
 
 df = normalize_dates(load_customers())
 if df.empty:
@@ -336,6 +367,7 @@ if df.empty:
     st.stop()
 
 filtered = sidebar_filters(df)
+st.caption("Dashboard โหลดข้อมูลล่าสุด: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("ลูกค้าทั้งหมด", f"{filtered['customer_id'].nunique():,}")
