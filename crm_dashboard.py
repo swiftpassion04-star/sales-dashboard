@@ -306,15 +306,13 @@ def customer_table(df: pd.DataFrame) -> pd.DataFrame:
         "phone2",
         "note",
         "updated_at",
-        "synced_at",
+        "product_url",
     ]
     cols = [col for col in display_cols if col in df.columns]
     table_df = df[cols].copy()
 
     if "updated_at" in table_df:
         table_df["updated_at"] = table_df["updated_at"].dt.strftime("%Y-%m-%d %H:%M").fillna("")
-    if "synced_at" in table_df:
-        table_df["synced_at"] = "ซิงก์แล้ว"
 
     return table_df.rename(
         columns={
@@ -326,7 +324,7 @@ def customer_table(df: pd.DataFrame) -> pd.DataFrame:
             "phone2": "เบอร์โทรสำรอง",
             "note": "โน๊ต",
             "updated_at": "อัพเดต",
-            "synced_at": "สถานะ",
+            "product_url": "URL",
         }
     )
 
@@ -365,7 +363,7 @@ def render_html_table(df: pd.DataFrame, numeric_cols: list[str] | None = None) -
         html.append("<tr>")
         for col in display.columns:
             klass = ' class="num"' if col in numeric_cols else ""
-            html.append(f"<td{klass}>{html_escape_(row[col])}</td>")
+            html.append(f"<td{klass}>{render_table_cell_(col, row[col])}</td>")
         html.append("</tr>")
 
     html.append("</tbody></table></div>")
@@ -374,6 +372,14 @@ def render_html_table(df: pd.DataFrame, numeric_cols: list[str] | None = None) -
 
 def html_escape_(value: object) -> str:
     return html.escape(str(value), quote=True)
+
+
+def render_table_cell_(column: str, value: object) -> str:
+    text = str(value or "").strip()
+    if column == "URL" and text.startswith(("http://", "https://")):
+        safe_url = html_escape_(text)
+        return f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">เปิดลิงก์</a>'
+    return html_escape_(text)
 
 
 st.title("Project CRM Dashboard")
