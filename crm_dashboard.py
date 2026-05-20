@@ -72,20 +72,26 @@ st.markdown(
       color: var(--crm-accent-dark) !important;
       font-weight: 700;
     }
-    [data-testid="stSidebarNav"] a[href="/"],
-    [data-testid="stSidebarNav"] a[href="/customers"],
-    [data-testid="stSidebarNav"] a[href="/sync_status"] {
+    [data-testid="stSidebarNav"] a[href$="/~/+/"],
+    [data-testid="stSidebarNav"] a[href$="/"],
+    [data-testid="stSidebarNav"] a[href*="/~/+/customers"],
+    [data-testid="stSidebarNav"] a[href*="/customers"],
+    [data-testid="stSidebarNav"] a[href*="/~/+/sync_status"],
+    [data-testid="stSidebarNav"] a[href*="/sync_status"] {
       font-size: 0 !important;
     }
-    [data-testid="stSidebarNav"] a[href="/"]::after {
+    [data-testid="stSidebarNav"] a[href$="/~/+/"]::after,
+    [data-testid="stSidebarNav"] a[href$="/"]::after {
       content: "ค้นหาลูกค้า CRM";
       font-size: 14px !important;
     }
-    [data-testid="stSidebarNav"] a[href="/customers"]::after {
+    [data-testid="stSidebarNav"] a[href*="/~/+/customers"]::after,
+    [data-testid="stSidebarNav"] a[href*="/customers"]::after {
       content: "ข้อมูลลูกค้า";
       font-size: 14px !important;
     }
-    [data-testid="stSidebarNav"] a[href="/sync_status"]::after {
+    [data-testid="stSidebarNav"] a[href*="/~/+/sync_status"]::after,
+    [data-testid="stSidebarNav"] a[href*="/sync_status"]::after {
       content: "สถานะ Sync";
       font-size: 14px !important;
     }
