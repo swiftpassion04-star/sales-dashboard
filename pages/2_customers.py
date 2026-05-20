@@ -37,7 +37,7 @@ section[data-testid="stSidebar"] * { color:#111827 !important; }
     border-radius:16px; padding:16px;
     box-shadow:0 4px 12px rgba(255,122,0,.08);
 }
-.customer-card, .detail-card, .order-card {
+.customer-card, .order-card {
     background:white; border:1px solid #FED7AA;
     border-radius:14px; padding:16px; margin-bottom:12px;
     box-shadow:0 4px 12px rgba(255,122,0,.06);
@@ -46,16 +46,15 @@ section[data-testid="stSidebar"] * { color:#111827 !important; }
 .badge {
     display:inline-block; padding:4px 12px; border-radius:999px;
     background:#FF7A00; color:white; font-size:12px; font-weight:700;
+    margin-right:6px; margin-bottom:6px;
 }
 .badge-green { background:#16A34A; }
 .badge-blue { background:#2563EB; }
 .muted { color:#6B7280; }
 .green { color:#16A34A; font-weight:700; }
-.orange { color:#EA580C; font-weight:800; }
 .search-hint { text-align:center; padding:60px 20px; color:#6B7280; }
 .search-hint .icon { font-size:54px; margin-bottom:16px; }
-.search-hint h2 { color:#EA580C !important; font-size:24px; }
-h1,h2,h3 { color:#EA580C !important; }
+.search-hint h2, h1, h2, h3 { color:#EA580C !important; }
 .data-table {
     width:100%; border-collapse:collapse; overflow:hidden;
     border:1px solid #E5E7EB; border-radius:12px;
@@ -63,7 +62,7 @@ h1,h2,h3 { color:#EA580C !important; }
 .data-table th, .data-table td {
     border:1px solid #E5E7EB; padding:9px 10px; vertical-align:top;
 }
-.data-table th { background:#FFF7ED; color:#7C2D12; text-align:left; }
+.data-table th { background:#FFF7ED; color:#7C2D12; text-align:left; width:34%; }
 .stButton > button {
     background:linear-gradient(90deg,#FF7A00 0%,#FB923C 100%);
     color:white; border:none; border-radius:12px;
@@ -143,7 +142,7 @@ def search_orders(keyword: str, year: str) -> pd.DataFrame:
         f"or=(customer.ilike.*{q}*,phone1.ilike.*{q}*,phone2.ilike.*{q}*,order_id.ilike.*{q}*)",
     ]
     if year != "ทั้งหมด":
-        base.append(f"year=eq.{quote(year)}")
+        base.append(f"year_file=eq.{quote(year)}")
 
     rows: list[dict] = []
     offset = 0
@@ -226,7 +225,7 @@ def build_customer_list(df: pd.DataFrame) -> pd.DataFrame:
     records = []
 
     for canon, group in df.groupby("canonical_phone"):
-        group_sorted = group.sort_values(["date_text", "synced_at"], ascending=False)
+        group_sorted = group.sort_values(["year_file", "month", "day", "synced_at"], ascending=False)
         latest = group_sorted.iloc[0]
         phones = sorted(
             {
@@ -236,7 +235,6 @@ def build_customer_list(df: pd.DataFrame) -> pd.DataFrame:
                 if phone
             }
         )
-        orders = group.to_dict("records")
         records.append(
             {
                 "canonical_phone": canon,
@@ -248,7 +246,7 @@ def build_customer_list(df: pd.DataFrame) -> pd.DataFrame:
                 "total_sales": group["total_sales"].sum(),
                 "order_count": group["order_id"].nunique(),
                 "latest_date": clean(latest.get("date_text")),
-                "_orders": orders,
+                "_orders": group.to_dict("records"),
             }
         )
 
@@ -274,10 +272,10 @@ def product_table(products: list[dict]) -> str:
     for item in products:
         rows += (
             "<tr>"
-            f"<td>{html_escape(item.get('sku', '-')) or '-'}</td>"
-            f"<td>{html_escape(item.get('name', '-')) or '-'}</td>"
-            f"<td>{html_escape(item.get('qty', '-')) or '-'}</td>"
-            f"<td>{html_escape(item.get('price', '-')) or '0'}</td>"
+            f"<td>{html_escape(item.get('sku')) or '-'}</td>"
+            f"<td>{html_escape(item.get('name')) or '-'}</td>"
+            f"<td>{html_escape(item.get('qty')) or '-'}</td>"
+            f"<td>{html_escape(item.get('price')) or '0'}</td>"
             "</tr>"
         )
     return (
@@ -289,7 +287,7 @@ def product_table(products: list[dict]) -> str:
 
 def render_order_history(orders: list[dict]) -> None:
     st.subheader("ประวัติการสั่งซื้อทั้งหมดของลูกค้าคนนี้")
-    sorted_orders = sorted(orders, key=lambda item: clean(item.get("date_text")), reverse=True)
+    sorted_orders = sorted(orders, key=lambda item: clean(item.get("source_key")), reverse=True)
     for order in sorted_orders:
         products = parse_products(order.get("products"))
         summary = product_summary(products) or "-"
@@ -303,6 +301,7 @@ def render_order_history(orders: list[dict]) -> None:
               <div><b>สินค้า:</b> {html_escape(summary)}</div>
               <div><b>ที่อยู่:</b> {html_escape(full_address(order)) or '-'}</div>
               <div><b>ผู้ขาย:</b> {html_escape(order.get('sales_staff')) or '-'}</div>
+              <div><b>ขนส่ง:</b> {html_escape(order.get('shipping')) or '-'} / {html_escape(order.get('tracking_no')) or '-'}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -322,7 +321,7 @@ for key, value in {
 
 st.sidebar.header("ค้นหาลูกค้า")
 keyword = st.sidebar.text_input("ชื่อ / เบอร์โทร / เลขออเดอร์", placeholder="พิมพ์แล้วกดค้นหา...")
-year_sel = st.sidebar.selectbox("ปี", ["ทั้งหมด", "2022", "2023", "2024", "2565", "2566", "2567"])
+year_sel = st.sidebar.selectbox("ปี", ["ทั้งหมด", "2565", "2566", "2567", "2568", "2569"])
 
 if st.sidebar.button("ค้นหา", use_container_width=True):
     if not keyword.strip():
@@ -377,7 +376,7 @@ if st.session_state.detail_idx is not None:
 
     customer = customer_df.iloc[idx]
     orders = customer["_orders"]
-    latest = sorted(orders, key=lambda item: clean(item.get("date_text")), reverse=True)[0]
+    latest = sorted(orders, key=lambda item: clean(item.get("source_key")), reverse=True)[0]
     latest_products = parse_products(latest.get("products"))
 
     if st.button("กลับรายชื่อลูกค้า"):
@@ -419,7 +418,6 @@ if st.session_state.detail_idx is not None:
 
     st.subheader("รายการสินค้าในออเดอร์ล่าสุด")
     st.markdown(product_table(latest_products), unsafe_allow_html=True)
-
     render_order_history(orders)
     st.stop()
 
@@ -473,11 +471,4 @@ for i, customer in page_customers.iterrows():
 
     st.markdown("---")
 
-bottom_info, bottom_prev, bottom_next = st.columns([4, 1, 1])
-bottom_info.caption(f"แสดง {start + 1:,}-{min(end, total_customers):,} จาก {total_customers:,} รายการ")
-if bottom_prev.button("ก่อนหน้า ", key="bottom_prev") and st.session_state.cust_page > 1:
-    st.session_state.cust_page -= 1
-    st.rerun()
-if bottom_next.button("ถัดไป ", key="bottom_next") and st.session_state.cust_page < total_pages:
-    st.session_state.cust_page += 1
-    st.rerun()
+st.caption(f"แสดง {start + 1:,}-{min(end, total_customers):,} จาก {total_customers:,} รายการ")
