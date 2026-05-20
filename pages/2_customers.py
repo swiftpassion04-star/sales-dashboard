@@ -32,6 +32,23 @@ section[data-testid="stSidebar"] {
     border-right:1px solid #FED7AA;
 }
 section[data-testid="stSidebar"] * { color:#111827 !important; }
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href="/"],
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href="/customers"],
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href="/sync_status"] {
+    font-size:0 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href="/"]::after {
+    content:"ค้นหาลูกค้า CRM";
+    font-size:14px !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href="/customers"]::after {
+    content:"ข้อมูลลูกค้า";
+    font-size:14px !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href="/sync_status"]::after {
+    content:"สถานะ Sync";
+    font-size:14px !important;
+}
 [data-testid="stMetric"] {
     background:white; border:1px solid #FED7AA;
     border-radius:16px; padding:16px;

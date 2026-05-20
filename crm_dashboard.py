@@ -1,6 +1,6 @@
 import os
 import html
-from datetime import date, datetime
+from datetime import datetime
 
 import pandas as pd
 import requests
@@ -8,7 +8,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 
-st.set_page_config(page_title="Project CRM Dashboard", layout="wide")
+st.set_page_config(page_title="ค้นหาลูกค้า CRM", layout="wide")
 
 AUTO_REFRESH_SECONDS = 60
 SUPABASE_PAGE_SIZE = 1000
@@ -71,6 +71,23 @@ st.markdown(
       background: #ffedd5 !important;
       color: var(--crm-accent-dark) !important;
       font-weight: 700;
+    }
+    [data-testid="stSidebarNav"] a[href="/"],
+    [data-testid="stSidebarNav"] a[href="/customers"],
+    [data-testid="stSidebarNav"] a[href="/sync_status"] {
+      font-size: 0 !important;
+    }
+    [data-testid="stSidebarNav"] a[href="/"]::after {
+      content: "ค้นหาลูกค้า CRM";
+      font-size: 14px !important;
+    }
+    [data-testid="stSidebarNav"] a[href="/customers"]::after {
+      content: "ข้อมูลลูกค้า";
+      font-size: 14px !important;
+    }
+    [data-testid="stSidebarNav"] a[href="/sync_status"]::after {
+      content: "สถานะ Sync";
+      font-size: 14px !important;
     }
     [data-testid="stMetric"] {
       background: var(--crm-panel);
@@ -157,6 +174,14 @@ st.markdown(
       border-bottom-color: var(--crm-accent);
       font-weight: 700;
     }
+    [data-testid="stSidebar"] .stButton > button {
+      background: linear-gradient(90deg, #ff7a00 0%, #fb923c 100%);
+      color: #ffffff !important;
+      border: none;
+      border-radius: 10px;
+      min-height: 42px;
+      font-weight: 800;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -239,33 +264,59 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
 
     product_options = [g for g in PRODUCT_GROUP_ORDER if g in set(df.get("product_group", []))]
     extra_groups = sorted(set(df.get("product_group", pd.Series(dtype=str)).dropna()) - set(product_options))
-    product_group = st.sidebar.selectbox("กลุ่มสินค้า", ["ทั้งหมด"] + product_options + extra_groups)
+    product_group = st.sidebar.selectbox(
+        "กลุ่มสินค้า",
+        ["ทั้งหมด"] + product_options + extra_groups,
+        key="pending_product_group",
+    )
 
     staff_options = sorted(df.get("sales_staff", pd.Series(dtype=str)).dropna().unique().tolist())
-    staff = st.sidebar.selectbox("ผู้ดูแล", ["ทั้งหมด"] + staff_options)
+    staff = st.sidebar.selectbox("ผู้ดูแล", ["ทั้งหมด"] + staff_options, key="pending_staff")
 
-    keyword = st.sidebar.text_input("ค้นหา", placeholder="ชื่อลูกค้า เบอร์ สินค้า หรือโน๊ต")
+    keyword = st.sidebar.text_input(
+        "ค้นหา",
+        placeholder="ชื่อลูกค้า เบอร์ สินค้า หรือโน๊ต",
+        key="pending_keyword",
+    )
 
-    min_date = df["updated_at"].min().date() if "updated_at" in df and df["updated_at"].notna().any() else date.today()
-    max_date = df["updated_at"].max().date() if "updated_at" in df and df["updated_at"].notna().any() else date.today()
-    date_range = st.sidebar.date_input("ช่วงวันที่อัพเดต", value=(min_date, max_date))
+    if "filters" not in st.session_state:
+        st.session_state.filters = {
+            "product_group": "ทั้งหมด",
+            "staff": "ทั้งหมด",
+            "keyword": "",
+        }
+
+    if st.sidebar.button("ค้นหา / Search", use_container_width=True):
+        st.session_state.filters = {
+            "product_group": product_group,
+            "staff": staff,
+            "keyword": keyword.strip(),
+        }
+
+    if st.sidebar.button("ล้าง / Refresh", use_container_width=True):
+        st.session_state.filters = {
+            "product_group": "ทั้งหมด",
+            "staff": "ทั้งหมด",
+            "keyword": "",
+        }
+        st.cache_data.clear()
+        st.rerun()
+
+    active_filters = st.session_state.filters
+    product_group = active_filters.get("product_group", "ทั้งหมด")
+    staff = active_filters.get("staff", "ทั้งหมด")
+    keyword = active_filters.get("keyword", "")
 
     filtered = df.copy()
-    if product_group != "ทั้งหมด":
+    if product_group != "ทั้งหมด" and "product_group" in filtered:
         filtered = filtered[filtered["product_group"] == product_group]
-    if staff != "ทั้งหมด":
+    if staff != "ทั้งหมด" and "sales_staff" in filtered:
         filtered = filtered[filtered["sales_staff"] == staff]
     if keyword:
         text_cols = ["customer", "phone1", "phone2", "product_url", "product_name", "note"]
         available = [col for col in text_cols if col in filtered.columns]
         haystack = filtered[available].fillna("").astype(str).agg(" ".join, axis=1)
         filtered = filtered[haystack.str.contains(keyword, case=False, na=False)]
-    if isinstance(date_range, tuple) and len(date_range) == 2 and "updated_at" in filtered:
-        start, end = date_range
-        filtered = filtered[
-            (filtered["updated_at"].dt.date >= start)
-            & (filtered["updated_at"].dt.date <= end)
-        ]
     return filtered
 
 
@@ -382,7 +433,7 @@ def render_table_cell_(column: str, value: object) -> str:
     return html_escape_(text)
 
 
-st.title("Project CRM Dashboard")
+st.title("ค้นหาลูกค้า CRM")
 sidebar_refresh_controls()
 
 df = normalize_dates(load_customers())
