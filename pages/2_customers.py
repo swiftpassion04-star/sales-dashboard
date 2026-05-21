@@ -27,6 +27,7 @@ st.markdown(
     """
 <style>
 .stApp { background:#F8FAFC; color:#111827; }
+.block-container { max-width:1500px; padding-top:3.5rem; }
 section[data-testid="stSidebar"] {
     background:linear-gradient(180deg,#FFFFFF 0%,#FFF7ED 100%);
     border-right:1px solid #FED7AA;
@@ -56,16 +57,43 @@ section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/sync_sta
     font-size:14px !important;
 }
 [data-testid="stMetric"] {
-    background:white; border:1px solid #FED7AA;
-    border-radius:16px; padding:16px;
-    box-shadow:0 4px 12px rgba(255,122,0,.08);
+    background:#FFFFFF;
+    border:1px solid #FDBA74;
+    border-radius:14px;
+    padding:18px 20px;
+    box-shadow:0 8px 24px rgba(234,88,12,.08);
+}
+[data-testid="stMetric"] label,
+[data-testid="stMetric"] label *,
+[data-testid="stMetric"] [data-testid="stMetricLabel"],
+[data-testid="stMetric"] [data-testid="stMetricLabel"] * {
+    color:#7C2D12 !important;
+    font-weight:700 !important;
+    opacity:1 !important;
+}
+[data-testid="stMetric"] [data-testid="stMetricValue"],
+[data-testid="stMetric"] [data-testid="stMetricValue"] * {
+    color:#EA580C !important;
+    font-weight:800 !important;
+    letter-spacing:0 !important;
 }
 .customer-card, .order-card {
-    background:white; border:1px solid #FED7AA;
-    border-radius:14px; padding:16px; margin-bottom:12px;
-    box-shadow:0 4px 12px rgba(255,122,0,.06);
+    background:#FFFFFF;
+    border:1px solid #FDBA74;
+    border-radius:14px;
+    padding:18px;
+    margin-bottom:14px;
+    box-shadow:0 8px 24px rgba(234,88,12,.07);
+    color:#111827;
 }
-.order-card { background:#FFF7ED; }
+.order-card {
+    background:#FFFFFF;
+    border-color:#FED7AA;
+}
+.customer-card h3 {
+    color:#C2410C !important;
+    margin:0 0 10px 0;
+}
 .badge {
     display:inline-block; padding:4px 12px; border-radius:999px;
     background:#FF7A00; color:white; font-size:12px; font-weight:700;
@@ -79,13 +107,50 @@ section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/sync_sta
 .search-hint .icon { font-size:54px; margin-bottom:16px; }
 .search-hint h2, h1, h2, h3 { color:#EA580C !important; }
 .data-table {
-    width:100%; border-collapse:collapse; overflow:hidden;
-    border:1px solid #E5E7EB; border-radius:12px;
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    overflow:hidden;
+    border:1px solid #FDBA74;
+    border-radius:12px;
+    background:#FFFFFF;
+    box-shadow:0 8px 22px rgba(15,23,42,.05);
+    margin:10px 0 26px 0;
 }
 .data-table th, .data-table td {
-    border:1px solid #E5E7EB; padding:9px 10px; vertical-align:top;
+    border-right:1px solid #FED7AA;
+    border-bottom:1px solid #E5E7EB;
+    padding:12px 14px;
+    vertical-align:top;
+    color:#111827;
+    line-height:1.55;
+    font-size:15px;
 }
-.data-table th { background:#FFF7ED; color:#7C2D12; text-align:left; width:34%; }
+.data-table tr:last-child th,
+.data-table tr:last-child td {
+    border-bottom:none;
+}
+.data-table th:last-child,
+.data-table td:last-child {
+    border-right:none;
+}
+.data-table th {
+    background:#FFF3E0;
+    color:#7C2D12;
+    text-align:left;
+    width:34%;
+    font-weight:800;
+}
+.data-table td {
+    background:#FFFFFF;
+}
+.data-table tbody tr:nth-child(even) td {
+    background:#FFFDF9;
+}
+.data-table thead th {
+    background:#FFEDD5;
+    border-bottom:1px solid #FB923C;
+}
 .stButton > button {
     background:linear-gradient(90deg,#FF7A00 0%,#FB923C 100%);
     color:white; border:none; border-radius:12px;
@@ -94,6 +159,11 @@ section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/sync_sta
 div[data-baseweb="select"] > div, input {
     background:white !important; border:1px solid #FDBA74 !important;
     border-radius:12px !important;
+}
+div[data-baseweb="input"] input,
+div[data-baseweb="select"] span,
+div[data-baseweb="select"] div {
+    color:#111827 !important;
 }
 </style>
 """,
