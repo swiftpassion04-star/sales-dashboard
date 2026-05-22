@@ -460,7 +460,7 @@ tab_table, tab_group, tab_staff = st.tabs(["ข้อมูลลูกค้า
 
 with tab_table:
     table_df = customer_table(filtered)
-    page_size = st.selectbox("จำนวนแถวต่อหน้า", [50, 100, 200], index=1, key="customer_page_size")
+    page_size = st.selectbox("จำนวนแถวต่อหน้า", [10, 25, 50, 100], index=0, key="customer_page_size_v2")
     total_pages = max((len(table_df) - 1) // page_size + 1, 1)
     page = st.number_input("หน้า", min_value=1, max_value=total_pages, value=1, step=1)
     start = (page - 1) * page_size
