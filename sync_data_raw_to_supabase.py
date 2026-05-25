@@ -21,8 +21,12 @@ ORDER_TABLE = "order_history"
 CONTROL_TABLE = "sync_control"
 RUN_TABLE = "sync_runs"
 SYNC_NAME = "data_raw"
-BATCH_SIZE = int(os.environ.get("DATA_RAW_BATCH_SIZE", "500"))
+BATCH_SIZE = int(os.environ.get("DATA_RAW_BATCH_SIZE", "250"))
+MIN_BATCH_SIZE = int(os.environ.get("DATA_RAW_MIN_BATCH_SIZE", "25"))
+MAX_UPSERT_RETRIES = int(os.environ.get("DATA_RAW_MAX_UPSERT_RETRIES", "3"))
+RETRY_SLEEP_SECONDS = float(os.environ.get("DATA_RAW_RETRY_SLEEP_SECONDS", "2"))
 REQUEST_TIMEOUT = 120
+TRANSIENT_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 
 DATA_SOURCES = [
     {"year_file": "2565", "sheet_id": "1Q9CyZi5ezvthVABg-aw6LvrYtSp7qRHiEr4pVMGMKHg", "worksheet": "DATA_RAW"},
@@ -35,6 +39,24 @@ DATA_SOURCES = [
 
 class SyncStopped(RuntimeError):
     pass
+
+
+class SupabaseUpsertError(RuntimeError):
+    def __init__(self, status_code: int, text: str) -> None:
+        self.status_code = status_code
+        self.text = text
+        super().__init__(f"Supabase upsert failed: {status_code} {text}")
+
+
+def is_timeout_error(text: str) -> bool:
+    lowered = text.lower()
+    return "timeout" in lowered or "57014" in lowered or "statement timeout" in lowered
+
+
+def is_transient_error(exc: Exception) -> bool:
+    if isinstance(exc, SupabaseUpsertError):
+        return exc.status_code in TRANSIENT_STATUS_CODES or is_timeout_error(exc.text)
+    return isinstance(exc, (requests.Timeout, requests.ConnectionError))
 
 
 def now_iso() -> str:
@@ -251,15 +273,41 @@ def read_sheet_rows(client: gspread.Client, source: dict[str, str]) -> list[dict
 def upsert_orders(records: list[dict[str, Any]]) -> None:
     if not records:
         return
+    upsert_orders_chunk(records)
+
+
+def upsert_orders_chunk(records: list[dict[str, Any]], attempt: int = 1) -> None:
     url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{ORDER_TABLE}?on_conflict=source_key"
-    response = requests.post(
-        url,
-        headers=service_headers({"Prefer": "resolution=merge-duplicates"}),
-        data=json.dumps(records, ensure_ascii=False),
-        timeout=REQUEST_TIMEOUT,
-    )
-    if response.status_code >= 300:
-        raise RuntimeError(f"Supabase upsert failed: {response.status_code} {response.text}")
+    try:
+        response = requests.post(
+            url,
+            headers=service_headers({"Prefer": "resolution=merge-duplicates"}),
+            data=json.dumps(records, ensure_ascii=False),
+            timeout=REQUEST_TIMEOUT,
+        )
+        if response.status_code < 300:
+            return
+        raise SupabaseUpsertError(response.status_code, response.text)
+    except Exception as exc:
+        if should_split_batch(records, exc):
+            midpoint = len(records) // 2
+            print(f"Upsert batch of {len(records):,} failed; splitting into {midpoint:,} + {len(records) - midpoint:,}")
+            upsert_orders_chunk(records[:midpoint])
+            upsert_orders_chunk(records[midpoint:])
+            return
+
+        if attempt < MAX_UPSERT_RETRIES and is_transient_error(exc):
+            sleep_for = RETRY_SLEEP_SECONDS * attempt
+            print(f"Transient upsert error on {len(records):,} records; retry {attempt + 1}/{MAX_UPSERT_RETRIES} in {sleep_for:.1f}s")
+            time.sleep(sleep_for)
+            upsert_orders_chunk(records, attempt + 1)
+            return
+
+        raise exc
+
+
+def should_split_batch(records: list[dict[str, Any]], exc: Exception) -> bool:
+    return len(records) > MIN_BATCH_SIZE and is_transient_error(exc)
 
 
 def sync_source(

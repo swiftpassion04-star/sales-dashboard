@@ -31,4 +31,8 @@ jobs:
           CRM_SUPABASE_SERVICE_KEY: ${{ secrets.CRM_SUPABASE_SERVICE_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SYNC_TRIGGER_TYPE: github_actions
+          DATA_RAW_BATCH_SIZE: "250"
+          DATA_RAW_MIN_BATCH_SIZE: "25"
+          DATA_RAW_MAX_UPSERT_RETRIES: "3"
+          DATA_RAW_RETRY_SLEEP_SECONDS: "2"
         run: python sync_data_raw_to_supabase.py
