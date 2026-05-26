@@ -5,8 +5,10 @@ Project CRM is a Streamlit dashboard backed by Supabase. Google Sheets remain th
 
 ## Keep In Repo
 - App: `crm_dashboard.py`, `app.py`, `pages/`
-- Sync: `sync_data_raw_to_supabase.py`, `sync_to_supabase.py`
+- Customer 360: `customer360.py`
+- Sync: `sync_data_raw_to_supabase.py`, `sync_crm_customers_to_supabase.py`, `sync_to_supabase.py`
 - Workflow: `.github/workflows/`
+- Database migrations: `supabase/migrations/`
 - Deployment: `requirements.txt`, `requirements-sync.txt`, `runtime.txt`
 - Context: `PROJECT_CONTEXT.md`
 
@@ -28,5 +30,6 @@ Project CRM is a Streamlit dashboard backed by Supabase. Google Sheets remain th
 
 ## Current Workflow Files
 - `sync-data.yml`: scheduled/manual DATA_RAW sync to Supabase.
+- `sync-crm-customers.yml`: scheduled/manual manager-sheet CRM customer sync to Supabase.
 - `deploy-dashboard.yml`: dashboard dependency and syntax validation.
 - `cleanup.yml`: repository hygiene audit.

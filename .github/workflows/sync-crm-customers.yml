@@ -1,0 +1,35 @@
+name: Sync CRM Customers to Supabase
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: crm-customers-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install sync dependencies
+        run: pip install -r requirements-sync.txt
+
+      - name: Sync CRM Customers
+        env:
+          CRM_SUPABASE_URL: ${{ secrets.CRM_SUPABASE_URL }}
+          CRM_SUPABASE_SERVICE_KEY: ${{ secrets.CRM_SUPABASE_SERVICE_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          CRM_MANAGER_SHEETS_JSON: ${{ secrets.CRM_MANAGER_SHEETS_JSON }}
+          CRM_CUSTOMERS_BATCH_SIZE: "250"
+        run: python sync_crm_customers_to_supabase.py

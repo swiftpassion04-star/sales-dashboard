@@ -50,12 +50,12 @@ section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/sync_sta
 }
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href$="/~/+/"]::after,
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href$="/"]::after {
-    content: "ค้นหาลูกค้า CRM";
+    content: "Customer 360";
     font-size: 14px !important;
 }
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/~/+/customers"]::after,
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/customers"]::after {
-    content: "ข้อมูลลูกค้า";
+    content: "Customer 360";
     font-size: 14px !important;
 }
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/~/+/sync_status"]::after,
