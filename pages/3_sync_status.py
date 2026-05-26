@@ -50,12 +50,7 @@ section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/sync_sta
 }
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href$="/~/+/"]::after,
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href$="/"]::after {
-    content: "Customer 360";
-    font-size: 14px !important;
-}
-section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/~/+/customers"]::after,
-section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/customers"]::after {
-    content: "Customer 360";
+    content: "ข้อมูลลูกค้า";
     font-size: 14px !important;
 }
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[href*="/~/+/sync_status"]::after,
@@ -309,7 +304,7 @@ def render_runs_table(runs: list[dict]) -> None:
 
 
 st.title("DATA_RAW Sync")
-st.markdown("<div class='status-line'>ระบบซิงก์ประวัติ DATA_RAW 2565-2569 เข้า Supabase สำหรับหน้า customers</div>", unsafe_allow_html=True)
+st.markdown("<div class='status-line'>ระบบซิงก์ประวัติ DATA_RAW 2565-2569 เข้า Supabase สำหรับหน้าข้อมูลลูกค้า</div>", unsafe_allow_html=True)
 
 if not SUPABASE_URL or not ANON_KEY:
     st.error("ยังไม่ได้ตั้งค่า Supabase secrets")

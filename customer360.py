@@ -2,7 +2,7 @@ import html
 import json
 import os
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import pandas as pd
 import requests
@@ -15,7 +15,7 @@ ORDERS_TABLE = "order_history"
 FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
-PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500]
 AUTO_REFRESH_SECONDS = 60
 
 PRODUCT_GROUP_ORDER = [
@@ -45,10 +45,11 @@ SUPABASE_ANON_KEY = get_secret("CRM_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY")
 
 def render_customer360() -> None:
     inject_css()
+    sync_detail_key_from_query()
     sidebar_refresh_controls()
 
     customers = load_crm_customers()
-    st.title("Customer 360")
+    st.title("ข้อมูลลูกค้า")
 
     if customers.empty:
         render_setup_warning()
@@ -121,10 +122,8 @@ def inject_css() -> None:
 [data-testid="stSidebarNav"] a[href*="/~/+/sync_status"],
 [data-testid="stSidebarNav"] a[href*="/sync_status"] { font-size:0 !important; }
 [data-testid="stSidebarNav"] a[href$="/~/+/"]::after,
-[data-testid="stSidebarNav"] a[href$="/"]::after,
-[data-testid="stSidebarNav"] a[href*="/~/+/customers"]::after,
-[data-testid="stSidebarNav"] a[href*="/customers"]::after {
-  content:"Customer 360";
+[data-testid="stSidebarNav"] a[href$="/"]::after {
+  content:"ข้อมูลลูกค้า";
   font-size:14px !important;
 }
 [data-testid="stSidebarNav"] a[href*="/~/+/sync_status"]::after,
@@ -243,6 +242,25 @@ button svg {
   font-variant-numeric:tabular-nums;
   font-weight:700;
   color:var(--crm-accent-dark);
+}
+.history-link {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:70px;
+  min-height:30px;
+  padding:4px 10px;
+  border:1px solid #fb923c;
+  border-radius:8px;
+  background:#fff7ed;
+  color:#9a3412 !important;
+  font-weight:700;
+  text-decoration:none !important;
+  white-space:nowrap;
+}
+.history-link:hover {
+  background:#ffedd5;
+  color:#7c2d12 !important;
 }
 .crm-detail-grid {
   display:grid;
@@ -468,15 +486,52 @@ def sidebar_refresh_controls() -> None:
 
 def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
     st.sidebar.header("ตัวกรอง")
+    init_filter_state()
     product_options = [group for group in PRODUCT_GROUP_ORDER if group in set(df.get("product_group", []))]
     extras = sorted(set(df.get("product_group", pd.Series(dtype=str)).dropna().astype(str)) - set(product_options))
     staff_options = sorted(df.get("sales_staff", pd.Series(dtype=str)).dropna().astype(str).unique().tolist())
 
-    product_group = st.sidebar.selectbox("กลุ่มสินค้า", ["ทั้งหมด"] + product_options + extras)
-    staff = st.sidebar.selectbox("ผู้ดูแล", ["ทั้งหมด"] + staff_options)
-    keyword = st.sidebar.text_input("ค้นหา", placeholder="ชื่อลูกค้า / เบอร์ / สินค้า / โน๊ต / URL")
-    year = st.sidebar.selectbox("ประวัติปี", ["ทั้งหมด", "2565", "2566", "2567", "2568", "2569"])
-    st.session_state.customer360_year = year
+    product_group_options = ["ทั้งหมด"] + product_options + extras
+    staff_filter_options = ["ทั้งหมด"] + staff_options
+    year_options = ["ทั้งหมด", "2565", "2566", "2567", "2568", "2569"]
+
+    st.sidebar.selectbox(
+        "กลุ่มสินค้า",
+        product_group_options,
+        index=safe_index(product_group_options, st.session_state.customer360_pending_product_group),
+        key="customer360_pending_product_group",
+    )
+    st.sidebar.selectbox(
+        "ผู้ดูแล",
+        staff_filter_options,
+        index=safe_index(staff_filter_options, st.session_state.customer360_pending_staff),
+        key="customer360_pending_staff",
+    )
+    st.sidebar.selectbox(
+        "ประวัติปี",
+        year_options,
+        index=safe_index(year_options, st.session_state.customer360_pending_year),
+        key="customer360_pending_year",
+    )
+    st.sidebar.text_input(
+        "ค้นหา",
+        placeholder="ชื่อลูกค้า / เบอร์ / สินค้า / โน๊ต / URL",
+        key="customer360_pending_keyword",
+        on_change=apply_pending_filters,
+    )
+
+    if st.sidebar.button("ค้นหา", use_container_width=True):
+        apply_pending_filters()
+
+    if st.sidebar.button("ล้างตัวกรอง", use_container_width=True):
+        reset_filters()
+        st.rerun()
+
+    active = st.session_state.customer360_filters
+    product_group = active["product_group"]
+    staff = active["staff"]
+    keyword = active["keyword"]
+    st.session_state.customer360_year = active["year"]
 
     filtered = df.copy()
     if product_group != "ทั้งหมด" and "product_group" in filtered:
@@ -490,11 +545,59 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
             haystack = filtered[available].fillna("").astype(str).agg(" ".join, axis=1)
             filtered = filtered[haystack.str.contains(keyword.strip(), case=False, na=False)]
 
-    if st.sidebar.button("ล้างตัวกรอง", use_container_width=True):
-        st.session_state.customer360_detail_key = None
-        st.rerun()
-
     return filtered
+
+
+def init_filter_state() -> None:
+    defaults = {
+        "product_group": "ทั้งหมด",
+        "staff": "ทั้งหมด",
+        "keyword": "",
+        "year": "ทั้งหมด",
+    }
+    if "customer360_filters" not in st.session_state:
+        st.session_state.customer360_filters = defaults.copy()
+    st.session_state.setdefault("customer360_pending_product_group", st.session_state.customer360_filters["product_group"])
+    st.session_state.setdefault("customer360_pending_staff", st.session_state.customer360_filters["staff"])
+    st.session_state.setdefault("customer360_pending_keyword", st.session_state.customer360_filters["keyword"])
+    st.session_state.setdefault("customer360_pending_year", st.session_state.customer360_filters["year"])
+
+
+def sync_detail_key_from_query() -> None:
+    detail_key = st.query_params.get("customer_key", "")
+    if detail_key:
+        st.session_state.customer360_detail_key = detail_key
+
+
+def apply_pending_filters() -> None:
+    st.session_state.customer360_filters = {
+        "product_group": st.session_state.get("customer360_pending_product_group", "ทั้งหมด"),
+        "staff": st.session_state.get("customer360_pending_staff", "ทั้งหมด"),
+        "keyword": st.session_state.get("customer360_pending_keyword", "").strip(),
+        "year": st.session_state.get("customer360_pending_year", "ทั้งหมด"),
+    }
+    st.session_state.customer360_detail_key = None
+    st.query_params.clear()
+
+
+def reset_filters() -> None:
+    defaults = {
+        "product_group": "ทั้งหมด",
+        "staff": "ทั้งหมด",
+        "keyword": "",
+        "year": "ทั้งหมด",
+    }
+    st.session_state.customer360_filters = defaults.copy()
+    st.session_state.customer360_pending_product_group = "ทั้งหมด"
+    st.session_state.customer360_pending_staff = "ทั้งหมด"
+    st.session_state.customer360_pending_keyword = ""
+    st.session_state.customer360_pending_year = "ทั้งหมด"
+    st.session_state.customer360_detail_key = None
+    st.query_params.clear()
+
+
+def safe_index(options: list[str], value: str) -> int:
+    return options.index(value) if value in options else 0
 
 
 def render_customer_list(df: pd.DataFrame) -> None:
@@ -511,7 +614,7 @@ def render_customer_list(df: pd.DataFrame) -> None:
 
     st.caption("รวมลูกค้าปัจจุบันจากชีทหัวหน้า ซ่อนแถวผู้ดูแลว่างเมื่อเบอร์เดียวกันมีผู้ดูแลแล้ว และกดดูประวัติสั่งซื้อเก่าจากเบอร์โทร")
 
-    page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=1, key="customer360_page_size")
+    page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customer360_page_size")
     total_pages = max((len(display_df) - 1) // page_size + 1, 1)
     page = st.number_input("หน้า", min_value=1, max_value=total_pages, value=1, step=1, key="customer360_page")
     start = (page - 1) * page_size
@@ -521,14 +624,6 @@ def render_customer_list(df: pd.DataFrame) -> None:
     render_html_table(customer360_table(page_df))
 
     st.caption(f"แสดง {start + 1 if len(display_df) else 0}-{min(end, len(display_df))} จาก {len(display_df):,} แถว")
-    st.divider()
-
-    for i, customer in page_df.iterrows():
-        detail_key = customer_detail_key(customer)
-        name = first_value(customer, "customer", "customer_name") or f"ลูกค้าแถวที่ {start + i + 1}"
-        if st.button(f"ดูประวัติสั่งซื้อเก่า: {name}", key=f"customer360_detail_{detail_key}"):
-            st.session_state.customer360_detail_key = detail_key
-            st.rerun()
 
 
 def render_customer_detail(df: pd.DataFrame) -> None:
@@ -547,6 +642,7 @@ def render_customer_detail(df: pd.DataFrame) -> None:
 
     if st.button("กลับหน้า Customer 360"):
         st.session_state.customer360_detail_key = None
+        st.query_params.clear()
         st.rerun()
 
     name = first_value(customer, "customer", "customer_name") or "(ไม่ระบุชื่อลูกค้า)"
@@ -605,6 +701,7 @@ def customer360_table(df: pd.DataFrame) -> pd.DataFrame:
     for _, row in df.iterrows():
         rows.append(
             {
+                "ประวัติ": history_link(row),
                 "ชื่อลูกค้า": first_value(row, "customer", "customer_name"),
                 "กลุ่มสินค้า": first_value(row, "product_group"),
                 "สินค้า": first_value(row, "product_name", "product"),
@@ -617,6 +714,12 @@ def customer360_table(df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def history_link(row: pd.Series) -> str:
+    detail_key = customer_detail_key(row)
+    href = "?" + urlencode({"customer_key": detail_key})
+    return f'<a class="history-link" href="{html_escape(href)}">ดูประวัติ</a>'
 
 
 def display_customers(df: pd.DataFrame) -> pd.DataFrame:
@@ -880,6 +983,8 @@ def product_summary(products: list[dict]) -> str:
 
 def render_table_cell(column: str, value: object) -> str:
     text = clean(value)
+    if column == "ประวัติ":
+        return text
     if column == "URL":
         return render_url(text)
     return html_escape(text)
