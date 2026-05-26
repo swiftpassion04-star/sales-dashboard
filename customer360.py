@@ -60,7 +60,7 @@ def render_customer360() -> None:
         st.stop()
 
     filtered = filtered.reset_index(drop=True)
-    if "customer360_detail_idx" in st.session_state and st.session_state.customer360_detail_idx is not None:
+    if st.session_state.get("customer360_detail_key"):
         render_customer_detail(filtered)
         return
 
@@ -72,30 +72,40 @@ def inject_css() -> None:
         """
 <style>
 :root {
-  --crm-bg:#fff7ed;
+  --crm-bg:#fff8f1;
   --crm-panel:#ffffff;
   --crm-border:#fed7aa;
-  --crm-soft-border:#e5e7eb;
+  --crm-soft-border:#ffedd5;
   --crm-text:#111827;
-  --crm-muted:#475569;
+  --crm-muted:#64748b;
   --crm-accent:#f97316;
   --crm-accent-dark:#ea580c;
+  --crm-accent-soft:#fff3e6;
+  --crm-accent-softer:#fffaf5;
   --crm-green:#15803d;
+  --crm-shadow:0 14px 34px rgba(234,88,12,.08);
 }
 .stApp { background:var(--crm-bg); color:var(--crm-text); }
 .block-container { max-width:1500px; padding-top:2.2rem; padding-bottom:3rem; }
 [data-testid="stSidebar"] {
-  background:#fffaf5;
+  background:linear-gradient(180deg,#ffffff 0%,#fff7ed 100%);
   border-right:1px solid var(--crm-border);
 }
 [data-testid="stSidebar"] * { color:var(--crm-text) !important; }
 [data-testid="stSidebar"] input,
 [data-testid="stSidebar"] textarea,
-[data-testid="stSidebar"] [data-baseweb="select"] > div {
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-baseweb="input"] > div {
   background:#ffffff !important;
   color:var(--crm-text) !important;
   border-color:var(--crm-accent) !important;
   border-radius:8px !important;
+  box-shadow:0 1px 0 rgba(249,115,22,.08) !important;
+}
+[data-testid="stSidebar"] input::placeholder,
+[data-testid="stSidebar"] textarea::placeholder {
+  color:#9a3412 !important;
+  opacity:.62 !important;
 }
 [data-testid="stSidebarNav"] a { color:var(--crm-text) !important; border-radius:6px; }
 [data-testid="stSidebarNav"] a[aria-current="page"],
@@ -127,22 +137,77 @@ h1 {
   letter-spacing:0;
   border-left:6px solid var(--crm-accent);
   padding-left:14px;
+  margin-bottom:1rem;
 }
 h2, h3 { color:var(--crm-text); letter-spacing:0; }
+p, label, [data-testid="stMarkdownContainer"] { color:var(--crm-text); }
+[data-testid="stCaptionContainer"] { color:#7c2d12 !important; }
 [data-testid="stMetric"] {
-  background:var(--crm-panel);
+  background:linear-gradient(180deg,#ffffff 0%,#fffaf5 100%);
   border:1px solid var(--crm-border);
   border-radius:8px;
   padding:16px 18px;
-  box-shadow:0 1px 2px rgba(15,23,42,.04);
+  box-shadow:var(--crm-shadow);
+}
+[data-testid="stMetric"] label,
+[data-testid="stMetric"] label *,
+[data-testid="stMetricLabel"],
+[data-testid="stMetricLabel"] * {
+  color:#9a3412 !important;
+  font-weight:700 !important;
+  opacity:1 !important;
 }
 [data-testid="stMetricValue"] { color:var(--crm-accent-dark); font-weight:700; }
+.stSelectbox label, .stNumberInput label, .stTextInput label {
+  color:#9a3412 !important;
+  font-weight:700 !important;
+}
+div[data-baseweb="select"] > div,
+div[data-baseweb="input"] > div,
+input {
+  background:#ffffff !important;
+  color:#111827 !important;
+  border:1px solid #fb923c !important;
+  border-radius:8px !important;
+}
+div[data-baseweb="select"] *,
+div[data-baseweb="input"] *,
+input,
+textarea {
+  color:#111827 !important;
+}
+div[data-baseweb="select"] svg,
+button svg {
+  color:#ea580c !important;
+  fill:#ea580c !important;
+}
+[role="listbox"],
+[data-baseweb="popover"] > div {
+  background:#ffffff !important;
+  color:#111827 !important;
+  border:1px solid #fdba74 !important;
+  box-shadow:0 18px 45px rgba(124,45,18,.14) !important;
+}
+[role="option"] {
+  background:#ffffff !important;
+  color:#111827 !important;
+}
+[role="option"]:hover,
+[aria-selected="true"] {
+  background:#ffedd5 !important;
+  color:#7c2d12 !important;
+}
+.stNumberInput button {
+  background:#fff7ed !important;
+  border-color:#fb923c !important;
+  color:#ea580c !important;
+}
 .crm-table-wrap {
   border:1px solid var(--crm-soft-border);
   border-radius:8px;
   overflow:auto;
   background:#ffffff;
-  box-shadow:0 1px 2px rgba(15,23,42,.05);
+  box-shadow:var(--crm-shadow);
   margin-top:12px;
 }
 .crm-table {
@@ -153,7 +218,7 @@ h2, h3 { color:var(--crm-text); letter-spacing:0; }
   background:#ffffff;
 }
 .crm-table thead th {
-  background:#ffedd5;
+  background:linear-gradient(180deg,#fff3e6 0%,#ffedd5 100%);
   color:#7c2d12;
   font-weight:700;
   text-align:left;
@@ -165,11 +230,14 @@ h2, h3 { color:var(--crm-text); letter-spacing:0; }
   padding:10px 12px;
   border-bottom:1px solid #f1f5f9;
   color:var(--crm-text);
+  background:#ffffff;
   vertical-align:top;
   min-width:110px;
 }
 .crm-table tbody tr:nth-child(even) { background:#fffaf5; }
+.crm-table tbody tr:nth-child(even) td { background:#fffaf5; }
 .crm-table tbody tr:hover { background:#ffedd5; }
+.crm-table tbody tr:hover td { background:#ffedd5; }
 .crm-table .num {
   text-align:right;
   font-variant-numeric:tabular-nums;
@@ -185,13 +253,14 @@ h2, h3 { color:var(--crm-text); letter-spacing:0; }
 .crm-detail-item {
   border:1px solid var(--crm-border);
   border-radius:8px;
-  background:#ffffff;
+  background:linear-gradient(180deg,#ffffff 0%,#fffaf5 100%);
   padding:12px 14px;
+  box-shadow:0 8px 22px rgba(234,88,12,.06);
 }
 .crm-detail-label { color:var(--crm-muted); font-size:13px; margin-bottom:4px; }
 .crm-detail-value { color:var(--crm-text); font-weight:700; overflow-wrap:anywhere; }
 .order-card {
-  background:#ffffff;
+  background:linear-gradient(180deg,#ffffff 0%,#fffaf5 100%);
   border:1px solid var(--crm-border);
   border-radius:8px;
   padding:16px;
@@ -214,12 +283,20 @@ h2, h3 { color:var(--crm-text); letter-spacing:0; }
 .stButton > button {
   border-radius:8px;
   font-weight:700;
+  background:#ffffff !important;
+  color:#9a3412 !important;
+  border:1px solid #fb923c !important;
 }
 [data-testid="stSidebar"] .stButton > button {
   background:linear-gradient(90deg,#ff7a00 0%,#fb923c 100%);
   color:#ffffff !important;
   border:none;
   min-height:42px;
+}
+.stButton > button:hover {
+  background:#ffedd5 !important;
+  color:#7c2d12 !important;
+  border-color:#ea580c !important;
 }
 @media (max-width: 900px) {
   .crm-detail-grid { grid-template-columns:1fr; }
@@ -414,52 +491,54 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
             filtered = filtered[haystack.str.contains(keyword.strip(), case=False, na=False)]
 
     if st.sidebar.button("ล้างตัวกรอง", use_container_width=True):
-        st.session_state.customer360_detail_idx = None
+        st.session_state.customer360_detail_key = None
         st.rerun()
 
     return filtered
 
 
 def render_customer_list(df: pd.DataFrame) -> None:
+    display_df = display_customers(df)
     total_customers = unique_customer_count(df)
-    total_rows = len(df)
+    total_rows = len(display_df)
     with_phone = sum(1 for _, row in df.iterrows() if customer_phones(row))
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("ลูกค้าปัจจุบัน", f"{total_customers:,}")
-    col2.metric("จำนวนแถว", f"{total_rows:,}")
+    col2.metric("แถวที่แสดง", f"{total_rows:,}")
     col3.metric("กลุ่มสินค้า", f"{df.get('product_group', pd.Series(dtype=str)).nunique():,}")
     col4.metric("มีเบอร์โทร", f"{with_phone:,}")
 
-    st.caption("รวมลูกค้าปัจจุบันจากชีทหัวหน้า และกดดูประวัติสั่งซื้อเก่าที่จับคู่ด้วยเบอร์โทรติดต่อ/เบอร์โทรสำรอง")
+    st.caption("รวมลูกค้าปัจจุบันจากชีทหัวหน้า ซ่อนแถวผู้ดูแลว่างเมื่อเบอร์เดียวกันมีผู้ดูแลแล้ว และกดดูประวัติสั่งซื้อเก่าจากเบอร์โทร")
 
     page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=1, key="customer360_page_size")
-    total_pages = max((len(df) - 1) // page_size + 1, 1)
+    total_pages = max((len(display_df) - 1) // page_size + 1, 1)
     page = st.number_input("หน้า", min_value=1, max_value=total_pages, value=1, step=1, key="customer360_page")
     start = (page - 1) * page_size
     end = start + page_size
 
-    page_df = df.iloc[start:end].reset_index(drop=True)
+    page_df = display_df.iloc[start:end].reset_index(drop=True)
     render_html_table(customer360_table(page_df))
 
-    st.caption(f"แสดง {start + 1 if len(df) else 0}-{min(end, len(df))} จาก {len(df):,} แถว")
+    st.caption(f"แสดง {start + 1 if len(display_df) else 0}-{min(end, len(display_df))} จาก {len(display_df):,} แถว")
     st.divider()
 
     for i, customer in page_df.iterrows():
-        abs_idx = start + i
-        name = first_value(customer, "customer", "customer_name") or f"ลูกค้าแถวที่ {abs_idx + 1}"
-        if st.button(f"ดูประวัติสั่งซื้อเก่า: {name}", key=f"customer360_detail_{abs_idx}"):
-            st.session_state.customer360_detail_idx = abs_idx
+        detail_key = customer_detail_key(customer)
+        name = first_value(customer, "customer", "customer_name") or f"ลูกค้าแถวที่ {start + i + 1}"
+        if st.button(f"ดูประวัติสั่งซื้อเก่า: {name}", key=f"customer360_detail_{detail_key}"):
+            st.session_state.customer360_detail_key = detail_key
             st.rerun()
 
 
 def render_customer_detail(df: pd.DataFrame) -> None:
-    idx = st.session_state.customer360_detail_idx
-    if idx >= len(df):
-        st.session_state.customer360_detail_idx = None
+    detail_key = st.session_state.get("customer360_detail_key")
+    selected = df[df.apply(customer_detail_key, axis=1) == detail_key]
+    if selected.empty:
+        st.session_state.customer360_detail_key = None
         st.rerun()
 
-    customer = df.iloc[idx]
+    customer = selected.iloc[0]
     phones = customer_phones(customer)
     year = st.session_state.get("customer360_year", "ทั้งหมด")
     order_df = search_orders_by_phones(phones, year)
@@ -467,7 +546,7 @@ def render_customer_detail(df: pd.DataFrame) -> None:
     latest = sort_orders(orders)[0] if orders else {}
 
     if st.button("กลับหน้า Customer 360"):
-        st.session_state.customer360_detail_idx = None
+        st.session_state.customer360_detail_key = None
         st.rerun()
 
     name = first_value(customer, "customer", "customer_name") or "(ไม่ระบุชื่อลูกค้า)"
@@ -538,6 +617,60 @@ def customer360_table(df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def display_customers(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    rows_to_show = []
+    working = df.copy()
+    working["_source_index"] = working.index
+    working["_phone_key"] = working.apply(customer_group_key, axis=1)
+    working["_has_staff"] = working.apply(has_sales_staff, axis=1)
+
+    for _, group in working.groupby("_phone_key", sort=False):
+        with_staff = group[group["_has_staff"]]
+        if not with_staff.empty:
+            rows_to_show.append(with_staff)
+            continue
+        rows_to_show.append(group.head(1))
+
+    display = pd.concat(rows_to_show, ignore_index=True) if rows_to_show else working.head(0)
+    return display.drop(columns=["_phone_key", "_has_staff"], errors="ignore")
+
+
+def customer_group_key(row: pd.Series) -> str:
+    phones = customer_phones(row)
+    if phones:
+        return phones[0]
+    customer = first_value(row, "customer", "customer_name")
+    product_group = first_value(row, "product_group")
+    if customer:
+        return f"name:{customer}:{product_group}"
+    return f"row:{row.name}"
+
+
+def customer_detail_key(row: pd.Series) -> str:
+    for name in ["customer_id", "id"]:
+        value = first_value(row, name)
+        if value:
+            return f"{name}:{value}"
+    phones = "|".join(customer_phones(row))
+    parts = [
+        phones,
+        first_value(row, "customer", "customer_name"),
+        first_value(row, "product_group"),
+        first_value(row, "product_name", "product"),
+        first_value(row, "sales_staff", "owner"),
+        first_value(row, "product_url", "url", "channel_url"),
+        first_value(row, "note"),
+    ]
+    return "fallback:" + "|".join(parts)
+
+
+def has_sales_staff(row: pd.Series) -> bool:
+    return bool(first_value(row, "sales_staff", "owner"))
 
 
 def render_html_table(df: pd.DataFrame, numeric_cols: list[str] | None = None) -> None:
