@@ -296,6 +296,10 @@ button svg {
   margin:0 6px 6px 0;
 }
 .badge-green { background:#dcfce7; color:#166534; }
+.badge-orange { background:#ffedd5; color:#9a3412; }
+.badge-blue { background:#dbeafe; color:#1d4ed8; }
+.badge-red { background:#fee2e2; color:#991b1b; }
+.badge-gray { background:#f1f5f9; color:#334155; }
 .green { color:var(--crm-green); font-weight:700; }
 .muted { color:var(--crm-muted); }
 .stButton > button {
@@ -681,6 +685,8 @@ def render_customer_detail(df: pd.DataFrame) -> None:
         [
             ("เลขออเดอร์", latest.get("order_id")),
             ("วันที่", latest.get("date_text")),
+            ("วิธีการชำระ", payment_badge(latest.get("payment_method"))),
+            ("สถานะจัดส่ง", delivery_badge(latest.get("delivery_status"))),
             ("ผู้ขายเดิม", latest.get("sales_staff")),
             ("พนักงาน UPSELL", latest.get("upsell_staff")),
             ("พนักงานดูแล", latest.get("care_staff")),
@@ -691,7 +697,7 @@ def render_customer_detail(df: pd.DataFrame) -> None:
         ]
     )
 
-    st.subheader("สินค้าที่เคยซื้อ")
+    st.subheader("รายการสินค้าในออเดอร์ล่าสุด")
     st.markdown(product_table(latest_products), unsafe_allow_html=True)
     render_order_history(orders)
 
@@ -798,8 +804,10 @@ def render_detail_grid(rows: list[tuple[str, object]]) -> None:
     cells = ['<div class="crm-detail-grid">']
     for label, value in rows:
         text = clean(value) or "-"
-        if label == "URL" or label.endswith("URL") or label == "URL ออเดอร์":
+        if is_url_label(label):
             rendered = render_url(text)
+        elif is_safe_html(text):
+            rendered = text
         else:
             rendered = html_escape(text)
         cells.append(
@@ -814,18 +822,28 @@ def render_detail_grid(rows: list[tuple[str, object]]) -> None:
     st.markdown("".join(cells), unsafe_allow_html=True)
 
 
+def is_url_label(label: str) -> bool:
+    return label in {"URL", "URL ออเดอร์"} or label.lower() in {"url", "product_url", "channel_url"}
+
+
+def is_safe_html(value: str) -> bool:
+    return value.startswith('<span class="badge')
+
+
 def render_order_history(orders: list[dict]) -> None:
     st.subheader("ประวัติการสั่งซื้อเก่าทั้งหมด")
     for order in sort_orders(orders):
         products = parse_products(order.get("products"))
-        summary = product_summary(products) or "-"
         st.markdown(
             f"""
             <div class="order-card">
               <span class="badge">ออเดอร์ {html_escape(order.get("order_id"))}</span>
               <span class="badge">{html_escape(order.get("date_text")) or "-"}</span>
               <span class="badge badge-green">{float(order.get("total_sales") or 0):,.0f} บาท</span>
-              <div><b>สินค้า:</b> {html_escape(summary)}</div>
+              {payment_badge(order.get("payment_method"))}
+              {delivery_badge(order.get("delivery_status"))}
+              <div><b>สินค้า:</b></div>
+              {compact_product_list(products)}
               <div><b>ที่อยู่:</b> {html_escape(full_address(order)) or "-"}</div>
               <div><b>ผู้ขายเดิม:</b> {html_escape(order.get("sales_staff")) or "-"}</div>
               <div><b>ขนส่ง:</b> {html_escape(order.get("shipping")) or "-"} / {html_escape(order.get("tracking_no")) or "-"}</div>
@@ -833,6 +851,20 @@ def render_order_history(orders: list[dict]) -> None:
             """,
             unsafe_allow_html=True,
         )
+
+
+def compact_product_list(products: list[dict]) -> str:
+    if not products:
+        return '<div class="muted">ไม่มีรายการสินค้า</div>'
+    items = []
+    for item in products:
+        name = html_escape(item.get("name")) or "-"
+        sku = html_escape(item.get("sku"))
+        qty = html_escape(item.get("qty"))
+        sku_text = f" ({sku})" if sku else ""
+        qty_text = f" x {qty}" if qty else ""
+        items.append(f"<div>{name}{sku_text}{qty_text}</div>")
+    return "".join(items)
 
 
 def product_table(products: list[dict]) -> str:
@@ -853,6 +885,43 @@ def product_table(products: list[dict]) -> str:
         "<th>SKU</th><th>สินค้า</th><th>จำนวน</th><th>ราคา</th>"
         f"</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
     )
+
+
+def payment_badge(value: object) -> str:
+    text = clean(value)
+    if not text:
+        return '<span class="badge badge-gray">วิธีชำระ: -</span>'
+    lowered = text.lower()
+    if "cod" in lowered or "ปลายทาง" in text:
+        label = "COD"
+        klass = "badge-orange"
+    elif "โอน" in text or "transfer" in lowered or "bank" in lowered:
+        label = "โอน"
+        klass = "badge-blue"
+    else:
+        label = text
+        klass = "badge-gray"
+    return f'<span class="badge {klass}">ชำระ: {html_escape(label)}</span>'
+
+
+def delivery_badge(value: object) -> str:
+    text = clean(value)
+    if not text:
+        return '<span class="badge badge-gray">จัดส่ง: -</span>'
+    lowered = text.lower()
+    if "สำเร็จ" in text or "delivered" in lowered or "success" in lowered:
+        label = "ส่งสำเร็จ"
+        klass = "badge-green"
+    elif "ตีกลับ" in text or "return" in lowered:
+        label = "ตีกลับ"
+        klass = "badge-red"
+    elif "ยกเลิก" in text or "cancel" in lowered:
+        label = "ยกเลิก"
+        klass = "badge-gray"
+    else:
+        label = text
+        klass = "badge-orange"
+    return f'<span class="badge {klass}">จัดส่ง: {html_escape(label)}</span>'
 
 
 def render_setup_warning() -> None:
