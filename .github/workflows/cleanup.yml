@@ -1,0 +1,24 @@
+name: Cleanup Audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 20 * * 0"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check repository hygiene
+        run: |
+          set -e
+          bad_files="$(git ls-files | grep -Ei '(^|/)(outputs?|reports?|backups?|logs?|archive|__pycache__|\\.cache)(/|$)|\\.(xlsx|xls|xlsm|csv|log|tmp|temp|bak|backup|pyc)$|(^|/)\\.streamlit/secrets\\.toml$' || true)"
+          if [ -n "$bad_files" ]; then
+            echo "Generated or sensitive files are tracked:"
+            echo "$bad_files"
+            exit 1
+          fi
+          echo "Repository hygiene check passed."

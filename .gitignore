@@ -1,3 +1,44 @@
-service_account.json
+# Local secrets and credentials
+.env
+.env.*
 .streamlit/secrets.toml
+service_account.json
+*.pem
+*.key
+
+# Python/runtime cache
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Local outputs and generated reports
+archive/
+outputs/
+output/
+reports/
+report/
+backups/
+backup/
+logs/
+*.log
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Spreadsheet/data exports
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.tsv
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+~$*
