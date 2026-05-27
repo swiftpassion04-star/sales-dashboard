@@ -1,7 +1,7 @@
 import html
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime
 from urllib.parse import quote, urlencode
 
 import pandas as pd
@@ -12,11 +12,32 @@ import streamlit.components.v1 as components
 
 CUSTOMERS_TABLE = "crm_customers"
 ORDERS_TABLE = "order_history"
+LEAD_FOLLOWUPS_TABLE = "crm_lead_followups"
 FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500]
 AUTO_REFRESH_SECONDS = 60
+LEAD_STATUS_OPTIONS = {
+    "new": "ลูกค้าใหม่",
+    "contacted": "ติดต่อแล้ว",
+    "interested": "สนใจ",
+    "follow_up": "ต้องติดตาม",
+    "won": "ปิดการขายแล้ว",
+    "lost": "ไม่สนใจ/หลุด",
+    "dormant": "ลูกค้าเงียบ",
+}
+FOLLOW_UP_STATUS_OPTIONS = {
+    "none": "ยังไม่ตั้งติดตาม",
+    "scheduled": "นัดติดตาม",
+    "done": "ติดตามแล้ว",
+    "missed": "เลยกำหนด",
+}
+PRIORITY_OPTIONS = {
+    "normal": "ปกติ",
+    "high": "สำคัญ",
+    "urgent": "ด่วน",
+}
 
 PRODUCT_GROUP_ORDER = [
     "ยา/อาหารเสริม",
@@ -41,6 +62,7 @@ def get_secret(*names: str) -> str:
 
 SUPABASE_URL = get_secret("CRM_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
 SUPABASE_ANON_KEY = get_secret("CRM_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY")
 
 
 def render_customer360() -> None:
@@ -343,19 +365,36 @@ def require_config() -> None:
         st.stop()
 
 
-def request_headers() -> dict[str, str]:
+def request_headers(api_key: str | None = None, prefer: str = "count=exact") -> dict[str, str]:
+    key = api_key or SUPABASE_ANON_KEY
     return {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-        "Prefer": "count=exact",
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Prefer": prefer,
     }
 
 
-def api_get(path: str, params: list[str]) -> tuple[list[dict], str | None]:
+def api_get(path: str, params: list[str], api_key: str | None = None) -> tuple[list[dict], str | None]:
     require_config()
     url = f"{SUPABASE_URL}/rest/v1/{path}?{'&'.join(params)}"
-    response = requests.get(url, headers=request_headers(), timeout=30)
+    response = requests.get(url, headers=request_headers(api_key=api_key), timeout=30)
     if response.status_code not in (200, 206):
+        return [], response.text
+    return response.json(), None
+
+
+def api_upsert(path: str, payload: dict, conflict_key: str) -> tuple[list[dict], str | None]:
+    require_config()
+    if not SUPABASE_SERVICE_KEY:
+        return [], "ยังไม่ได้ตั้งค่า CRM_SUPABASE_SERVICE_KEY สำหรับบันทึก Lead / Follow-up"
+    url = f"{SUPABASE_URL}/rest/v1/{path}?on_conflict={quote(conflict_key)}"
+    headers = request_headers(
+        api_key=SUPABASE_SERVICE_KEY,
+        prefer="resolution=merge-duplicates,return=representation",
+    )
+    headers["Content-Type"] = "application/json"
+    response = requests.post(url, headers=headers, json=[payload], timeout=30)
+    if response.status_code not in (200, 201):
         return [], response.text
     return response.json(), None
 
@@ -463,6 +502,61 @@ def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
         return bool({normalize_phone(row.get("phone1")), normalize_phone(row.get("phone2"))} & target_phones)
 
     return df[df.apply(exact_phone_match, axis=1)].copy()
+
+
+@st.cache_data(ttl=30, show_spinner="กำลังโหลดสถานะ Lead / Follow-up...")
+def load_lead_followups() -> dict[str, dict]:
+    if not SUPABASE_SERVICE_KEY:
+        st.session_state.customer360_lead_error = "missing_service_key"
+        return {}
+
+    rows: list[dict] = []
+    offset = 0
+    while offset < CUSTOMER_MAX_FETCH:
+        page, error = api_get(
+            LEAD_FOLLOWUPS_TABLE,
+            [
+                "select=*",
+                "order=updated_at.desc",
+                f"limit={min(FETCH_LIMIT, CUSTOMER_MAX_FETCH - offset)}",
+                f"offset={offset}",
+            ],
+            api_key=SUPABASE_SERVICE_KEY,
+        )
+        if error:
+            st.session_state.customer360_lead_error = error
+            return {}
+        rows.extend(page)
+        if len(page) < FETCH_LIMIT:
+            break
+        offset += FETCH_LIMIT
+
+    st.session_state.customer360_lead_error = ""
+    return {clean(row.get("customer_key")): row for row in rows if clean(row.get("customer_key"))}
+
+
+def save_lead_followup(customer: pd.Series, values: dict) -> str | None:
+    customer_key = customer_detail_key(customer)
+    payload = {
+        "customer_key": customer_key,
+        "customer_id": first_value(customer, "customer_id", "id"),
+        "customer_name": first_value(customer, "customer", "customer_name"),
+        "phone_key": customer_group_key(customer),
+        "phone1": first_value(customer, "phone1"),
+        "phone2": first_value(customer, "phone2"),
+        "product_group": first_value(customer, "product_group"),
+        "lead_status": values["lead_status"],
+        "follow_up_status": values["follow_up_status"],
+        "follow_up_date": values["follow_up_date"].isoformat() if values.get("follow_up_date") else None,
+        "follow_up_note": values.get("follow_up_note", ""),
+        "priority": values["priority"],
+        "updated_by": values.get("updated_by", ""),
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+    _, error = api_upsert(LEAD_FOLLOWUPS_TABLE, payload, "customer_key")
+    if not error:
+        load_lead_followups.clear()
+    return error
 
 
 def sidebar_refresh_controls() -> None:
@@ -606,6 +700,8 @@ def safe_index(options: list[str], value: str) -> int:
 
 def render_customer_list(df: pd.DataFrame) -> None:
     display_df = display_customers(df)
+    lead_map = load_lead_followups()
+    lead_error = st.session_state.get("customer360_lead_error")
     total_customers = unique_customer_count(df)
     total_rows = len(display_df)
     with_phone = sum(1 for _, row in df.iterrows() if customer_phones(row))
@@ -617,6 +713,10 @@ def render_customer_list(df: pd.DataFrame) -> None:
     col4.metric("มีเบอร์โทร", f"{with_phone:,}")
 
     st.caption("รวมลูกค้าปัจจุบันจากชีทหัวหน้า ซ่อนแถวผู้ดูแลว่างเมื่อเบอร์เดียวกันมีผู้ดูแลแล้ว และกดดูประวัติสั่งซื้อเก่าจากเบอร์โทร")
+    if lead_error == "missing_service_key":
+        st.warning("Lead / Follow-up ยังเป็นโหมดอ่านอย่างเดียว เพราะยังไม่ได้ตั้งค่า CRM_SUPABASE_SERVICE_KEY")
+    elif lead_error:
+        st.warning("ยังโหลด Lead / Follow-up ไม่ได้ อาจต้องรัน migration crm_lead_followups ก่อน")
 
     page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customer360_page_size")
     total_pages = max((len(display_df) - 1) // page_size + 1, 1)
@@ -625,7 +725,7 @@ def render_customer_list(df: pd.DataFrame) -> None:
     end = start + page_size
 
     page_df = display_df.iloc[start:end].reset_index(drop=True)
-    render_html_table(customer360_table(page_df))
+    render_html_table(customer360_table(page_df, lead_map))
 
     st.caption(f"แสดง {start + 1 if len(display_df) else 0}-{min(end, len(display_df))} จาก {len(display_df):,} แถว")
 
@@ -674,6 +774,7 @@ def render_customer_detail(df: pd.DataFrame) -> None:
             ("URL", first_value(customer, "product_url", "url", "channel_url")),
         ]
     )
+    render_lead_followup_panel(customer)
 
     if not orders:
         st.info("ยังไม่พบประวัติคำสั่งซื้อจาก DATA_RAW ที่ตรงกับเบอร์โทรติดต่อหรือเบอร์โทรสำรอง")
@@ -702,12 +803,84 @@ def render_customer_detail(df: pd.DataFrame) -> None:
     render_order_history(orders)
 
 
-def customer360_table(df: pd.DataFrame) -> pd.DataFrame:
+def render_lead_followup_panel(customer: pd.Series) -> None:
+    lead = load_lead_followups().get(customer_detail_key(customer), {})
+    lead_status = clean(lead.get("lead_status")) or "new"
+    follow_up_status = clean(lead.get("follow_up_status")) or "none"
+    priority = clean(lead.get("priority")) or "normal"
+
+    st.subheader("Lead / Follow-up Status")
+    if st.session_state.get("customer360_lead_error") == "missing_service_key":
+        st.warning("ยังไม่ได้ตั้งค่า CRM_SUPABASE_SERVICE_KEY จึงยังบันทึกสถานะจากหน้าเว็บไม่ได้")
+    elif st.session_state.get("customer360_lead_error"):
+        st.warning("ยังอ่านตาราง crm_lead_followups ไม่ได้ อาจต้องรัน migration ก่อนใช้งานจริง")
+
+    render_detail_grid(
+        [
+            ("Lead", lead_status_badge(lead_status)),
+            ("Follow-up", follow_up_badge(lead)),
+            ("นัดติดตาม", lead.get("follow_up_date")),
+            ("ความสำคัญ", PRIORITY_OPTIONS.get(priority, priority)),
+            ("ผู้แก้ไขล่าสุด", lead.get("updated_by")),
+            ("อัปเดตล่าสุด", lead.get("updated_at")),
+        ]
+    )
+
+    with st.form("lead_followup_form"):
+        st.caption("ช่วงแรกยังไม่มีระบบล็อกอิน ให้ใส่ชื่อผู้แก้ไขไว้ก่อน รุ่นถัดไปค่อยผูกสิทธิ์ admin/หัวหน้า/พนักงาน")
+        col1, col2, col3 = st.columns(3)
+        selected_lead = col1.selectbox(
+            "Lead Status",
+            list(LEAD_STATUS_OPTIONS.keys()),
+            format_func=lambda key: LEAD_STATUS_OPTIONS[key],
+            index=safe_index(list(LEAD_STATUS_OPTIONS.keys()), lead_status),
+        )
+        selected_follow = col2.selectbox(
+            "Follow-up Status",
+            list(FOLLOW_UP_STATUS_OPTIONS.keys()),
+            format_func=lambda key: FOLLOW_UP_STATUS_OPTIONS[key],
+            index=safe_index(list(FOLLOW_UP_STATUS_OPTIONS.keys()), follow_up_status),
+        )
+        selected_priority = col3.selectbox(
+            "Priority",
+            list(PRIORITY_OPTIONS.keys()),
+            format_func=lambda key: PRIORITY_OPTIONS[key],
+            index=safe_index(list(PRIORITY_OPTIONS.keys()), priority),
+        )
+        date_value = parse_date(lead.get("follow_up_date"))
+        selected_date = st.date_input("วันที่ต้องติดตาม", value=date_value)
+        note = st.text_area("โน๊ตติดตาม", value=clean(lead.get("follow_up_note")), height=110)
+        updated_by = st.text_input("ชื่อผู้แก้ไข", value=clean(lead.get("updated_by")))
+        submitted = st.form_submit_button("บันทึก Lead / Follow-up", use_container_width=True)
+
+    if submitted:
+        error = save_lead_followup(
+            customer,
+            {
+                "lead_status": selected_lead,
+                "follow_up_status": selected_follow,
+                "follow_up_date": selected_date,
+                "follow_up_note": note,
+                "priority": selected_priority,
+                "updated_by": updated_by,
+            },
+        )
+        if error:
+            st.error("บันทึกไม่สำเร็จ: " + error)
+        else:
+            st.success("บันทึก Lead / Follow-up แล้ว")
+            st.rerun()
+
+
+def customer360_table(df: pd.DataFrame, lead_map: dict[str, dict]) -> pd.DataFrame:
     rows = []
     for _, row in df.iterrows():
+        lead = lead_map.get(customer_detail_key(row), {})
         rows.append(
             {
                 "ประวัติ": history_link(row),
+                "Lead": lead_status_badge(lead.get("lead_status")),
+                "Follow-up": follow_up_badge(lead),
                 "ชื่อลูกค้า": first_value(row, "customer", "customer_name"),
                 "กลุ่มสินค้า": first_value(row, "product_group"),
                 "สินค้า": first_value(row, "product_name", "product"),
@@ -780,6 +953,39 @@ def customer_detail_key(row: pd.Series) -> str:
 
 def has_sales_staff(row: pd.Series) -> bool:
     return bool(first_value(row, "sales_staff", "owner"))
+
+
+def lead_status_badge(value: object) -> str:
+    status = clean(value) or "new"
+    label = LEAD_STATUS_OPTIONS.get(status, status)
+    klass = {
+        "new": "badge-blue",
+        "contacted": "badge-gray",
+        "interested": "badge-green",
+        "follow_up": "badge-orange",
+        "won": "badge-green",
+        "lost": "badge-red",
+        "dormant": "badge-gray",
+    }.get(status, "badge-gray")
+    return f'<span class="badge {klass}">{html_escape(label)}</span>'
+
+
+def follow_up_badge(lead: dict | None) -> str:
+    lead = lead or {}
+    status = clean(lead.get("follow_up_status")) or "none"
+    follow_date = parse_date(lead.get("follow_up_date"))
+    if follow_date and status not in {"done", "missed"}:
+        status = "missed" if follow_date < date.today() else "scheduled"
+    label = FOLLOW_UP_STATUS_OPTIONS.get(status, status)
+    if follow_date:
+        label = f"{label} {follow_date.strftime('%d/%m/%Y')}"
+    klass = {
+        "none": "badge-gray",
+        "scheduled": "badge-blue",
+        "done": "badge-green",
+        "missed": "badge-red",
+    }.get(status, "badge-gray")
+    return f'<span class="badge {klass}">{html_escape(label)}</span>'
 
 
 def render_html_table(df: pd.DataFrame, numeric_cols: list[str] | None = None) -> None:
@@ -1052,6 +1258,8 @@ def render_table_cell(column: str, value: object) -> str:
         return text
     if column == "URL":
         return render_url(text)
+    if is_safe_html(text):
+        return text
     return html_escape(text)
 
 
@@ -1068,6 +1276,16 @@ def clean(value: object) -> str:
     if isinstance(value, float) and pd.isna(value):
         return ""
     return str(value).strip()
+
+
+def parse_date(value: object) -> date | None:
+    text = clean(value)
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text[:10]).date()
+    except ValueError:
+        return None
 
 
 def to_int(value: object) -> int:
