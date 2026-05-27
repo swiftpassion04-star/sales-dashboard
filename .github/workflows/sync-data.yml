@@ -1,9 +1,7 @@
 name: Sync DATA_RAW to Supabase
 
 on:
-  schedule:
-    # 00:00 Asia/Bangkok. GitHub Actions cron uses UTC.
-    - cron: "0 17 * * *"
+  # Legacy DATA_RAW sync is manual-only. Use the Streamlit Excel Upload page for curated imports.
   workflow_dispatch:
     inputs:
       batch_size:
