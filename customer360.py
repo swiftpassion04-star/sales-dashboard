@@ -221,6 +221,27 @@ button svg {
   border:1px solid #fed7aa !important;
 }
 [data-testid="stCodeBlock"] * { color:#111827 !important; }
+[data-testid="stForm"] {
+  background:transparent !important;
+  border:0 !important;
+}
+[data-testid="stForm"] textarea,
+[data-testid="stForm"] input,
+[data-testid="stForm"] div[data-baseweb="input"] > div,
+[data-testid="stForm"] div[data-baseweb="textarea"] textarea {
+  background:#ffffff !important;
+  color:#111827 !important;
+  -webkit-text-fill-color:#111827 !important;
+  caret-color:#ea580c !important;
+  border:1px solid #fb923c !important;
+  box-shadow:none !important;
+}
+[data-testid="stForm"] textarea:focus,
+[data-testid="stForm"] input:focus {
+  border-color:#ea580c !important;
+  box-shadow:0 0 0 2px rgba(249,115,22,.18) !important;
+  outline:none !important;
+}
 [role="listbox"],
 [data-baseweb="popover"] > div {
   background:#ffffff !important;
@@ -878,6 +899,7 @@ def render_lead_followup_panel(customer: pd.Series) -> None:
         )
         date_value = parse_date(lead.get("follow_up_date"))
         selected_date = st.date_input("วันที่ต้องติดตาม", value=date_value)
+        clear_follow_up_date = st.checkbox("ล้างวันที่", value=False)
         note = st.text_area("โน๊ตติดตาม", value=clean(lead.get("follow_up_note")), height=110)
         updated_by = st.text_input("ชื่อผู้แก้ไข", value=clean(lead.get("updated_by")))
         submitted = st.form_submit_button("บันทึก Lead / Follow-up", use_container_width=True)
@@ -888,7 +910,7 @@ def render_lead_followup_panel(customer: pd.Series) -> None:
             {
                 "lead_status": selected_lead,
                 "follow_up_status": selected_follow,
-                "follow_up_date": selected_date,
+                "follow_up_date": None if clear_follow_up_date else selected_date,
                 "follow_up_note": note,
                 "priority": selected_priority,
                 "updated_by": updated_by,
