@@ -5,14 +5,21 @@ import plotly.graph_objects as go
 import plotly.express as px
 from urllib.parse import quote
 
+from auth_utils import can_view_system_page, require_login
+
 st.set_page_config(
     page_title="Sales Dashboard Pro Ultra",
     page_icon="📊",
     layout="wide"
 )
 
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
+auth_user = require_login()
+if not can_view_system_page(auth_user):
+    st.warning("หน้านี้เป็น dashboard หลังบ้าน เฉพาะ CEO/EDITOR เท่านั้นที่เข้าได้")
+    st.stop()
+
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", st.secrets.get("CRM_SUPABASE_URL", ""))
+SUPABASE_KEY = st.secrets.get("SUPABASE_ANON_KEY", st.secrets.get("CRM_SUPABASE_ANON_KEY", ""))
 
 HEADERS = {
     "apikey": SUPABASE_KEY,

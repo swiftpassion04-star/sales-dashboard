@@ -9,6 +9,8 @@ import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
+from auth_utils import can_edit_customer_lead, require_login
+
 
 CUSTOMERS_TABLE = "crm_customers"
 ORDERS_TABLE = "order_history"
@@ -67,6 +69,7 @@ SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_
 
 def render_customer360() -> None:
     inject_css()
+    auth_user = require_login()
     sync_detail_key_from_query()
     apply_reset_filters_if_requested()
     sidebar_refresh_controls()
@@ -85,7 +88,7 @@ def render_customer360() -> None:
 
     filtered = filtered.reset_index(drop=True)
     if st.session_state.get("customer360_detail_key"):
-        render_customer_detail(filtered)
+        render_customer_detail(filtered, auth_user)
         return
 
     render_customer_list(filtered)
@@ -808,7 +811,7 @@ def render_customer_list(df: pd.DataFrame) -> None:
     st.caption(f"แสดง {start + 1 if len(display_df) else 0}-{min(end, len(display_df))} จาก {len(display_df):,} แถว")
 
 
-def render_customer_detail(df: pd.DataFrame) -> None:
+def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
     detail_key = st.session_state.get("customer360_detail_key")
     selected = df[df.apply(customer_detail_key, axis=1) == detail_key]
     if selected.empty:
@@ -852,7 +855,7 @@ def render_customer_detail(df: pd.DataFrame) -> None:
             ("URL", first_value(customer, "product_url", "url", "channel_url")),
         ]
     )
-    render_lead_followup_panel(customer)
+    render_lead_followup_panel(customer, auth_user)
 
     if not orders:
         st.info("ยังไม่พบประวัติคำสั่งซื้อจาก DATA_RAW ที่ตรงกับเบอร์โทรติดต่อหรือเบอร์โทรสำรอง")
@@ -881,11 +884,12 @@ def render_customer_detail(df: pd.DataFrame) -> None:
     render_order_history(orders)
 
 
-def render_lead_followup_panel(customer: pd.Series) -> None:
+def render_lead_followup_panel(customer: pd.Series, auth_user: dict) -> None:
     lead = load_lead_followups().get(customer_detail_key(customer), {})
     lead_status = clean(lead.get("lead_status")) or "new"
     follow_up_status = clean(lead.get("follow_up_status")) or "none"
     priority = clean(lead.get("priority")) or "normal"
+    can_edit = can_edit_customer_lead(auth_user, customer)
 
     st.subheader("Lead / Follow-up Status")
     if st.session_state.get("customer360_lead_error") == "missing_service_key":
@@ -904,8 +908,14 @@ def render_lead_followup_panel(customer: pd.Series) -> None:
         ]
     )
 
+    if not can_edit:
+        st.info(
+            "โหมดอ่านอย่างเดียว: เฉพาะ EDITOR หรือพนักงานที่ชื่อผู้ดูแลตรงกับสิทธิ์ของตัวเองเท่านั้นที่แก้ Lead / Follow-up ได้"
+        )
+        return
+
     with st.form("lead_followup_form"):
-        st.caption("ช่วงแรกยังไม่มีระบบล็อกอิน ให้ใส่ชื่อผู้แก้ไขไว้ก่อน รุ่นถัดไปค่อยผูกสิทธิ์ admin/หัวหน้า/พนักงาน")
+        st.caption("บันทึกได้ตามสิทธิ์ผู้ใช้งาน: EDITOR จัดการได้ทุกคน, พนักงานแก้ได้เฉพาะลูกค้าที่ตัวเองดูแล")
         col1, col2, col3 = st.columns(3)
         selected_lead = col1.selectbox(
             "Lead Status",
@@ -929,7 +939,8 @@ def render_lead_followup_panel(customer: pd.Series) -> None:
         selected_date = st.date_input("วันที่ต้องติดตาม", value=date_value)
         clear_follow_up_date = st.checkbox("ล้างวันที่", value=False)
         note = st.text_area("โน๊ตติดตาม", value=clean(lead.get("follow_up_note")), height=110)
-        updated_by = st.text_input("ชื่อผู้แก้ไข", value=clean(lead.get("updated_by")))
+        default_updated_by = clean(lead.get("updated_by")) or clean(auth_user.get("staff_name")) or clean(auth_user.get("email"))
+        updated_by = st.text_input("ชื่อผู้แก้ไข", value=default_updated_by)
         submitted = st.form_submit_button("บันทึก Lead / Follow-up", use_container_width=True)
 
     if submitted:

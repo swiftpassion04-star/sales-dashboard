@@ -3,13 +3,14 @@ from datetime import datetime
 import requests
 import streamlit as st
 
+from auth_utils import can_manage_system_page, can_view_system_page, require_login
+
 
 st.set_page_config(page_title="DATA_RAW Sync", layout="wide")
 
 SUPABASE_URL = st.secrets.get("CRM_SUPABASE_URL", st.secrets.get("SUPABASE_URL", ""))
 ANON_KEY = st.secrets.get("CRM_SUPABASE_ANON_KEY", st.secrets.get("SUPABASE_ANON_KEY", ""))
 SERVICE_KEY = st.secrets.get("CRM_SUPABASE_SERVICE_KEY", st.secrets.get("SUPABASE_SERVICE_KEY", ""))
-ADMIN_PASSWORD = st.secrets.get("CRM_SYNC_ADMIN_PASSWORD", "")
 SYNC_NAME = "data_raw"
 
 
@@ -310,6 +311,12 @@ if not SUPABASE_URL or not ANON_KEY:
     st.error("ยังไม่ได้ตั้งค่า Supabase secrets")
     st.stop()
 
+auth_user = require_login()
+if not can_view_system_page(auth_user):
+    st.warning("หน้านี้เป็นระบบหลังบ้าน เฉพาะ CEO/EDITOR เท่านั้นที่เข้าได้")
+    st.stop()
+can_manage_sync = can_manage_system_page(auth_user)
+
 control_rows = api_get("sync_control", f"?sync_name=eq.{SYNC_NAME}&select=*")
 control = control_rows[0] if control_rows else {}
 
@@ -334,13 +341,8 @@ st.markdown(
 st.markdown("### ควบคุมการรัน")
 with st.container():
     st.markdown("<div class='sync-card'>", unsafe_allow_html=True)
-    password = st.text_input("รหัสผู้ดูแล", type="password", help="ใช้สำหรับหยุดรันหรือเปิดให้รันต่อ")
-    is_admin = bool(ADMIN_PASSWORD and password == ADMIN_PASSWORD)
-
-    if not ADMIN_PASSWORD:
-        st.warning("ยังไม่ได้ตั้งค่า CRM_SYNC_ADMIN_PASSWORD ใน Streamlit Secrets จึงยังใช้ปุ่มควบคุมไม่ได้")
-    elif not is_admin:
-        st.markdown("<div class='control-note'>ใส่รหัสผู้ดูแลเพื่อกดหยุดรันหรือเปิดให้ trigger รอบถัดไปทำงานต่อ</div>", unsafe_allow_html=True)
+    if not can_manage_sync:
+        st.markdown("<div class='control-note'>read-only: เฉพาะ EDITOR เท่านั้นที่หยุดหรือเปิด sync ได้</div>", unsafe_allow_html=True)
     else:
         col_stop, col_resume, col_refresh = st.columns(3)
         if col_stop.button("หยุดรัน DATA_RAW", use_container_width=True):

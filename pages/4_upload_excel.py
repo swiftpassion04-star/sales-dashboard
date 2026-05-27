@@ -10,6 +10,8 @@ import pandas as pd
 import requests
 import streamlit as st
 
+from auth_utils import can_manage_system_page, can_view_system_page, require_login
+
 
 UPLOAD_BATCH_SIZE = 500
 IMPORT_BATCHES_TABLE = "import_batches"
@@ -110,7 +112,6 @@ def get_secret(*names: str) -> str:
 
 SUPABASE_URL = get_secret("CRM_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
 SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY")
-UPLOAD_ADMIN_PASSWORD = get_secret("CRM_UPLOAD_ADMIN_PASSWORD", "CRM_SYNC_ADMIN_PASSWORD")
 
 
 st.set_page_config(page_title="Upload Excel", layout="wide")
@@ -123,16 +124,23 @@ def main() -> None:
 
     if not require_config():
         st.stop()
-    if not require_upload_access():
+    auth_user = require_login()
+    if not can_view_system_page(auth_user):
+        st.warning("หน้านี้เป็นระบบหลังบ้าน เฉพาะ CEO/EDITOR เท่านั้นที่เข้าได้")
         st.stop()
+    can_manage = can_manage_system_page(auth_user)
+    if not can_manage:
+        st.info("คุณกำลังดูแบบ read-only เฉพาะ EDITOR เท่านั้นที่อัปโหลด ยืนยัน import หรือ cleanup ได้")
+        render_batches_tab(read_only=True)
+        return
 
     tab_upload, tab_batches, tab_cleanup = st.tabs(["Upload", "ตรวจ/ยืนยัน", "Cleanup"])
     with tab_upload:
         render_upload_tab()
     with tab_batches:
-        render_batches_tab()
+        render_batches_tab(read_only=False)
     with tab_cleanup:
-        render_cleanup_tab()
+        render_cleanup_tab(read_only=False)
 
 
 def inject_css() -> None:
@@ -185,21 +193,6 @@ def require_config() -> bool:
         st.error("ยังไม่ได้ตั้งค่า Streamlit secrets: " + ", ".join(missing))
         return False
     return True
-
-
-def require_upload_access() -> bool:
-    if not UPLOAD_ADMIN_PASSWORD:
-        st.error("ยังไม่ได้ตั้งค่า CRM_UPLOAD_ADMIN_PASSWORD หรือ CRM_SYNC_ADMIN_PASSWORD สำหรับป้องกันหน้า Upload")
-        return False
-    if st.session_state.get("upload_excel_authenticated"):
-        return True
-    password = st.text_input("รหัสสำหรับ Upload/Admin", type="password")
-    if st.button("เข้าสู่หน้า Upload", use_container_width=True):
-        if password == UPLOAD_ADMIN_PASSWORD:
-            st.session_state.upload_excel_authenticated = True
-            st.rerun()
-        st.error("รหัสไม่ถูกต้อง")
-    return False
 
 
 def service_headers(prefer: str = "return=representation") -> dict[str, str]:
@@ -454,7 +447,7 @@ def create_staging_batch(target_table: str, filename: str, worksheet: str, rows:
     return batch_id
 
 
-def render_batches_tab() -> None:
+def render_batches_tab(read_only: bool = False) -> None:
     batches = api_request(
         "GET",
         IMPORT_BATCHES_TABLE,
@@ -473,10 +466,10 @@ def render_batches_tab() -> None:
                 break
     selected_label = st.selectbox("เลือก batch", labels, index=default_index)
     batch = batches[labels.index(selected_label)]
-    render_batch_detail(batch)
+    render_batch_detail(batch, read_only=read_only)
 
 
-def render_batch_detail(batch: dict) -> None:
+def render_batch_detail(batch: dict, read_only: bool = False) -> None:
     st.markdown(
         f"""
 <div class="upload-card">
@@ -506,6 +499,10 @@ def render_batch_detail(batch: dict) -> None:
                 }
             )
         st.dataframe(pd.DataFrame(preview), use_container_width=True)
+
+    if read_only:
+        st.info("read-only: เฉพาะ EDITOR เท่านั้นที่ยืนยันอัปเดตไฟล์ลง Database ได้")
+        return
 
     overwrite = st.checkbox("ยืนยันให้ overwrite ข้อมูลเดิมได้ ถ้า key ซ้ำ", value=False)
     clean_old = st.checkbox("หลัง import สำเร็จ ให้ลบ staging rows ของ batch นี้เพื่อลดขยะ", value=True)
@@ -611,7 +608,10 @@ def rollback_import(batch_id: str, target_table: str, target_key: str) -> None:
     api_request("PATCH", IMPORT_BATCHES_TABLE, {"status": "rolled_back", "updated_at": now_iso()}, f"?id=eq.{quote(batch_id)}")
 
 
-def render_cleanup_tab() -> None:
+def render_cleanup_tab(read_only: bool = False) -> None:
+    if read_only:
+        st.info("read-only: เฉพาะ EDITOR เท่านั้นที่ cleanup ข้อมูล upload ได้")
+        return
     st.subheader("ลบข้อมูลที่ไม่ใช้")
     st.warning("ส่วนนี้ลบเฉพาะ staging/import logs หรือข้อมูล final ที่มาจาก upload batch เท่านั้น ไม่ลบข้อมูล sync เดิมแบบไม่ระบุ batch")
     days = st.number_input("ลบ staging/log ที่เก่ากว่ากี่วัน", min_value=1, max_value=365, value=30)
