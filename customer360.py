@@ -68,6 +68,7 @@ SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_
 def render_customer360() -> None:
     inject_css()
     sync_detail_key_from_query()
+    apply_reset_filters_if_requested()
     sidebar_refresh_controls()
 
     customers = load_crm_customers()
@@ -179,13 +180,15 @@ p, label, [data-testid="stMarkdownContainer"] { color:var(--crm-text); }
   opacity:1 !important;
 }
 [data-testid="stMetricValue"] { color:var(--crm-accent-dark); font-weight:700; }
-.stSelectbox label, .stNumberInput label, .stTextInput label {
+.stSelectbox label, .stNumberInput label, .stTextInput label, .stTextArea label, .stDateInput label {
   color:#9a3412 !important;
   font-weight:700 !important;
 }
 div[data-baseweb="select"] > div,
 div[data-baseweb="input"] > div,
-input {
+input,
+textarea,
+[data-baseweb="textarea"] textarea {
   background:#ffffff !important;
   color:#111827 !important;
   border:1px solid #fb923c !important;
@@ -197,11 +200,27 @@ input,
 textarea {
   color:#111827 !important;
 }
+input::placeholder,
+textarea::placeholder {
+  color:#9a3412 !important;
+  opacity:.55 !important;
+}
 div[data-baseweb="select"] svg,
 button svg {
   color:#ea580c !important;
   fill:#ea580c !important;
 }
+[data-testid="stAlert"] {
+  color:#111827 !important;
+  border-radius:8px !important;
+}
+[data-testid="stAlert"] * { color:#111827 !important; }
+[data-testid="stCodeBlock"] {
+  background:#fff7ed !important;
+  color:#111827 !important;
+  border:1px solid #fed7aa !important;
+}
+[data-testid="stCodeBlock"] * { color:#111827 !important; }
 [role="listbox"],
 [data-baseweb="popover"] > div {
   background:#ffffff !important;
@@ -622,7 +641,7 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
         apply_pending_filters()
 
     if st.sidebar.button("ล้างตัวกรอง", use_container_width=True):
-        reset_filters()
+        request_reset_filters()
         st.rerun()
 
     active = st.session_state.customer360_filters
@@ -661,6 +680,12 @@ def init_filter_state() -> None:
     st.session_state.setdefault("customer360_pending_year", st.session_state.customer360_filters["year"])
 
 
+def apply_reset_filters_if_requested() -> None:
+    if not st.session_state.pop("customer360_reset_requested", False):
+        return
+    reset_filters()
+
+
 def sync_detail_key_from_query() -> None:
     detail_key = st.query_params.get("customer_key", "")
     if detail_key:
@@ -692,6 +717,10 @@ def reset_filters() -> None:
     st.session_state.customer360_pending_year = "ทั้งหมด"
     st.session_state.customer360_detail_key = None
     st.query_params.clear()
+
+
+def request_reset_filters() -> None:
+    st.session_state.customer360_reset_requested = True
 
 
 def safe_index(options: list[str], value: str) -> int:
