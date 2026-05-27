@@ -2,8 +2,14 @@ name: Sync CRM Customers to Supabase
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    # 00:00 Asia/Bangkok. GitHub Actions cron uses UTC.
+    - cron: "0 17 * * *"
   workflow_dispatch:
+    inputs:
+      batch_size:
+        description: "CRM customer upsert batch size. Lower is gentler for Supabase Free Plan."
+        required: false
+        default: "100"
 
 concurrency:
   group: crm-customers-sync
@@ -31,5 +37,5 @@ jobs:
           CRM_SUPABASE_SERVICE_KEY: ${{ secrets.CRM_SUPABASE_SERVICE_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           CRM_MANAGER_SHEETS_JSON: ${{ secrets.CRM_MANAGER_SHEETS_JSON }}
-          CRM_CUSTOMERS_BATCH_SIZE: "250"
+          CRM_CUSTOMERS_BATCH_SIZE: ${{ github.event.inputs.batch_size || '100' }}
         run: python sync_crm_customers_to_supabase.py
