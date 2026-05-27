@@ -962,10 +962,8 @@ def customer360_table(df: pd.DataFrame, lead_map: dict[str, dict]) -> pd.DataFra
                 "Follow-up": follow_up_badge(lead),
                 "ชื่อลูกค้า": first_value(row, "customer", "customer_name"),
                 "กลุ่มสินค้า": first_value(row, "product_group"),
-                "สินค้า": first_value(row, "product_name", "product"),
+                "สินค้า": first_product_name(first_value(row, "product_name", "product")),
                 "เบอร์โทรติดต่อ": first_value(row, "phone1"),
-                "เบอร์โทรสำรอง": first_value(row, "phone2"),
-                "โน๊ต": first_value(row, "note"),
                 "ผู้ดูแล": first_value(row, "sales_staff", "owner"),
                 "อัพเดต": count_checked_update_days(row),
                 "URL": first_value(row, "product_url", "url", "channel_url"),
@@ -1296,6 +1294,17 @@ def first_value(row: pd.Series, *names: str) -> str:
             if value:
                 return value
     return ""
+
+
+def first_product_name(value: object) -> str:
+    text = clean(value)
+    if not text:
+        return ""
+    separators = ["\r\n", "\n", "\r", "|", ",", " / ", "、", "，", ";"]
+    first_positions = [text.find(separator) for separator in separators if text.find(separator) >= 0]
+    if not first_positions:
+        return text
+    return text[: min(first_positions)].strip()
 
 
 def full_address(order: dict) -> str:
