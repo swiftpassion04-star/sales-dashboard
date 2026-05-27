@@ -811,12 +811,10 @@ def render_detail_grid(rows: list[tuple[str, object]]) -> None:
         else:
             rendered = html_escape(text)
         cells.append(
-            f"""
-            <div class="crm-detail-item">
-              <div class="crm-detail-label">{html_escape(label)}</div>
-              <div class="crm-detail-value">{rendered}</div>
-            </div>
-            """
+            '<div class="crm-detail-item">'
+            f'<div class="crm-detail-label">{html_escape(label)}</div>'
+            f'<div class="crm-detail-value">{rendered}</div>'
+            "</div>"
         )
     cells.append("</div>")
     st.markdown("".join(cells), unsafe_allow_html=True)
@@ -834,23 +832,21 @@ def render_order_history(orders: list[dict]) -> None:
     st.subheader("ประวัติการสั่งซื้อเก่าทั้งหมด")
     for order in sort_orders(orders):
         products = parse_products(order.get("products"))
-        st.markdown(
-            f"""
-            <div class="order-card">
-              <span class="badge">ออเดอร์ {html_escape(order.get("order_id"))}</span>
-              <span class="badge">{html_escape(order.get("date_text")) or "-"}</span>
-              <span class="badge badge-green">{float(order.get("total_sales") or 0):,.0f} บาท</span>
-              {payment_badge(order.get("payment_method"))}
-              {delivery_badge(order.get("delivery_status"))}
-              <div><b>สินค้า:</b></div>
-              {compact_product_list(products)}
-              <div><b>ที่อยู่:</b> {html_escape(full_address(order)) or "-"}</div>
-              <div><b>ผู้ขายเดิม:</b> {html_escape(order.get("sales_staff")) or "-"}</div>
-              <div><b>ขนส่ง:</b> {html_escape(order.get("shipping")) or "-"} / {html_escape(order.get("tracking_no")) or "-"}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        html_card = (
+            '<div class="order-card">'
+            f'<span class="badge">ออเดอร์ {html_escape(order.get("order_id"))}</span>'
+            f'<span class="badge">{html_escape(order.get("date_text")) or "-"}</span>'
+            f'<span class="badge badge-green">{float(order.get("total_sales") or 0):,.0f} บาท</span>'
+            f'{payment_badge(order.get("payment_method"))}'
+            f'{delivery_badge(order.get("delivery_status"))}'
+            "<div><b>สินค้า:</b></div>"
+            f"{compact_product_list(products)}"
+            f'<div><b>ที่อยู่:</b> {html_escape(full_address(order)) or "-"}</div>'
+            f'<div><b>ผู้ขายเดิม:</b> {html_escape(order.get("sales_staff")) or "-"}</div>'
+            f'<div><b>ขนส่ง:</b> {html_escape(order.get("shipping")) or "-"} / {html_escape(order.get("tracking_no")) or "-"}</div>'
+            "</div>"
         )
+        st.markdown(html_card, unsafe_allow_html=True)
 
 
 def compact_product_list(products: list[dict]) -> str:
