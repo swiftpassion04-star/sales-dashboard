@@ -1,11 +1,20 @@
 import os
+import base64
+import json
+import time
 from urllib.parse import quote
 
 import requests
 import streamlit as st
+try:
+    from streamlit_js_eval import streamlit_js_eval
+except ImportError:  # Local fallback until dependencies are installed.
+    streamlit_js_eval = None
 
 
 USER_ROLES_TABLE = "crm_user_roles"
+AUTH_STORAGE_KEY = "crm_core_auth_session"
+TOKEN_REFRESH_GRACE_SECONDS = 90
 ROLE_CEO = "CEO"
 ROLE_EDITOR = "EDITOR"
 ROLE_STAFF = "พนักงาน"
@@ -94,6 +103,23 @@ def login_with_password(email: str, password: str) -> dict:
     return response.json()
 
 
+def refresh_auth_session(refresh_token: str) -> dict:
+    base_url = supabase_url()
+    anon_key = supabase_anon_key()
+    if not base_url or not anon_key:
+        raise RuntimeError("ยังไม่ได้ตั้งค่า CRM_SUPABASE_URL หรือ CRM_SUPABASE_ANON_KEY")
+
+    response = requests.post(
+        f"{base_url}/auth/v1/token?grant_type=refresh_token",
+        headers=_auth_headers(anon_key),
+        json={"refresh_token": refresh_token},
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError("session หมดอายุ กรุณาเข้าสู่ระบบใหม่")
+    return response.json()
+
+
 def fetch_user_role(email: str) -> dict:
     normalized_email = email.strip().lower()
     default_role = {
@@ -131,12 +157,15 @@ def fetch_user_role(email: str) -> dict:
 
 
 def logout() -> None:
+    st.session_state.auth_skip_restore = True
+    st.session_state.auth_clear_browser_session = True
     for key in ("auth_access_token", "auth_refresh_token", "auth_user", "auth_role"):
         st.session_state.pop(key, None)
     st.rerun()
 
 
 def current_user() -> dict | None:
+    ensure_fresh_session()
     auth_user = st.session_state.get("auth_user")
     auth_role = st.session_state.get("auth_role")
     if not auth_user or not auth_role:
@@ -178,6 +207,10 @@ def html_escape(value) -> str:
 
 def require_login() -> dict:
     inject_auth_css()
+    if st.session_state.pop("auth_clear_browser_session", False):
+        clear_browser_session()
+    if not st.session_state.get("auth_skip_restore"):
+        restore_browser_session()
     user = current_user()
     if user:
         render_user_box(user)
@@ -199,10 +232,109 @@ def require_login() -> dict:
             st.session_state.auth_refresh_token = payload.get("refresh_token")
             st.session_state.auth_user = auth_user
             st.session_state.auth_role = role
-            st.rerun()
+            st.session_state.pop("auth_skip_restore", None)
+            st.session_state.pop("auth_clear_browser_session", None)
+            save_browser_session(payload, role)
+            user = current_user()
+            if user:
+                render_user_box(user)
+                return user
         except Exception as exc:
             st.error(str(exc))
     st.stop()
+
+
+def _jwt_exp(access_token: str | None) -> int | None:
+    if not access_token or access_token.count(".") < 2:
+        return None
+    try:
+        payload = access_token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
+        return int(json.loads(decoded).get("exp"))
+    except Exception:
+        return None
+
+
+def ensure_fresh_session() -> None:
+    refresh_token = st.session_state.get("auth_refresh_token")
+    if not refresh_token:
+        return
+    exp = _jwt_exp(st.session_state.get("auth_access_token"))
+    if exp and exp - int(time.time()) > TOKEN_REFRESH_GRACE_SECONDS:
+        return
+    try:
+        payload = refresh_auth_session(refresh_token)
+        auth_user = payload.get("user") or st.session_state.get("auth_user") or {}
+        user_email = (auth_user.get("email") or current_email()).strip().lower()
+        role = fetch_user_role(user_email)
+        st.session_state.auth_access_token = payload.get("access_token")
+        st.session_state.auth_refresh_token = payload.get("refresh_token") or refresh_token
+        st.session_state.auth_user = auth_user
+        st.session_state.auth_role = role
+        save_browser_session(payload, role)
+    except Exception:
+        clear_browser_session()
+        for key in ("auth_access_token", "auth_refresh_token", "auth_user", "auth_role"):
+            st.session_state.pop(key, None)
+
+
+def current_email() -> str:
+    auth_role = st.session_state.get("auth_role") or {}
+    auth_user = st.session_state.get("auth_user") or {}
+    return auth_role.get("email") or auth_user.get("email") or ""
+
+
+def save_browser_session(payload: dict, role: dict) -> None:
+    if streamlit_js_eval is None:
+        return
+    session_payload = {
+        "access_token": payload.get("access_token"),
+        "refresh_token": payload.get("refresh_token") or st.session_state.get("auth_refresh_token"),
+        "user": payload.get("user") or st.session_state.get("auth_user") or {},
+        "role": role or st.session_state.get("auth_role") or {},
+    }
+    js_value = json.dumps(json.dumps(session_payload, ensure_ascii=False))
+    streamlit_js_eval(
+        js_expressions=f"sessionStorage.setItem('{AUTH_STORAGE_KEY}', {js_value}); 'ok'",
+        key=f"auth_save_{int(time.time() * 1000)}",
+    )
+
+
+def clear_browser_session() -> None:
+    if streamlit_js_eval is None:
+        return
+    streamlit_js_eval(
+        js_expressions=f"sessionStorage.removeItem('{AUTH_STORAGE_KEY}'); 'ok'",
+        key=f"auth_clear_{int(time.time() * 1000)}",
+    )
+
+
+def restore_browser_session() -> None:
+    if current_email() or streamlit_js_eval is None:
+        return
+    stored = streamlit_js_eval(
+        js_expressions=f"sessionStorage.getItem('{AUTH_STORAGE_KEY}')",
+        key="auth_restore_session",
+    )
+    if not stored:
+        return
+    try:
+        payload = json.loads(stored)
+        access_token = payload.get("access_token")
+        refresh_token = payload.get("refresh_token")
+        auth_user = payload.get("user") or {}
+        role = payload.get("role") or {}
+        if not access_token or not refresh_token or not auth_user.get("email"):
+            clear_browser_session()
+            return
+        st.session_state.auth_access_token = access_token
+        st.session_state.auth_refresh_token = refresh_token
+        st.session_state.auth_user = auth_user
+        st.session_state.auth_role = role if role.get("email") else fetch_user_role(auth_user.get("email"))
+        ensure_fresh_session()
+    except Exception:
+        clear_browser_session()
 
 
 def can_manage_all(user: dict | None) -> bool:
@@ -244,4 +376,3 @@ def can_edit_customer_lead(user: dict | None, customer) -> bool:
             sales_staff = _clean(value)
             break
     return sales_staff == staff_name
-
