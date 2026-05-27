@@ -78,6 +78,103 @@ div.stButton > button[kind="secondary"] {
     )
 
 
+def inject_login_css() -> None:
+    st.markdown(
+        """
+<style>
+.block-container {
+  max-width: 1180px !important;
+  padding-top: 4.2rem !important;
+}
+[data-testid="stDecoration"] { display:none !important; }
+.crm-login-shell {
+  margin: 0 auto 18px;
+  max-width: 430px;
+  text-align: left;
+}
+.crm-login-brand {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-bottom:18px;
+}
+.crm-login-logo {
+  width:42px;
+  height:42px;
+  border-radius:12px;
+  background:linear-gradient(135deg,#f97316 0%,#fb923c 54%,#dbeafe 100%);
+  box-shadow:0 14px 30px rgba(249,115,22,.22);
+}
+.crm-login-title {
+  font-size:28px;
+  line-height:1.05;
+  font-weight:800;
+  letter-spacing:0;
+  color:#111827;
+}
+.crm-login-subtitle {
+  margin-top:4px;
+  color:#64748b;
+  font-size:14px;
+}
+.crm-login-note {
+  background:#f8fafc;
+  border:1px solid #dbeafe;
+  color:#334155;
+  border-radius:10px;
+  padding:12px 14px;
+  font-size:14px;
+  margin-bottom:14px;
+}
+div[data-testid="stForm"] {
+  max-width:430px;
+  margin:0 auto !important;
+  background:rgba(255,255,255,.92);
+  border:1px solid #fed7aa;
+  border-radius:14px;
+  padding:22px 22px 20px;
+  box-shadow:0 20px 55px rgba(15,23,42,.08);
+}
+div[data-testid="stForm"] label {
+  color:#334155 !important;
+  font-weight:700 !important;
+  font-size:13px !important;
+}
+div[data-testid="stForm"] input {
+  height:44px !important;
+  background:#ffffff !important;
+  border:1px solid #e2e8f0 !important;
+  color:#0f172a !important;
+  border-radius:10px !important;
+  box-shadow:none !important;
+}
+div[data-testid="stForm"] input:focus {
+  border-color:#f97316 !important;
+  box-shadow:0 0 0 3px rgba(249,115,22,.14) !important;
+}
+div[data-testid="stForm"] input::placeholder {
+  color:#94a3b8 !important;
+}
+div[data-testid="stForm"] [data-baseweb="input"] > div {
+  background:#ffffff !important;
+  border-radius:10px !important;
+  border-color:#e2e8f0 !important;
+}
+div[data-testid="stForm"] button {
+  min-height:44px !important;
+  border-radius:10px !important;
+}
+@media (max-width: 760px) {
+  .block-container { padding-top:2.4rem !important; }
+  .crm-login-shell,
+  div[data-testid="stForm"] { max-width:100%; }
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def _auth_headers(key: str) -> dict[str, str]:
     return {
         "apikey": key,
@@ -216,11 +313,28 @@ def require_login() -> dict:
         render_user_box(user)
         return user
 
-    st.info("กรุณาเข้าสู่ระบบด้วยอีเมลและรหัสผ่านก่อนใช้งาน CRM")
-    with st.form("crm_login_form"):
-        email = st.text_input("อีเมล", value="", placeholder="name@example.com")
-        password = st.text_input("รหัสผ่าน", value="", type="password")
-        submitted = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
+    inject_login_css()
+    left, center, right = st.columns([1, 1.08, 1])
+    with center:
+        st.markdown(
+            """
+<div class="crm-login-shell">
+  <div class="crm-login-brand">
+    <div class="crm-login-logo"></div>
+    <div>
+      <div class="crm-login-title">Sales CRM</div>
+      <div class="crm-login-subtitle">เข้าสู่ระบบเพื่อจัดการข้อมูลลูกค้า</div>
+    </div>
+  </div>
+  <div class="crm-login-note">ใช้บัญชีที่ได้รับสิทธิ์จาก Supabase Auth เท่านั้น</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+        with st.form("crm_login_form"):
+            email = st.text_input("อีเมล", value="", placeholder="name@example.com")
+            password = st.text_input("รหัสผ่าน", value="", type="password")
+            submitted = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
 
     if submitted:
         try:
