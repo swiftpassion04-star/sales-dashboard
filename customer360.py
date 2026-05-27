@@ -377,6 +377,34 @@ button svg {
   border:none;
   min-height:42px;
 }
+[data-testid="stForm"] .stButton > button,
+[data-testid="stForm"] button[kind="formSubmit"],
+button[kind="formSubmit"],
+[data-testid="baseButton-secondaryFormSubmit"] {
+  background:linear-gradient(90deg,#f97316 0%,#ea580c 100%) !important;
+  color:#ffffff !important;
+  -webkit-text-fill-color:#ffffff !important;
+  border:1px solid #ea580c !important;
+  border-radius:8px !important;
+  font-weight:800 !important;
+  min-height:44px !important;
+  box-shadow:0 10px 24px rgba(234,88,12,.18) !important;
+}
+[data-testid="stForm"] .stButton > button *,
+[data-testid="stForm"] button[kind="formSubmit"] *,
+button[kind="formSubmit"] *,
+[data-testid="baseButton-secondaryFormSubmit"] * {
+  color:#ffffff !important;
+  -webkit-text-fill-color:#ffffff !important;
+}
+[data-testid="stForm"] .stButton > button:hover,
+[data-testid="stForm"] button[kind="formSubmit"]:hover,
+button[kind="formSubmit"]:hover,
+[data-testid="baseButton-secondaryFormSubmit"]:hover {
+  background:linear-gradient(90deg,#ea580c 0%,#c2410c 100%) !important;
+  color:#ffffff !important;
+  border-color:#c2410c !important;
+}
 .stButton > button:hover {
   background:#ffedd5 !important;
   color:#7c2d12 !important;
