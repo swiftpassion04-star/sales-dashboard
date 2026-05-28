@@ -7,7 +7,6 @@ from urllib.parse import quote, urlencode
 import pandas as pd
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 
 from auth_utils import can_edit_customer_lead, require_login
 
@@ -19,7 +18,6 @@ FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500]
-AUTO_REFRESH_SECONDS = 300
 LEAD_STATUS_OPTIONS = {
     "new": "ลูกค้าใหม่",
     "contacted": "ติดต่อแล้ว",
@@ -72,7 +70,6 @@ def render_customer360() -> None:
     auth_user = require_login()
     sync_detail_key_from_query()
     apply_reset_filters_if_requested()
-    sidebar_refresh_controls()
 
     customers = load_crm_customers()
     st.title("ข้อมูลลูกค้า")
@@ -628,29 +625,6 @@ def save_lead_followup(customer: pd.Series, values: dict) -> str | None:
     if not error:
         load_lead_followups.clear()
     return error
-
-
-def sidebar_refresh_controls() -> None:
-    st.sidebar.header("อัปเดตข้อมูล")
-    auto_refresh = st.sidebar.toggle(
-        f"รีเฟรชอัตโนมัติทุก {AUTO_REFRESH_SECONDS} วินาที",
-        value=False,
-    )
-    if st.sidebar.button("รีเฟรชข้อมูลตอนนี้", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
-    if auto_refresh:
-        components.html(
-            f"""
-            <script>
-              window.setTimeout(function() {{
-                window.parent.location.reload();
-              }}, {AUTO_REFRESH_SECONDS * 1000});
-            </script>
-            """,
-            height=0,
-            width=0,
-        )
 
 
 def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:

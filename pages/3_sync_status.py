@@ -2,6 +2,7 @@ from datetime import datetime
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 from auth_utils import can_manage_system_page, can_view_system_page, require_login
 
@@ -12,6 +13,7 @@ SUPABASE_URL = st.secrets.get("CRM_SUPABASE_URL", st.secrets.get("SUPABASE_URL",
 ANON_KEY = st.secrets.get("CRM_SUPABASE_ANON_KEY", st.secrets.get("SUPABASE_ANON_KEY", ""))
 SERVICE_KEY = st.secrets.get("CRM_SUPABASE_SERVICE_KEY", st.secrets.get("SUPABASE_SERVICE_KEY", ""))
 SYNC_NAME = "data_raw"
+AUTO_REFRESH_SECONDS = 300
 
 
 st.markdown(
@@ -242,6 +244,29 @@ def api_patch(path: str, params: str, payload: dict) -> None:
         st.cache_data.clear()
 
 
+def sidebar_refresh_controls() -> None:
+    st.sidebar.header("อัปเดตข้อมูล")
+    auto_refresh = st.sidebar.toggle(
+        f"รีเฟรชอัตโนมัติทุก {AUTO_REFRESH_SECONDS} วินาที",
+        value=False,
+    )
+    if st.sidebar.button("รีเฟรชข้อมูลตอนนี้", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    if auto_refresh:
+        components.html(
+            f"""
+            <script>
+              window.setTimeout(function() {{
+                window.parent.location.reload();
+              }}, {AUTO_REFRESH_SECONDS * 1000});
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+
+
 def fmt(value: object) -> str:
     if not value:
         return "-"
@@ -316,6 +341,7 @@ if not can_view_system_page(auth_user):
     st.warning("หน้านี้เป็นระบบหลังบ้าน เฉพาะ CEO/EDITOR เท่านั้นที่เข้าได้")
     st.stop()
 can_manage_sync = can_manage_system_page(auth_user)
+sidebar_refresh_controls()
 
 control_rows = api_get("sync_control", f"?sync_name=eq.{SYNC_NAME}&select=*")
 control = control_rows[0] if control_rows else {}
