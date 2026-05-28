@@ -21,6 +21,22 @@ ORDER_TABLE = "order_history"
 CONTROL_TABLE = "sync_control"
 RUN_TABLE = "sync_runs"
 SYNC_NAME = "data_raw"
+SYNC_CONTROL_COLUMNS = ",".join(
+    [
+        "sync_name",
+        "is_paused",
+        "stop_requested",
+        "current_run_id",
+        "last_status",
+        "last_message",
+        "last_started_at",
+        "last_finished_at",
+        "last_source",
+        "last_rows_read",
+        "last_records_upserted",
+        "updated_at",
+    ]
+)
 BATCH_SIZE = int(os.environ.get("DATA_RAW_BATCH_SIZE", "250"))
 MIN_BATCH_SIZE = int(os.environ.get("DATA_RAW_MIN_BATCH_SIZE", "25"))
 MAX_UPSERT_RETRIES = int(os.environ.get("DATA_RAW_MAX_UPSERT_RETRIES", "3"))
@@ -86,12 +102,18 @@ def service_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     return headers
 
 
-def supabase_request(method: str, path: str, payload: Any | None = None, params: str = "") -> Any:
+def supabase_request(
+    method: str,
+    path: str,
+    payload: Any | None = None,
+    params: str = "",
+    prefer: str = "return=minimal",
+) -> Any:
     url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{path}{params}"
     response = requests.request(
         method,
         url,
-        headers=service_headers({"Prefer": "return=representation"}),
+        headers=service_headers({"Prefer": prefer}),
         data=json.dumps(payload, ensure_ascii=False) if payload is not None else None,
         timeout=REQUEST_TIMEOUT,
     )
@@ -119,6 +141,7 @@ def create_run() -> str:
             "trigger_type": TRIGGER_TYPE,
             "started_at": now_iso(),
         },
+        prefer="return=minimal",
     )
     update_control(
         is_paused=False,
@@ -139,7 +162,7 @@ def update_run(run_id: str, **fields: Any) -> None:
 
 
 def get_control() -> dict[str, Any]:
-    rows = supabase_request("GET", CONTROL_TABLE, params=f"?sync_name=eq.{SYNC_NAME}&select=*")
+    rows = supabase_request("GET", CONTROL_TABLE, params=f"?sync_name=eq.{SYNC_NAME}&select={SYNC_CONTROL_COLUMNS}")
     return rows[0] if rows else {}
 
 

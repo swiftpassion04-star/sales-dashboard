@@ -19,6 +19,23 @@ FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
 CUSTOMER_CACHE_SECONDS = 600
+LEAD_FOLLOWUP_COLUMNS = [
+    "customer_key",
+    "customer_id",
+    "customer_name",
+    "phone_key",
+    "phone1",
+    "phone2",
+    "product_group",
+    "lead_status",
+    "follow_up_status",
+    "follow_up_date",
+    "follow_up_note",
+    "priority",
+    "updated_by",
+    "updated_at",
+    "created_at",
+]
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500]
 ALL_FILTER = "ทั้งหมด"
 CUSTOMER_SELECT_COLUMNS = [
@@ -495,13 +512,13 @@ def api_upsert(path: str, payload: dict, conflict_key: str) -> tuple[list[dict],
     url = f"{SUPABASE_URL}/rest/v1/{path}?on_conflict={quote(conflict_key)}"
     headers = request_headers(
         api_key=SUPABASE_SERVICE_KEY,
-        prefer="resolution=merge-duplicates,return=representation",
+        prefer="resolution=merge-duplicates,return=minimal",
     )
     headers["Content-Type"] = "application/json"
     response = requests.post(url, headers=headers, json=[payload], timeout=30)
-    if response.status_code not in (200, 201):
+    if response.status_code not in (200, 201, 204):
         return [], response.text
-    return response.json(), None
+    return response.json() if response.text else [], None
 
 
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner="กำลังโหลดลูกค้า CRM...")
@@ -681,21 +698,42 @@ def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
             "synced_at",
         ]
     )
-    phone_filters = []
+    exact_phone_filters = []
+    fuzzy_phone_filters = []
     for phone in clean_phones[:6]:
         q = quote(phone)
-        phone_filters.extend([f"phone1.ilike.*{q}*", f"phone2.ilike.*{q}*"])
+        exact_phone_filters.extend([f"phone1.eq.{q}", f"phone2.eq.{q}"])
+        fuzzy_phone_filters.extend([f"phone1.ilike.*{q}*", f"phone2.ilike.*{q}*"])
 
-    rows: list[dict] = []
-    offset = 0
-    base = [f"select={select_cols}", f"or=({','.join(phone_filters)})"]
+    base = [f"select={select_cols}", f"or=({','.join(exact_phone_filters)})"]
     if year != ALL_FILTER:
         base.append(f"year_file=eq.{quote(year)}")
 
+    rows = fetch_order_pages(base)
+    if not rows:
+        fallback_base = [f"select={select_cols}", f"or=({','.join(fuzzy_phone_filters)})"]
+        if year != ALL_FILTER:
+            fallback_base.append(f"year_file=eq.{quote(year)}")
+        rows = fetch_order_pages(fallback_base)
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    target_phones = set(clean_phones)
+
+    def exact_phone_match(row: pd.Series) -> bool:
+        return bool({normalize_phone(row.get("phone1")), normalize_phone(row.get("phone2"))} & target_phones)
+
+    return df[df.apply(exact_phone_match, axis=1)].copy()
+
+
+def fetch_order_pages(base_params: list[str]) -> list[dict]:
+    rows: list[dict] = []
+    offset = 0
     while offset < ORDER_MAX_FETCH:
         page, error = api_get(
             ORDERS_TABLE,
-            base
+            base_params
             + [
                 f"limit={min(FETCH_LIMIT, ORDER_MAX_FETCH - offset)}",
                 f"offset={offset}",
@@ -708,16 +746,7 @@ def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
         if len(page) < FETCH_LIMIT:
             break
         offset += FETCH_LIMIT
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-    target_phones = set(clean_phones)
-
-    def exact_phone_match(row: pd.Series) -> bool:
-        return bool({normalize_phone(row.get("phone1")), normalize_phone(row.get("phone2"))} & target_phones)
-
-    return df[df.apply(exact_phone_match, axis=1)].copy()
+    return rows
 
 
 @st.cache_data(ttl=30, show_spinner="กำลังโหลดสถานะ Lead / Follow-up...")
@@ -732,7 +761,7 @@ def load_lead_followups() -> dict[str, dict]:
         page, error = api_get(
             LEAD_FOLLOWUPS_TABLE,
             [
-                "select=*",
+                "select=" + ",".join(LEAD_FOLLOWUP_COLUMNS),
                 "order=updated_at.desc",
                 f"limit={min(FETCH_LIMIT, CUSTOMER_MAX_FETCH - offset)}",
                 f"offset={offset}",

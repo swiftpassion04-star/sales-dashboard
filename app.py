@@ -288,7 +288,6 @@ def sort_months(values):
 def load_summary_all():
     rows = api_get_all("dashboard_summary", [
         "select=year,month,province,channel,sales_staff,source_sheet,total_sales,total_orders,total_customers",
-        "limit=200000"
     ])
     df = pd.DataFrame(rows)
     if df.empty: return df
@@ -302,7 +301,7 @@ def load_summary_filtered(year, month, province, channel, sales_staff, source_sh
     filters = build_filter_params(year, month, province, channel, sales_staff, source_sheet)
     rows = api_get_all("dashboard_summary", [
         "select=year,month,province,channel,sales_staff,source_sheet,total_sales,total_orders,total_customers"
-    ] + filters + ["limit=200000"])
+    ] + filters)
     df = pd.DataFrame(rows)
     if df.empty: return df
     for col in ["total_sales","total_orders","total_customers"]:

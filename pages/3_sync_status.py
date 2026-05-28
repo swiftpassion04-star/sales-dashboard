@@ -14,6 +14,22 @@ ANON_KEY = st.secrets.get("CRM_SUPABASE_ANON_KEY", st.secrets.get("SUPABASE_ANON
 SERVICE_KEY = st.secrets.get("CRM_SUPABASE_SERVICE_KEY", st.secrets.get("SUPABASE_SERVICE_KEY", ""))
 SYNC_NAME = "data_raw"
 AUTO_REFRESH_SECONDS = 300
+SYNC_CONTROL_COLUMNS = ",".join(
+    [
+        "sync_name",
+        "is_paused",
+        "stop_requested",
+        "current_run_id",
+        "last_status",
+        "last_message",
+        "last_started_at",
+        "last_finished_at",
+        "last_source",
+        "last_rows_read",
+        "last_records_upserted",
+        "updated_at",
+    ]
+)
 
 
 st.markdown(
@@ -212,13 +228,13 @@ p, label, span, div {
 )
 
 
-def headers(use_service: bool = False) -> dict[str, str]:
+def headers(use_service: bool = False, prefer: str = "return=minimal") -> dict[str, str]:
     key = SERVICE_KEY if use_service and SERVICE_KEY else ANON_KEY
     return {
         "apikey": key,
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation",
+        "Prefer": prefer,
     }
 
 
@@ -233,7 +249,7 @@ def api_get(path: str, params: str) -> list[dict]:
 def api_patch(path: str, params: str, payload: dict) -> None:
     response = requests.patch(
         f"{SUPABASE_URL}/rest/v1/{path}{params}",
-        headers=headers(use_service=True),
+        headers=headers(use_service=True, prefer="return=minimal"),
         json=payload,
         timeout=30,
     )
@@ -343,7 +359,7 @@ if not can_view_system_page(auth_user):
 can_manage_sync = can_manage_system_page(auth_user)
 sidebar_refresh_controls()
 
-control_rows = api_get("sync_control", f"?sync_name=eq.{SYNC_NAME}&select=*")
+control_rows = api_get("sync_control", f"?sync_name=eq.{SYNC_NAME}&select={SYNC_CONTROL_COLUMNS}")
 control = control_rows[0] if control_rows else {}
 
 status_cols = st.columns(4)
