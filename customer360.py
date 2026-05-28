@@ -14,10 +14,28 @@ from auth_utils import can_edit_customer_lead, require_login
 CUSTOMERS_TABLE = "crm_customers"
 ORDERS_TABLE = "order_history"
 LEAD_FOLLOWUPS_TABLE = "crm_lead_followups"
+FILTER_OPTIONS_TABLE = "crm_customer_filter_options"
 FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
+CUSTOMER_CACHE_SECONDS = 600
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500]
+ALL_FILTER = "ทั้งหมด"
+CUSTOMER_SELECT_COLUMNS = [
+    "customer_id",
+    "customer",
+    "sales_staff",
+    "product_url",
+    "product_name",
+    "phone1",
+    "phone2",
+    "product_group",
+    "note",
+    "updated_at",
+    "call_1",
+    "call_2",
+    "call_3",
+]
 LEAD_STATUS_OPTIONS = {
     "new": "ลูกค้าใหม่",
     "contacted": "ติดต่อแล้ว",
@@ -70,25 +88,26 @@ def render_customer360() -> None:
     auth_user = require_login()
     sync_detail_key_from_query()
     apply_reset_filters_if_requested()
+    init_filter_state()
 
-    customers = load_crm_customers()
     st.title("ข้อมูลลูกค้า")
+    filters = sidebar_filters()
+    page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customer360_page_size")
+    page = max(int(st.session_state.get("customer360_page", 1)), 1)
+    customers, total_count = load_crm_customers(filter_key(filters), page_size, page)
 
-    if customers.empty:
+    if customers.empty and not total_count and not has_active_filters(filters):
         render_setup_warning()
         st.stop()
-
-    filtered = sidebar_filters(customers)
-    if filtered.empty:
+    if customers.empty and not total_count:
         st.warning("ไม่พบลูกค้าตามเงื่อนไขที่เลือก")
-        st.stop()
-
-    filtered = filtered.reset_index(drop=True)
-    if st.session_state.get("customer360_detail_key"):
-        render_customer_detail(filtered, auth_user)
         return
 
-    render_customer_list(filtered)
+    if st.session_state.get("customer360_detail_key"):
+        render_customer_detail(customers.reset_index(drop=True), auth_user)
+        return
+
+    render_customer_list(customers.reset_index(drop=True), total_count, filters, page_size, page)
 
 
 def inject_css() -> None:
@@ -451,6 +470,24 @@ def api_get(path: str, params: list[str], api_key: str | None = None) -> tuple[l
     return response.json(), None
 
 
+def api_get_counted(path: str, params: list[str], api_key: str | None = None) -> tuple[list[dict], int, str | None]:
+    require_config()
+    url = f"{SUPABASE_URL}/rest/v1/{path}?{'&'.join(params)}"
+    response = requests.get(url, headers=request_headers(api_key=api_key), timeout=30)
+    if response.status_code not in (200, 206):
+        return [], 0, response.text
+    rows = response.json()
+    total_count = parse_content_range_count(response.headers.get("content-range", "")) or len(rows)
+    return rows, total_count, None
+
+
+def parse_content_range_count(content_range: str) -> int:
+    if "/" not in content_range:
+        return 0
+    total = content_range.rsplit("/", 1)[-1]
+    return int(total) if total.isdigit() else 0
+
+
 def api_upsert(path: str, payload: dict, conflict_key: str) -> tuple[list[dict], str | None]:
     require_config()
     if not SUPABASE_SERVICE_KEY:
@@ -467,29 +504,124 @@ def api_upsert(path: str, payload: dict, conflict_key: str) -> tuple[list[dict],
     return response.json(), None
 
 
-@st.cache_data(ttl=60, show_spinner="กำลังโหลดลูกค้า CRM...")
-def load_crm_customers() -> pd.DataFrame:
-    rows: list[dict] = []
-    offset = 0
-    while offset < CUSTOMER_MAX_FETCH:
-        page, error = api_get(
-            CUSTOMERS_TABLE,
-            [
-                "select=*",
-                "order=updated_at.desc",
-                f"limit={min(FETCH_LIMIT, CUSTOMER_MAX_FETCH - offset)}",
-                f"offset={offset}",
-            ],
-        )
-        if error:
-            st.session_state.customer360_customer_error = error
-            return pd.DataFrame()
-        rows.extend(page)
-        if len(page) < FETCH_LIMIT:
-            break
-        offset += FETCH_LIMIT
+@st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner="กำลังโหลดลูกค้า CRM...")
+def load_crm_customers(filters: tuple[str, str, str, str], page_size: int, page: int) -> tuple[pd.DataFrame, int]:
+    page = max(int(page), 1)
+    page_size = int(page_size)
+    offset = (page - 1) * page_size
+    params = customer_query_params(filters, page_size, offset)
+    rows, total_count, error = api_get_counted(CUSTOMERS_TABLE, params)
+    if error:
+        st.session_state.customer360_customer_error = error
+        return pd.DataFrame(), 0
     st.session_state.customer360_customer_error = ""
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), total_count
+
+
+@st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
+def load_customer_filter_options() -> dict[str, list[str]]:
+    rows, error = api_get(
+        FILTER_OPTIONS_TABLE,
+        ["select=option_type,option_value", "order=option_type.asc,option_value.asc", "limit=5000"],
+    )
+    if error:
+        return {"product_group": PRODUCT_GROUP_ORDER.copy(), "sales_staff": []}
+    options = {"product_group": [], "sales_staff": []}
+    for row in rows:
+        option_type = clean(row.get("option_type"))
+        option_value = clean(row.get("option_value"))
+        if option_type in options and option_value and option_value not in options[option_type]:
+            options[option_type].append(option_value)
+    product_groups = [group for group in PRODUCT_GROUP_ORDER if group in set(options["product_group"])]
+    extras = sorted(set(options["product_group"]) - set(product_groups))
+    options["product_group"] = product_groups + extras
+    return options
+
+
+@st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
+def search_order_customer_terms(keyword: str) -> dict[str, tuple[str, ...]]:
+    keyword = clean(keyword)
+    if not keyword:
+        return {"phones": (), "customers": ()}
+    q = quote(keyword)
+    rows, error = api_get(
+        ORDERS_TABLE,
+        [
+            "select=customer,phone1,phone2,order_id,postcode",
+            f"or=(customer.ilike.*{q}*,phone1.ilike.*{q}*,phone2.ilike.*{q}*,order_id.ilike.*{q}*,postcode.ilike.*{q}*)",
+            "limit=80",
+        ],
+    )
+    if error:
+        return {"phones": (), "customers": ()}
+    phones: list[str] = []
+    customers: list[str] = []
+    for row in rows:
+        for name in ("phone1", "phone2"):
+            phone = normalize_phone(row.get(name))
+            if phone and phone not in phones:
+                phones.append(phone)
+        customer = clean(row.get("customer"))
+        if customer and customer not in customers:
+            customers.append(customer)
+    return {"phones": tuple(phones[:30]), "customers": tuple(customers[:20])}
+
+
+def customer_query_params(filters: tuple[str, str, str, str], page_size: int, offset: int) -> list[str]:
+    product_group, staff, keyword, _year = filters
+    params = [
+        "select=" + ",".join(CUSTOMER_SELECT_COLUMNS),
+        "order=updated_at.desc",
+        f"limit={page_size}",
+        f"offset={offset}",
+    ]
+    if product_group != ALL_FILTER:
+        params.append(f"product_group=eq.{quote(product_group)}")
+    if staff != ALL_FILTER:
+        params.append(f"sales_staff=eq.{quote(staff)}")
+    keyword_parts = customer_keyword_filters(keyword)
+    if keyword_parts:
+        params.append(f"or=({','.join(keyword_parts)})")
+    return params
+
+
+def customer_keyword_filters(keyword: str) -> list[str]:
+    keyword = clean(keyword)
+    if not keyword:
+        return []
+    q = quote(keyword)
+    filters = [
+        f"customer.ilike.*{q}*",
+        f"phone1.ilike.*{q}*",
+        f"phone2.ilike.*{q}*",
+        f"customer_id.ilike.*{q}*",
+    ]
+    order_terms = search_order_customer_terms(keyword)
+    for phone in order_terms["phones"]:
+        phone_q = quote(phone)
+        filters.extend([f"phone1.ilike.*{phone_q}*", f"phone2.ilike.*{phone_q}*"])
+    for customer in order_terms["customers"]:
+        filters.append(f"customer.ilike.*{quote(customer)}*")
+    return filters
+
+
+def filter_key(filters: dict[str, str]) -> tuple[str, str, str, str]:
+    return (
+        filters.get("product_group", ALL_FILTER),
+        filters.get("staff", ALL_FILTER),
+        filters.get("keyword", ""),
+        filters.get("year", ALL_FILTER),
+    )
+
+
+def has_active_filters(filters: dict[str, str]) -> bool:
+    return any(
+        [
+            filters.get("product_group", ALL_FILTER) != ALL_FILTER,
+            filters.get("staff", ALL_FILTER) != ALL_FILTER,
+            bool(clean(filters.get("keyword"))),
+        ]
+    )
 
 
 @st.cache_data(ttl=120, show_spinner="กำลังจับคู่ประวัติคำสั่งซื้อ...")
@@ -541,7 +673,7 @@ def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
     rows: list[dict] = []
     offset = 0
     base = [f"select={select_cols}", f"or=({','.join(phone_filters)})"]
-    if year != "ทั้งหมด":
+    if year != ALL_FILTER:
         base.append(f"year_file=eq.{quote(year)}")
 
     while offset < ORDER_MAX_FETCH:
@@ -627,16 +759,15 @@ def save_lead_followup(customer: pd.Series, values: dict) -> str | None:
     return error
 
 
-def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
+def sidebar_filters() -> dict[str, str]:
     st.sidebar.header("ตัวกรอง")
-    init_filter_state()
-    product_options = [group for group in PRODUCT_GROUP_ORDER if group in set(df.get("product_group", []))]
-    extras = sorted(set(df.get("product_group", pd.Series(dtype=str)).dropna().astype(str)) - set(product_options))
-    staff_options = sorted(df.get("sales_staff", pd.Series(dtype=str)).dropna().astype(str).unique().tolist())
+    filter_options = load_customer_filter_options()
+    product_options = filter_options.get("product_group", PRODUCT_GROUP_ORDER)
+    staff_options = filter_options.get("sales_staff", [])
 
-    product_group_options = ["ทั้งหมด"] + product_options + extras
-    staff_filter_options = ["ทั้งหมด"] + staff_options
-    year_options = ["ทั้งหมด", "2565", "2566", "2567", "2568", "2569"]
+    product_group_options = [ALL_FILTER] + product_options
+    staff_filter_options = [ALL_FILTER] + staff_options
+    year_options = [ALL_FILTER, "2565", "2566", "2567", "2568", "2569"]
 
     st.sidebar.selectbox(
         "กลุ่มสินค้า",
@@ -658,7 +789,7 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
     )
     st.sidebar.text_input(
         "ค้นหา",
-        placeholder="ชื่อลูกค้า / เบอร์ / สินค้า / โน๊ต / URL",
+        placeholder="ชื่อลูกค้า / เบอร์ / รหัสไปรษณีย์ / เลขคำสั่งซื้อ",
         key="customer360_pending_keyword",
         on_change=apply_pending_filters,
     )
@@ -671,32 +802,16 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
         st.rerun()
 
     active = st.session_state.customer360_filters
-    product_group = active["product_group"]
-    staff = active["staff"]
-    keyword = active["keyword"]
     st.session_state.customer360_year = active["year"]
-
-    filtered = df.copy()
-    if product_group != "ทั้งหมด" and "product_group" in filtered:
-        filtered = filtered[filtered["product_group"].fillna("").astype(str) == product_group]
-    if staff != "ทั้งหมด" and "sales_staff" in filtered:
-        filtered = filtered[filtered["sales_staff"].fillna("").astype(str) == staff]
-    if keyword:
-        text_cols = ["customer", "product_group", "product_name", "phone1", "phone2", "note", "sales_staff", "product_url"]
-        available = [col for col in text_cols if col in filtered.columns]
-        if available:
-            haystack = filtered[available].fillna("").astype(str).agg(" ".join, axis=1)
-            filtered = filtered[haystack.str.contains(keyword.strip(), case=False, na=False)]
-
-    return filtered
+    return active
 
 
 def init_filter_state() -> None:
     defaults = {
-        "product_group": "ทั้งหมด",
-        "staff": "ทั้งหมด",
+        "product_group": ALL_FILTER,
+        "staff": ALL_FILTER,
         "keyword": "",
-        "year": "ทั้งหมด",
+        "year": ALL_FILTER,
     }
     if "customer360_filters" not in st.session_state:
         st.session_state.customer360_filters = defaults.copy()
@@ -720,28 +835,32 @@ def sync_detail_key_from_query() -> None:
 
 def apply_pending_filters() -> None:
     st.session_state.customer360_filters = {
-        "product_group": st.session_state.get("customer360_pending_product_group", "ทั้งหมด"),
-        "staff": st.session_state.get("customer360_pending_staff", "ทั้งหมด"),
+        "product_group": st.session_state.get("customer360_pending_product_group", ALL_FILTER),
+        "staff": st.session_state.get("customer360_pending_staff", ALL_FILTER),
         "keyword": st.session_state.get("customer360_pending_keyword", "").strip(),
-        "year": st.session_state.get("customer360_pending_year", "ทั้งหมด"),
+        "year": st.session_state.get("customer360_pending_year", ALL_FILTER),
     }
     st.session_state.customer360_detail_key = None
+    st.session_state.customer360_page = 1
+    st.session_state.customer360_page_control = 1
     st.query_params.clear()
 
 
 def reset_filters() -> None:
     defaults = {
-        "product_group": "ทั้งหมด",
-        "staff": "ทั้งหมด",
+        "product_group": ALL_FILTER,
+        "staff": ALL_FILTER,
         "keyword": "",
-        "year": "ทั้งหมด",
+        "year": ALL_FILTER,
     }
     st.session_state.customer360_filters = defaults.copy()
-    st.session_state.customer360_pending_product_group = "ทั้งหมด"
-    st.session_state.customer360_pending_staff = "ทั้งหมด"
+    st.session_state.customer360_pending_product_group = ALL_FILTER
+    st.session_state.customer360_pending_staff = ALL_FILTER
     st.session_state.customer360_pending_keyword = ""
-    st.session_state.customer360_pending_year = "ทั้งหมด"
+    st.session_state.customer360_pending_year = ALL_FILTER
     st.session_state.customer360_detail_key = None
+    st.session_state.customer360_page = 1
+    st.session_state.customer360_page_control = 1
     st.query_params.clear()
 
 
@@ -753,18 +872,18 @@ def safe_index(options: list[str], value: str) -> int:
     return options.index(value) if value in options else 0
 
 
-def render_customer_list(df: pd.DataFrame) -> None:
+def render_customer_list(df: pd.DataFrame, total_count: int, filters: dict[str, str], page_size: int, current_page: int) -> None:
     display_df = display_customers(df)
     lead_map = load_lead_followups()
     lead_error = st.session_state.get("customer360_lead_error")
-    total_customers = unique_customer_count(df)
+    total_customers = total_count
     total_rows = len(display_df)
     with_phone = sum(1 for _, row in df.iterrows() if customer_phones(row))
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("ลูกค้าปัจจุบัน", f"{total_customers:,}")
     col2.metric("แถวที่แสดง", f"{total_rows:,}")
-    col3.metric("กลุ่มสินค้า", f"{df.get('product_group', pd.Series(dtype=str)).nunique():,}")
+    col3.metric("กลุ่มสินค้า", filters["product_group"] if filters["product_group"] != ALL_FILTER else "ทั้งหมด")
     col4.metric("มีเบอร์โทร", f"{with_phone:,}")
 
     st.caption("รวมลูกค้าปัจจุบันจากชีทหัวหน้า ซ่อนแถวผู้ดูแลว่างเมื่อเบอร์เดียวกันมีผู้ดูแลแล้ว และกดดูประวัติสั่งซื้อเก่าจากเบอร์โทร")
@@ -773,16 +892,25 @@ def render_customer_list(df: pd.DataFrame) -> None:
     elif lead_error:
         st.warning("ยังโหลด Lead / Follow-up ไม่ได้ อาจต้องรัน migration crm_lead_followups ก่อน")
 
-    page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customer360_page_size")
-    total_pages = max((len(display_df) - 1) // page_size + 1, 1)
-    page = st.number_input("หน้า", min_value=1, max_value=total_pages, value=1, step=1, key="customer360_page")
-    start = (page - 1) * page_size
-    end = start + page_size
+    total_pages = max((total_count - 1) // page_size + 1, 1)
+    selected_page = st.number_input(
+        "หน้า",
+        min_value=1,
+        max_value=total_pages,
+        value=min(current_page, total_pages),
+        step=1,
+        key="customer360_page_control",
+    )
+    if selected_page != current_page:
+        st.session_state.customer360_page = int(selected_page)
+        st.rerun()
+    st.session_state.customer360_page = min(current_page, total_pages)
+    start = (current_page - 1) * page_size
+    end = start + len(display_df)
 
-    page_df = display_df.iloc[start:end].reset_index(drop=True)
-    render_html_table(customer360_table(page_df, lead_map))
+    render_html_table(customer360_table(display_df.reset_index(drop=True), lead_map))
 
-    st.caption(f"แสดง {start + 1 if len(display_df) else 0}-{min(end, len(display_df))} จาก {len(display_df):,} แถว")
+    st.caption(f"แสดง {start + 1 if len(display_df) else 0}-{end} จาก {total_count:,} แถว")
 
 
 def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
@@ -794,7 +922,7 @@ def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
 
     customer = selected.iloc[0]
     phones = customer_phones(customer)
-    year = st.session_state.get("customer360_year", "ทั้งหมด")
+    year = st.session_state.get("customer360_year", ALL_FILTER)
     order_df = search_orders_by_phones(phones, year)
     orders = order_df.to_dict("records") if not order_df.empty else []
     latest = sort_orders(orders)[0] if orders else {}
@@ -946,7 +1074,6 @@ def customer360_table(df: pd.DataFrame, lead_map: dict[str, dict]) -> pd.DataFra
                 "Lead": lead_status_badge(lead.get("lead_status")),
                 "Follow-up": follow_up_badge(lead),
                 "ชื่อลูกค้า": first_value(row, "customer", "customer_name"),
-                "กลุ่มสินค้า": first_value(row, "product_group"),
                 "สินค้า": first_product_name(first_value(row, "product_name", "product")),
                 "เบอร์โทรติดต่อ": first_value(row, "phone1"),
                 "ผู้ดูแล": first_value(row, "sales_staff", "owner"),
