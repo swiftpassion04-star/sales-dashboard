@@ -327,14 +327,19 @@ def require_login() -> dict:
     inject_auth_css()
     if st.session_state.pop("auth_clear_browser_session", False):
         clear_browser_session()
+    restore_status = "empty"
     if not st.session_state.get("auth_skip_restore"):
-        restore_browser_session()
+        restore_status = restore_browser_session()
     user = current_user()
     if user:
         render_user_box(user)
         return user
 
     inject_login_css()
+    if restore_status == "pending":
+        st.info("กำลังตรวจสอบ session จาก browser...")
+        st.stop()
+
     left, center, right = st.columns([1, 1.08, 1])
     with center:
         st.markdown(
@@ -456,15 +461,18 @@ def clear_browser_session() -> None:
     )
 
 
-def restore_browser_session() -> None:
+def restore_browser_session() -> str:
     if current_email() or streamlit_js_eval is None:
-        return
+        return "ready"
     stored = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{AUTH_STORAGE_KEY}')",
         key="auth_restore_session",
     )
+    if stored is None and not st.session_state.get("auth_restore_checked_once"):
+        st.session_state.auth_restore_checked_once = True
+        return "pending"
     if not stored:
-        return
+        return "empty"
     try:
         payload = json.loads(stored)
         access_token = payload.get("access_token")
@@ -472,10 +480,10 @@ def restore_browser_session() -> None:
         expires_at = int(payload.get("expires_at") or 0)
         if not access_token or not refresh_token or not expires_at:
             clear_browser_session()
-            return
+            return "empty"
         if expires_at <= int(time.time()):
             clear_browser_session()
-            return
+            return "empty"
         st.session_state.auth_access_token = access_token
         st.session_state.auth_refresh_token = refresh_token
         st.session_state.auth_session_expires_at = expires_at
@@ -491,7 +499,7 @@ def restore_browser_session() -> None:
         user_email = (verified_user.get("email") or "").strip().lower()
         if not user_email:
             clear_browser_session()
-            return
+            return "empty"
         st.session_state.auth_user = verified_user
         st.session_state.auth_role = fetch_user_role(user_email)
         save_browser_session(
@@ -503,8 +511,10 @@ def restore_browser_session() -> None:
             st.session_state.auth_role,
         )
         ensure_fresh_session()
+        return "restored"
     except Exception:
         clear_browser_session()
+        return "empty"
 
 
 def can_manage_all(user: dict | None) -> bool:

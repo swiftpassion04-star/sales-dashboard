@@ -11,7 +11,7 @@ import streamlit as st
 from auth_utils import can_edit_customer_lead, require_login
 
 
-CUSTOMERS_TABLE = "crm_customers"
+CUSTOMERS_TABLE = "crm_customers_deduped"
 ORDERS_TABLE = "order_history"
 LEAD_FOLLOWUPS_TABLE = "crm_lead_followups"
 FILTER_OPTIONS_TABLE = "crm_customer_filter_options"
@@ -519,6 +519,25 @@ def load_crm_customers(filters: tuple[str, str, str, str], page_size: int, page:
 
 
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
+def load_customer_by_detail_key(detail_key: str) -> pd.DataFrame:
+    prefix, _, value = clean(detail_key).partition(":")
+    if prefix not in {"customer_id", "id"} or not value:
+        return pd.DataFrame()
+    rows, error = api_get(
+        CUSTOMERS_TABLE,
+        [
+            "select=" + ",".join(CUSTOMER_SELECT_COLUMNS),
+            f"{prefix}=eq.{quote(value)}",
+            "limit=1",
+        ],
+    )
+    if error:
+        st.session_state.customer360_customer_error = error
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
 def load_customer_filter_options() -> dict[str, list[str]]:
     rows, error = api_get(
         FILTER_OPTIONS_TABLE,
@@ -568,15 +587,13 @@ def search_order_customer_terms(keyword: str) -> dict[str, tuple[str, ...]]:
 
 
 def customer_query_params(filters: tuple[str, str, str, str], page_size: int, offset: int) -> list[str]:
-    product_group, staff, keyword, _year = filters
+    _product_group, staff, keyword, _year = filters
     params = [
         "select=" + ",".join(CUSTOMER_SELECT_COLUMNS),
         "order=updated_at.desc",
         f"limit={page_size}",
         f"offset={offset}",
     ]
-    if product_group != ALL_FILTER:
-        params.append(f"product_group=eq.{quote(product_group)}")
     if staff != ALL_FILTER:
         params.append(f"sales_staff=eq.{quote(staff)}")
     keyword_parts = customer_keyword_filters(keyword)
@@ -617,7 +634,6 @@ def filter_key(filters: dict[str, str]) -> tuple[str, str, str, str]:
 def has_active_filters(filters: dict[str, str]) -> bool:
     return any(
         [
-            filters.get("product_group", ALL_FILTER) != ALL_FILTER,
             filters.get("staff", ALL_FILTER) != ALL_FILTER,
             bool(clean(filters.get("keyword"))),
         ]
@@ -762,30 +778,15 @@ def save_lead_followup(customer: pd.Series, values: dict) -> str | None:
 def sidebar_filters() -> dict[str, str]:
     st.sidebar.header("ตัวกรอง")
     filter_options = load_customer_filter_options()
-    product_options = filter_options.get("product_group", PRODUCT_GROUP_ORDER)
     staff_options = filter_options.get("sales_staff", [])
 
-    product_group_options = [ALL_FILTER] + product_options
     staff_filter_options = [ALL_FILTER] + staff_options
-    year_options = [ALL_FILTER, "2565", "2566", "2567", "2568", "2569"]
 
-    st.sidebar.selectbox(
-        "กลุ่มสินค้า",
-        product_group_options,
-        index=safe_index(product_group_options, st.session_state.customer360_pending_product_group),
-        key="customer360_pending_product_group",
-    )
     st.sidebar.selectbox(
         "ผู้ดูแล",
         staff_filter_options,
         index=safe_index(staff_filter_options, st.session_state.customer360_pending_staff),
         key="customer360_pending_staff",
-    )
-    st.sidebar.selectbox(
-        "ประวัติปี",
-        year_options,
-        index=safe_index(year_options, st.session_state.customer360_pending_year),
-        key="customer360_pending_year",
     )
     st.sidebar.text_input(
         "ค้นหา",
@@ -802,7 +803,7 @@ def sidebar_filters() -> dict[str, str]:
         st.rerun()
 
     active = st.session_state.customer360_filters
-    st.session_state.customer360_year = active["year"]
+    st.session_state.customer360_year = ALL_FILTER
     return active
 
 
@@ -815,10 +816,8 @@ def init_filter_state() -> None:
     }
     if "customer360_filters" not in st.session_state:
         st.session_state.customer360_filters = defaults.copy()
-    st.session_state.setdefault("customer360_pending_product_group", st.session_state.customer360_filters["product_group"])
     st.session_state.setdefault("customer360_pending_staff", st.session_state.customer360_filters["staff"])
     st.session_state.setdefault("customer360_pending_keyword", st.session_state.customer360_filters["keyword"])
-    st.session_state.setdefault("customer360_pending_year", st.session_state.customer360_filters["year"])
 
 
 def apply_reset_filters_if_requested() -> None:
@@ -835,10 +834,10 @@ def sync_detail_key_from_query() -> None:
 
 def apply_pending_filters() -> None:
     st.session_state.customer360_filters = {
-        "product_group": st.session_state.get("customer360_pending_product_group", ALL_FILTER),
+        "product_group": ALL_FILTER,
         "staff": st.session_state.get("customer360_pending_staff", ALL_FILTER),
         "keyword": st.session_state.get("customer360_pending_keyword", "").strip(),
-        "year": st.session_state.get("customer360_pending_year", ALL_FILTER),
+        "year": ALL_FILTER,
     }
     st.session_state.customer360_detail_key = None
     st.session_state.customer360_page = 1
@@ -854,10 +853,8 @@ def reset_filters() -> None:
         "year": ALL_FILTER,
     }
     st.session_state.customer360_filters = defaults.copy()
-    st.session_state.customer360_pending_product_group = ALL_FILTER
     st.session_state.customer360_pending_staff = ALL_FILTER
     st.session_state.customer360_pending_keyword = ""
-    st.session_state.customer360_pending_year = ALL_FILTER
     st.session_state.customer360_detail_key = None
     st.session_state.customer360_page = 1
     st.session_state.customer360_page_control = 1
@@ -883,7 +880,7 @@ def render_customer_list(df: pd.DataFrame, total_count: int, filters: dict[str, 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("ลูกค้าปัจจุบัน", f"{total_customers:,}")
     col2.metric("แถวที่แสดง", f"{total_rows:,}")
-    col3.metric("กลุ่มสินค้า", filters["product_group"] if filters["product_group"] != ALL_FILTER else "ทั้งหมด")
+    col3.metric("ผู้ดูแล", filters["staff"] if filters["staff"] != ALL_FILTER else "ทั้งหมด")
     col4.metric("มีเบอร์โทร", f"{with_phone:,}")
 
     st.caption("รวมลูกค้าปัจจุบันจากชีทหัวหน้า ซ่อนแถวผู้ดูแลว่างเมื่อเบอร์เดียวกันมีผู้ดูแลแล้ว และกดดูประวัติสั่งซื้อเก่าจากเบอร์โทร")
@@ -917,13 +914,15 @@ def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
     detail_key = st.session_state.get("customer360_detail_key")
     selected = df[df.apply(customer_detail_key, axis=1) == detail_key]
     if selected.empty:
+        selected = load_customer_by_detail_key(detail_key)
+    if selected.empty:
         st.session_state.customer360_detail_key = None
+        st.query_params.clear()
         st.rerun()
 
     customer = selected.iloc[0]
     phones = customer_phones(customer)
-    year = st.session_state.get("customer360_year", ALL_FILTER)
-    order_df = search_orders_by_phones(phones, year)
+    order_df = search_orders_by_phones(phones, ALL_FILTER)
     orders = order_df.to_dict("records") if not order_df.empty else []
     latest = sort_orders(orders)[0] if orders else {}
 
