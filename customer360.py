@@ -976,7 +976,7 @@ def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
             ("ยอดขาย", f"{float(latest.get('total_sales') or 0):,.0f} บาท"),
             ("สถานะคำสั่งซื้อ", latest.get("order_status")),
             ("ที่อยู่จัดส่ง", full_address(latest)),
-            ("URL ออเดอร์", latest.get("channel_url")),
+            ("URL ออเดอร์", customer_primary_url(customer, latest)),
         ]
     )
 
@@ -1216,6 +1216,10 @@ def render_detail_grid(rows: list[tuple[str, object]]) -> None:
 
 def is_url_label(label: str) -> bool:
     return label in {"URL", "URL ออเดอร์"} or label.lower() in {"url", "product_url", "channel_url"}
+
+
+def customer_primary_url(customer: pd.Series, order: dict | None = None) -> str:
+    return first_value(customer, "product_url", "url", "channel_url") or clean((order or {}).get("channel_url"))
 
 
 def is_safe_html(value: str) -> bool:
