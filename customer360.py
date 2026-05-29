@@ -8,13 +8,14 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from auth_utils import can_edit_customer_lead, require_login
+from auth_utils import can_edit_customer_lead, can_manage_all, require_login
 
 
 CUSTOMERS_TABLE = "crm_customers_deduped"
 ORDERS_TABLE = "order_history"
 LEAD_FOLLOWUPS_TABLE = "crm_lead_followups"
 FILTER_OPTIONS_TABLE = "crm_customer_filter_options"
+CUSTOMERS_V2_TABLE = "crm_customers_v2"
 FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
@@ -108,6 +109,7 @@ def render_customer360() -> None:
     init_filter_state()
 
     st.title("ข้อมูลลูกค้า")
+    render_create_customer_v2_panel(auth_user)
     filters = sidebar_filters()
     page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customer360_page_size")
     page = max(int(st.session_state.get("customer360_page", 1)), 1)
@@ -521,6 +523,62 @@ def api_upsert(path: str, payload: dict, conflict_key: str) -> tuple[list[dict],
     return response.json() if response.text else [], None
 
 
+def api_service_write(method: str, path: str, payload: dict, params: list[str] | None = None) -> str | None:
+    require_config()
+    if not SUPABASE_SERVICE_KEY:
+        return "ยังไม่ได้ตั้งค่า CRM_SUPABASE_SERVICE_KEY สำหรับจัดการข้อมูล SQL v2"
+    query = "&".join(params or [])
+    url = f"{SUPABASE_URL}/rest/v1/{path}" + (f"?{query}" if query else "")
+    headers = request_headers(api_key=SUPABASE_SERVICE_KEY, prefer="return=minimal")
+    headers["Content-Type"] = "application/json"
+    response = requests.request(method, url, headers=headers, json=payload, timeout=30)
+    if response.status_code not in (200, 201, 204):
+        return response.text
+    return None
+
+
+def render_create_customer_v2_panel(auth_user: dict) -> None:
+    if not can_manage_all(auth_user):
+        return
+    with st.expander("สร้างข้อมูลลูกค้า SQL v2", expanded=False):
+        st.caption("บันทึกลง crm_customers_v2 ก่อน ยังไม่เปลี่ยนหน้ารายงานหลักไปใช้ v2 จนกว่าจะยืนยันอีกครั้ง")
+        with st.form("create_customer_v2_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            customer = col1.text_input("ชื่อลูกค้า")
+            product_group = col2.text_input("กลุ่มสินค้า")
+            product_name = col1.text_input("สินค้า")
+            sales_staff = col2.text_input("ผู้ดูแล")
+            phone1 = col1.text_input("เบอร์โทรติดต่อ")
+            phone2 = col2.text_input("เบอร์โทรสำรอง")
+            product_url = st.text_input("URL")
+            note = st.text_area("โน๊ต", height=90)
+            submitted = st.form_submit_button("สร้างข้อมูลลูกค้า", use_container_width=True)
+        if submitted:
+            if not clean(customer):
+                st.error("กรุณากรอกชื่อลูกค้า")
+                return
+            payload = {
+                "customer_id": "web:" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+                "customer": clean(customer),
+                "product_group": clean(product_group),
+                "product_name": clean(product_name),
+                "sales_staff": clean(sales_staff),
+                "phone1": clean(phone1),
+                "phone2": clean(phone2),
+                "product_url": clean(product_url),
+                "note": clean(note),
+                "source": "web",
+                "created_by": clean(auth_user.get("email")),
+                "updated_by": clean(auth_user.get("email")),
+                "updated_at": datetime.utcnow().isoformat() + "Z",
+            }
+            error = api_service_write("POST", CUSTOMERS_V2_TABLE, payload)
+            if error:
+                st.error("สร้างลูกค้า v2 ไม่สำเร็จ: " + error)
+            else:
+                st.success("สร้างข้อมูลลูกค้าใน SQL v2 แล้ว")
+
+
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner="กำลังโหลดลูกค้า CRM...")
 def load_crm_customers(filters: tuple[str, str, str, str], page_size: int, page: int) -> tuple[pd.DataFrame, int]:
     page = max(int(page), 1)
@@ -583,8 +641,8 @@ def search_order_customer_terms(keyword: str) -> dict[str, tuple[str, ...]]:
     rows, error = api_get(
         ORDERS_TABLE,
         [
-            "select=customer,phone1,phone2,order_id,postcode",
-            f"or=(customer.ilike.*{q}*,phone1.ilike.*{q}*,phone2.ilike.*{q}*,order_id.ilike.*{q}*,postcode.ilike.*{q}*)",
+            "select=customer,phone1,phone2,order_id,postcode,tracking_no",
+            f"or=(customer.ilike.*{q}*,phone1.ilike.*{q}*,phone2.ilike.*{q}*,order_id.ilike.*{q}*,postcode.ilike.*{q}*,tracking_no.ilike.*{q}*)",
             "limit=80",
         ],
     )
@@ -819,7 +877,7 @@ def sidebar_filters() -> dict[str, str]:
     )
     st.sidebar.text_input(
         "ค้นหา",
-        placeholder="ชื่อลูกค้า / เบอร์ / รหัสไปรษณีย์ / เลขคำสั่งซื้อ",
+        placeholder="ชื่อลูกค้า / เบอร์ / รหัสไปรษณีย์ / เลขคำสั่งซื้อ / เลขพัสดุ",
         key="customer360_pending_keyword",
         on_change=apply_pending_filters,
     )

@@ -1,0 +1,467 @@
+import os
+import uuid
+from datetime import datetime, timezone
+from urllib.parse import quote
+
+import pandas as pd
+import requests
+import streamlit as st
+
+from auth_utils import can_manage_all, require_login
+
+
+CUSTOMERS_V2_TABLE = "crm_customers_v2"
+ORDER_TABLE = "order_history"
+IMPORT_BATCH_TABLE = "data_raw_import_batches"
+BATCH_SIZE = 500
+PREVIEW_ROWS = 100
+
+CUSTOMER_COLUMNS = [
+    "customer_id",
+    "customer",
+    "sales_staff",
+    "product_url",
+    "product_name",
+    "phone1",
+    "phone2",
+    "product_group",
+    "note",
+]
+
+ORDER_COLUMNS = [
+    "order_id",
+    "year",
+    "month",
+    "day",
+    "date_text",
+    "customer",
+    "phone1",
+    "phone2",
+    "address",
+    "subdistrict",
+    "district",
+    "province",
+    "postcode",
+    "channel",
+    "sales_staff",
+    "upsell_staff",
+    "care_staff",
+    "product_group",
+    "total_sales",
+    "order_status",
+    "payment_method",
+    "delivery_status",
+    "shipping",
+    "tracking_no",
+    "channel_url",
+    "note",
+    "source_sheet",
+    "year_file",
+]
+
+ORDER_SYNONYMS = {
+    "order_id": ["เลขคำสั่งซื้อ", "เลขออเดอร์", "order_id"],
+    "customer": ["ลูกค้า", "ชื่อลูกค้า", "customer"],
+    "phone1": ["เบอร์โทร (1)", "เบอร์โทร", "เบอร์โทรติดต่อ", "phone1"],
+    "phone2": ["เบอร์โทร (2)", "เบอร์โทรสำรอง", "phone2"],
+    "tracking_no": ["หมายเลขพัสดุ", "เลขพัสดุ", "tracking_no"],
+    "total_sales": ["ยอดขายรวม", "ยอดขาย", "total_sales"],
+    "payment_method": ["วิธีการชำระเงิน", "วิธีชำระ", "payment_method"],
+    "delivery_status": ["สถานะจัดส่ง", "delivery_status"],
+    "channel_url": ["ช่องทาง URL", "URL", "url", "channel_url"],
+    "product_group": ["หมวดสินค้า", "กลุ่มสินค้า", "product_group"],
+}
+
+
+def get_secret(*names: str) -> str:
+    for name in names:
+        if name in st.secrets:
+            return str(st.secrets[name])
+        value = os.getenv(name, "")
+        if value:
+            return value
+    return ""
+
+
+SUPABASE_URL = get_secret("CRM_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
+SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY")
+
+
+st.set_page_config(page_title="SQL Workspace", layout="wide")
+
+
+def main() -> None:
+    inject_css()
+    st.title("SQL Workspace")
+    st.caption("พื้นที่ทดลอง SQL-first: จัดการลูกค้า v2 และนำเข้า DATA_RAW โดยยังไม่เปลี่ยน source หลักของรายงาน")
+
+    auth_user = require_login()
+    if not can_manage_all(auth_user):
+        st.warning("หน้านี้จัดการได้เฉพาะตำแหน่ง EDITOR เท่านั้น")
+        st.stop()
+    require_config()
+
+    tab_customer, tab_upload = st.tabs(["ลูกค้า SQL v2", "นำเข้า DATA_RAW"])
+    with tab_customer:
+        render_customers_v2(auth_user)
+    with tab_upload:
+        render_data_raw_upload(auth_user)
+
+
+def inject_css() -> None:
+    st.markdown(
+        """
+<style>
+.stApp { background:#fff8f1; color:#111827; }
+.block-container { max-width:1500px; padding-top:2rem; }
+h1 { border-left:6px solid #f97316; padding-left:14px; }
+div[data-baseweb="input"] > div, textarea, input, div[data-baseweb="select"] > div {
+  background:#fff !important;
+  color:#111827 !important;
+  border:1px solid #fb923c !important;
+  border-radius:8px !important;
+}
+.stButton > button, button[kind="formSubmit"] {
+  border-radius:8px !important;
+  border:1px solid #f97316 !important;
+  color:#9a3412 !important;
+  background:#fff !important;
+}
+button[kind="formSubmit"] {
+  background:linear-gradient(90deg,#f97316 0%,#ea580c 100%) !important;
+  color:#fff !important;
+}
+[data-testid="stAlert"] * { color:#111827 !important; }
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def require_config() -> None:
+    missing = []
+    if not SUPABASE_URL:
+        missing.append("CRM_SUPABASE_URL")
+    if not SUPABASE_SERVICE_KEY:
+        missing.append("CRM_SUPABASE_SERVICE_KEY")
+    if missing:
+        st.error("ยังไม่ได้ตั้งค่า Streamlit secrets: " + ", ".join(missing))
+        st.stop()
+
+
+def headers(prefer: str = "return=minimal") -> dict[str, str]:
+    return {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": prefer,
+    }
+
+
+def api_request(method: str, table: str, params: str = "", payload=None, prefer: str = "return=minimal"):
+    url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
+    response = requests.request(method, url, headers=headers(prefer), json=payload, timeout=120)
+    if response.status_code >= 300:
+        raise RuntimeError(f"{method} {table} failed: {response.status_code} {response.text}")
+    if not response.text:
+        return []
+    return response.json()
+
+
+def render_customers_v2(auth_user: dict) -> None:
+    st.subheader("เพิ่มข้อมูลลูกค้า")
+    with st.form("customer_v2_create", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        customer = col1.text_input("ชื่อลูกค้า")
+        product_group = col2.text_input("กลุ่มสินค้า")
+        product_name = col1.text_input("สินค้า")
+        sales_staff = col2.text_input("ผู้ดูแล")
+        phone1 = col1.text_input("เบอร์โทรติดต่อ")
+        phone2 = col2.text_input("เบอร์โทรสำรอง")
+        product_url = st.text_input("URL")
+        note = st.text_area("โน๊ต", height=90)
+        submitted = st.form_submit_button("สร้างข้อมูลลูกค้า", use_container_width=True)
+    if submitted:
+        if not clean(customer):
+            st.error("กรุณากรอกชื่อลูกค้า")
+        else:
+            payload = {
+                "customer_id": "web:" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+                "customer": clean(customer),
+                "product_group": clean(product_group),
+                "product_name": clean(product_name),
+                "sales_staff": clean(sales_staff),
+                "phone1": clean(phone1),
+                "phone2": clean(phone2),
+                "product_url": clean(product_url),
+                "note": clean(note),
+                "source": "web",
+                "created_by": clean(auth_user.get("email")),
+                "updated_by": clean(auth_user.get("email")),
+                "updated_at": now_iso(),
+            }
+            api_request("POST", CUSTOMERS_V2_TABLE, payload=payload)
+            st.success("สร้างข้อมูลลูกค้า SQL v2 แล้ว")
+            st.cache_data.clear()
+
+    st.subheader("รายการลูกค้า SQL v2")
+    keyword = st.text_input("ค้นหา v2", placeholder="ชื่อลูกค้า / เบอร์ / ผู้ดูแล")
+    params = [
+        "select=id,customer_id,customer,sales_staff,phone1,phone2,product_group,product_name,product_url,note,deleted_at,created_at,updated_at",
+        "order=updated_at.desc",
+        "limit=50",
+    ]
+    if clean(keyword):
+        q = quote(clean(keyword))
+        params.append(f"or=(customer.ilike.*{q}*,phone1.ilike.*{q}*,phone2.ilike.*{q}*,sales_staff.ilike.*{q}*)")
+    rows = api_request("GET", CUSTOMERS_V2_TABLE, params="?" + "&".join(params), prefer="return=representation")
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.info("ยังไม่มีข้อมูลลูกค้า v2")
+        return
+    st.dataframe(df.drop(columns=["id"], errors="ignore"), use_container_width=True)
+
+    selected = st.selectbox("เลือกลูกค้าที่ต้องการแก้ไข/ลบ", df["customer_id"].tolist())
+    row = df[df["customer_id"] == selected].iloc[0].to_dict()
+    with st.form("customer_v2_edit"):
+        col1, col2 = st.columns(2)
+        edit_customer = col1.text_input("ชื่อลูกค้า", value=clean(row.get("customer")))
+        edit_group = col2.text_input("กลุ่มสินค้า", value=clean(row.get("product_group")))
+        edit_product = col1.text_input("สินค้า", value=clean(row.get("product_name")))
+        edit_staff = col2.text_input("ผู้ดูแล", value=clean(row.get("sales_staff")))
+        edit_phone1 = col1.text_input("เบอร์โทรติดต่อ", value=clean(row.get("phone1")))
+        edit_phone2 = col2.text_input("เบอร์โทรสำรอง", value=clean(row.get("phone2")))
+        edit_url = st.text_input("URL", value=clean(row.get("product_url")))
+        edit_note = st.text_area("โน๊ต", value=clean(row.get("note")), height=90)
+        confirm_hard_delete = st.checkbox("ยืนยันลบจริงจาก SQL ถาวร", key="customer_v2_confirm_hard_delete")
+        save_col, soft_col, hard_col = st.columns(3)
+        save = save_col.form_submit_button("บันทึกแก้ไข", use_container_width=True)
+        soft_delete = soft_col.form_submit_button("ลบแบบซ่อน", use_container_width=True)
+        hard_delete = hard_col.form_submit_button("ลบจริงจาก SQL", use_container_width=True)
+    if save:
+        payload = {
+            "customer": clean(edit_customer),
+            "product_group": clean(edit_group),
+            "product_name": clean(edit_product),
+            "sales_staff": clean(edit_staff),
+            "phone1": clean(edit_phone1),
+            "phone2": clean(edit_phone2),
+            "product_url": clean(edit_url),
+            "note": clean(edit_note),
+            "updated_by": clean(auth_user.get("email")),
+            "updated_at": now_iso(),
+        }
+        api_request("PATCH", CUSTOMERS_V2_TABLE, params=f"?id=eq.{quote(row['id'])}", payload=payload)
+        st.success("บันทึกแล้ว")
+        st.rerun()
+    if soft_delete:
+        payload = {"deleted_at": now_iso(), "deleted_by": clean(auth_user.get("email")), "updated_at": now_iso()}
+        api_request("PATCH", CUSTOMERS_V2_TABLE, params=f"?id=eq.{quote(row['id'])}", payload=payload)
+        st.success("ลบแบบซ่อนแล้ว")
+        st.rerun()
+    if hard_delete and not confirm_hard_delete:
+        st.error("กรุณาติ๊กยืนยันก่อนลบจริงจาก SQL")
+    if hard_delete and confirm_hard_delete:
+        st.warning("ลบจริงจาก SQL แล้วจะย้อนกลับไม่ได้")
+        api_request("DELETE", CUSTOMERS_V2_TABLE, params=f"?id=eq.{quote(row['id'])}")
+        st.success("ลบจริงจาก SQL แล้ว")
+        st.rerun()
+
+
+def render_data_raw_upload(auth_user: dict) -> None:
+    st.subheader("นำเข้า DATA_RAW")
+    uploaded = st.file_uploader("เลือกไฟล์ xlsx/csv", type=["xlsx", "csv"])
+    if not uploaded:
+        st.info("เลือกไฟล์ก่อน ระบบจะให้เลือก header row และ mapping columns ก่อน import")
+        return
+
+    sheets = read_upload(uploaded)
+    sheet_name = ""
+    if isinstance(sheets, dict):
+        sheet_name = st.selectbox("Worksheet", list(sheets.keys()))
+        raw_df = sheets[sheet_name]
+    else:
+        raw_df = sheets
+
+    header_row = st.number_input("แถว header ที่ต้องการนำเข้า", min_value=1, max_value=max(len(raw_df), 1), value=1, step=1)
+    df = dataframe_from_header(raw_df, int(header_row) - 1)
+    if df.empty:
+        st.warning("ไม่พบข้อมูลหลัง header row ที่เลือก")
+        return
+
+    st.caption(f"พบข้อมูล {len(df):,} แถวหลังตัดแถวว่าง")
+    mapping = render_order_mapping(df)
+    records = build_order_records(df, mapping, uploaded.name, sheet_name)
+    preview = pd.DataFrame(records).head(PREVIEW_ROWS)
+    st.dataframe(preview, use_container_width=True)
+
+    valid_records = [record for record in records if clean(record.get("order_id"))]
+    st.caption(f"พร้อม import {len(valid_records):,} / {len(records):,} แถว (ต้องมีเลขออเดอร์)")
+    confirm = st.checkbox("ยืนยัน mapping และต้องการ import เข้า order_history")
+    if st.button("Import DATA_RAW เข้า SQL", disabled=not confirm, use_container_width=True):
+        batch_id = create_import_batch(uploaded.name, sheet_name, int(header_row), len(records), auth_user)
+        progress = st.progress(0)
+        imported = 0
+        for start in range(0, len(valid_records), BATCH_SIZE):
+            chunk = valid_records[start : start + BATCH_SIZE]
+            for record in chunk:
+                record["import_batch_id"] = batch_id
+                record["imported_at"] = now_iso()
+            api_request(
+                "POST",
+                ORDER_TABLE,
+                params="?on_conflict=source_key",
+                payload=chunk,
+                prefer="resolution=merge-duplicates,return=minimal",
+            )
+            imported += len(chunk)
+            progress.progress(min(imported / max(len(valid_records), 1), 1.0))
+        skipped = len(records) - imported
+        api_request(
+            "PATCH",
+            IMPORT_BATCH_TABLE,
+            params=f"?id=eq.{quote(batch_id)}",
+            payload={"status": "success", "imported_rows": imported, "skipped_rows": skipped, "completed_at": now_iso()},
+        )
+        st.success(f"import สำเร็จ {imported:,} แถว, ข้าม {skipped:,} แถว")
+
+
+def render_order_mapping(df: pd.DataFrame) -> dict[str, str]:
+    options = ["ไม่ใช้"] + list(df.columns)
+    mapping = {}
+    cols = st.columns(3)
+    for index, field in enumerate(ORDER_COLUMNS):
+        default = auto_match(field, df.columns)
+        mapping[field] = cols[index % 3].selectbox(
+            field,
+            options,
+            index=options.index(default) if default in options else 0,
+            key=f"raw_map_{field}",
+        )
+    return mapping
+
+
+def auto_match(field: str, columns) -> str:
+    candidates = [field] + ORDER_SYNONYMS.get(field, [])
+    lower_map = {clean(column).lower(): column for column in columns}
+    for candidate in candidates:
+        if candidate.lower() in lower_map:
+            return lower_map[candidate.lower()]
+    return "ไม่ใช้"
+
+
+def build_order_records(df: pd.DataFrame, mapping: dict[str, str], filename: str, sheet_name: str) -> list[dict]:
+    records = []
+    for idx, row in df.iterrows():
+        record = {}
+        for field, source_col in mapping.items():
+            record[field] = clean(row.get(source_col)) if source_col != "ไม่ใช้" else ""
+        order_id = clean(record.get("order_id"))
+        year_file = clean(record.get("year_file")) or clean(record.get("year"))
+        record["source_key"] = f"{year_file or 'upload'}_{order_id}" if order_id else f"upload:{filename}:{sheet_name}:{idx}"
+        record["source_sheet"] = clean(record.get("source_sheet")) or sheet_name or filename
+        record["year_file"] = year_file
+        record["total_sales"] = to_number(record.get("total_sales"))
+        record["products"] = build_products_from_row(row)
+        record["synced_at"] = now_iso()
+        records.append(record)
+    return records
+
+
+def build_products_from_row(row: pd.Series) -> list[dict]:
+    products = []
+    for index in range(1, 11):
+        sku = clean(pick_value(row, f"SKU ({index})", f"SKU{index}", f"sku_{index}", f"sku{index}"))
+        product = clean(
+            pick_value(
+                row,
+                f"สินค้า ({index})",
+                f"สินค้า{index}",
+                f"product_{index}",
+                f"product{index}",
+                f"item_{index}",
+            )
+        )
+        quantity = to_number(pick_value(row, f"จำนวน ({index})", f"จำนวน{index}", f"qty_{index}", f"quantity_{index}"))
+        price = to_number(pick_value(row, f"ราคา ({index})", f"ราคา{index}", f"price_{index}", f"unit_price_{index}"))
+        if not any([sku, product, quantity, price]):
+            continue
+        products.append({"sku": sku, "product": product, "quantity": quantity, "price": price})
+    if products:
+        return products
+    single_product = clean(pick_value(row, "สินค้า", "product", "product_name"))
+    single_sku = clean(pick_value(row, "SKU", "sku"))
+    if single_product or single_sku:
+        return [{"sku": single_sku, "product": single_product, "quantity": None, "price": None}]
+    return []
+
+
+def pick_value(row: pd.Series, *names: str) -> object:
+    lower_map = {clean(column).lower(): column for column in row.index}
+    for name in names:
+        column = lower_map.get(clean(name).lower())
+        if column is not None:
+            return row.get(column)
+    return ""
+
+
+def read_upload(uploaded):
+    uploaded.seek(0)
+    if uploaded.name.lower().endswith(".csv"):
+        return pd.read_csv(uploaded, header=None, dtype=str).fillna("")
+    excel = pd.ExcelFile(uploaded)
+    return {sheet: pd.read_excel(excel, sheet_name=sheet, header=None, dtype=str).fillna("") for sheet in excel.sheet_names}
+
+
+def dataframe_from_header(raw_df: pd.DataFrame, header_index: int) -> pd.DataFrame:
+    headers = [clean(value) or f"EMPTY_{idx}" for idx, value in enumerate(raw_df.iloc[header_index].tolist())]
+    df = raw_df.iloc[header_index + 1 :].copy()
+    df.columns = headers
+    df = df.fillna("").astype(str)
+    df = df[df.apply(lambda row: any(clean(value) for value in row), axis=1)]
+    return df.reset_index(drop=True)
+
+
+def create_import_batch(filename: str, worksheet: str, header_row: int, total_rows: int, auth_user: dict) -> str:
+    batch_id = str(uuid.uuid4())
+    api_request(
+        "POST",
+        IMPORT_BATCH_TABLE,
+        payload={
+            "id": batch_id,
+            "original_filename": filename,
+            "worksheet_name": worksheet,
+            "header_row": header_row,
+            "total_rows": total_rows,
+            "status": "importing",
+            "created_by": clean(auth_user.get("email")),
+        },
+    )
+    return batch_id
+
+
+def clean(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return "" if text.upper() in {"NULL", "NONE", "NAN"} else text
+
+
+def to_number(value) -> float:
+    text = clean(value).replace(",", "")
+    if not text:
+        return 0
+    try:
+        return float(text)
+    except ValueError:
+        return 0
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+if __name__ == "__main__":
+    main()
