@@ -2,7 +2,7 @@ import html
 import json
 import os
 from datetime import date, datetime
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 import pandas as pd
 import requests
@@ -14,15 +14,13 @@ from neon_utils import (
     fetch_customer_by_id,
     fetch_customer_page,
     fetch_filter_options,
+    fetch_lead_followups,
     fetch_orders_by_phones,
     search_terms,
+    upsert_lead_followup,
 )
 
 
-CUSTOMERS_TABLE = "crm_data_imports"
-ORDERS_TABLE = "crm_data_imports"
-LEAD_FOLLOWUPS_TABLE = "crm_lead_followups"
-FILTER_OPTIONS_TABLE = "crm_data_imports"
 FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
@@ -46,23 +44,6 @@ LEAD_FOLLOWUP_COLUMNS = [
 ]
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500]
 ALL_FILTER = "ทั้งหมด"
-CUSTOMER_SELECT_COLUMNS = [
-    "id",
-    "customer_id:dedupe_key",
-    "customer:customer_name",
-    "sales_staff:care_staff",
-    "product_url:url",
-    "product_name",
-    "phone1",
-    "phone2",
-    "order_id",
-    "sku",
-    "postcode",
-    "tracking_no",
-    "order_date",
-    "order_date_text",
-    "updated_at",
-]
 LEAD_STATUS_OPTIONS = {
     "new": "ลูกค้าใหม่",
     "contacted": "ติดต่อแล้ว",
@@ -497,40 +478,6 @@ def api_get(path: str, params: list[str], api_key: str | None = None) -> tuple[l
     return response.json(), None
 
 
-def api_get_counted(path: str, params: list[str], api_key: str | None = None) -> tuple[list[dict], int, str | None]:
-    require_config()
-    url = f"{SUPABASE_URL}/rest/v1/{path}?{'&'.join(params)}"
-    response = requests.get(url, headers=request_headers(api_key=api_key), timeout=30)
-    if response.status_code not in (200, 206):
-        return [], 0, response.text
-    rows = response.json()
-    total_count = parse_content_range_count(response.headers.get("content-range", "")) or len(rows)
-    return rows, total_count, None
-
-
-def parse_content_range_count(content_range: str) -> int:
-    if "/" not in content_range:
-        return 0
-    total = content_range.rsplit("/", 1)[-1]
-    return int(total) if total.isdigit() else 0
-
-
-def api_upsert(path: str, payload: dict, conflict_key: str) -> tuple[list[dict], str | None]:
-    require_config()
-    if not SUPABASE_SERVICE_KEY:
-        return [], "ยังไม่ได้ตั้งค่า CRM_SUPABASE_SERVICE_KEY สำหรับบันทึก Lead / Follow-up"
-    url = f"{SUPABASE_URL}/rest/v1/{path}?on_conflict={quote(conflict_key)}"
-    headers = request_headers(
-        api_key=SUPABASE_SERVICE_KEY,
-        prefer="resolution=merge-duplicates,return=minimal",
-    )
-    headers["Content-Type"] = "application/json"
-    response = requests.post(url, headers=headers, json=[payload], timeout=30)
-    if response.status_code not in (200, 201, 204):
-        return [], response.text
-    return response.json() if response.text else [], None
-
-
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner="กำลังโหลดลูกค้า CRM...")
 def load_crm_customers(filters: tuple[str, str, str, str], page_size: int, page: int) -> tuple[pd.DataFrame, int]:
     page = max(int(page), 1)
@@ -603,46 +550,6 @@ def search_order_customer_terms(keyword: str) -> dict[str, tuple[str, ...]]:
         return {"phones": (), "customers": ()}
 
 
-def customer_query_params(filters: tuple[str, str, str, str], page_size: int, offset: int) -> list[str]:
-    _product_group, staff, keyword, _year = filters
-    params = [
-        "select=" + ",".join(CUSTOMER_SELECT_COLUMNS),
-        "order=updated_at.desc",
-        "deleted_at=is.null",
-        f"limit={page_size}",
-        f"offset={offset}",
-    ]
-    if staff != ALL_FILTER:
-        params.append(f"care_staff=eq.{quote(staff)}")
-    keyword_parts = customer_keyword_filters(keyword)
-    if keyword_parts:
-        params.append(f"or=({','.join(keyword_parts)})")
-    return params
-
-
-def customer_keyword_filters(keyword: str) -> list[str]:
-    keyword = clean(keyword)
-    if not keyword:
-        return []
-    q = quote(keyword)
-    filters = [
-        f"customer_name.ilike.*{q}*",
-        f"phone1.ilike.*{q}*",
-        f"phone2.ilike.*{q}*",
-        f"dedupe_key.ilike.*{q}*",
-        f"order_id.ilike.*{q}*",
-        f"postcode.ilike.*{q}*",
-        f"tracking_no.ilike.*{q}*",
-    ]
-    order_terms = search_order_customer_terms(keyword)
-    for phone in order_terms["phones"]:
-        phone_q = quote(phone)
-        filters.extend([f"phone1.ilike.*{phone_q}*", f"phone2.ilike.*{phone_q}*"])
-    for customer in order_terms["customers"]:
-        filters.append(f"customer_name.ilike.*{quote(customer)}*")
-    return filters
-
-
 def filter_key(filters: dict[str, str]) -> tuple[str, str, str, str]:
     return (
         filters.get("product_group", ALL_FILTER),
@@ -670,57 +577,14 @@ def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def fetch_order_pages(base_params: list[str]) -> list[dict]:
-    rows: list[dict] = []
-    offset = 0
-    while offset < ORDER_MAX_FETCH:
-        page, error = api_get(
-            ORDERS_TABLE,
-            base_params
-            + [
-                f"limit={min(FETCH_LIMIT, ORDER_MAX_FETCH - offset)}",
-                f"offset={offset}",
-                "order=updated_at.desc",
-            ],
-            api_key=SUPABASE_SERVICE_KEY or None,
-        )
-        if error or not page:
-            break
-        rows.extend(page)
-        if len(page) < FETCH_LIMIT:
-            break
-        offset += FETCH_LIMIT
-    return rows
-
-
-@st.cache_data(ttl=30, show_spinner="กำลังโหลดสถานะ Lead / Follow-up...")
+@st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner="กำลังโหลดสถานะ Lead / Follow-up...")
 def load_lead_followups() -> dict[str, dict]:
-    if not SUPABASE_SERVICE_KEY:
-        st.session_state.customer360_lead_error = "missing_service_key"
+    try:
+        rows = fetch_lead_followups(CUSTOMER_MAX_FETCH)
+        st.session_state.customer360_lead_error = ""
+    except Exception as exc:
+        st.session_state.customer360_lead_error = str(exc)
         return {}
-
-    rows: list[dict] = []
-    offset = 0
-    while offset < CUSTOMER_MAX_FETCH:
-        page, error = api_get(
-            LEAD_FOLLOWUPS_TABLE,
-            [
-                "select=" + ",".join(LEAD_FOLLOWUP_COLUMNS),
-                "order=updated_at.desc",
-                f"limit={min(FETCH_LIMIT, CUSTOMER_MAX_FETCH - offset)}",
-                f"offset={offset}",
-            ],
-            api_key=SUPABASE_SERVICE_KEY,
-        )
-        if error:
-            st.session_state.customer360_lead_error = error
-            return {}
-        rows.extend(page)
-        if len(page) < FETCH_LIMIT:
-            break
-        offset += FETCH_LIMIT
-
-    st.session_state.customer360_lead_error = ""
     return {clean(row.get("customer_key")): row for row in rows if clean(row.get("customer_key"))}
 
 
@@ -742,10 +606,12 @@ def save_lead_followup(customer: pd.Series, values: dict) -> str | None:
         "updated_by": values.get("updated_by", ""),
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
-    _, error = api_upsert(LEAD_FOLLOWUPS_TABLE, payload, "customer_key")
-    if not error:
+    try:
+        upsert_lead_followup(payload)
         load_lead_followups.clear()
-    return error
+        return None
+    except Exception as exc:
+        return str(exc)
 
 
 def sidebar_filters() -> dict[str, str]:
@@ -857,9 +723,7 @@ def render_customer_list(df: pd.DataFrame, total_count: int, filters: dict[str, 
     col4.metric("มีเบอร์โทร", f"{with_phone:,}")
 
     st.caption("รวมลูกค้าปัจจุบันจากชีทหัวหน้า ซ่อนแถวผู้ดูแลว่างเมื่อเบอร์เดียวกันมีผู้ดูแลแล้ว และกดดูประวัติสั่งซื้อเก่าจากเบอร์โทร")
-    if lead_error == "missing_service_key":
-        st.warning("Lead / Follow-up ยังเป็นโหมดอ่านอย่างเดียว เพราะยังไม่ได้ตั้งค่า CRM_SUPABASE_SERVICE_KEY")
-    elif lead_error:
+    if lead_error:
         st.warning("ยังโหลด Lead / Follow-up ไม่ได้ อาจต้องรัน migration crm_lead_followups ก่อน")
 
     total_pages = max((total_count - 1) // page_size + 1, 1)
@@ -1010,9 +874,7 @@ def render_lead_followup_panel(customer: pd.Series, auth_user: dict) -> None:
     can_edit = can_edit_customer_lead(auth_user, customer)
 
     st.subheader("Lead / Follow-up Status")
-    if st.session_state.get("customer360_lead_error") == "missing_service_key":
-        st.warning("ยังไม่ได้ตั้งค่า CRM_SUPABASE_SERVICE_KEY จึงยังบันทึกสถานะจากหน้าเว็บไม่ได้")
-    elif st.session_state.get("customer360_lead_error"):
+    if st.session_state.get("customer360_lead_error"):
         st.warning("ยังอ่านตาราง crm_lead_followups ไม่ได้ อาจต้องรัน migration ก่อนใช้งานจริง")
 
     render_detail_grid(

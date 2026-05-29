@@ -238,6 +238,7 @@ def fetch_auth_user(access_token: str) -> dict:
     return response.json()
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_user_role(email: str) -> dict:
     normalized_email = email.strip().lower()
     default_role = {

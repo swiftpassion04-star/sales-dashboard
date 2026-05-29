@@ -74,3 +74,43 @@ create table if not exists public.crm_owner_assignments (
 
 create index if not exists idx_crm_owner_assignments_owner
   on public.crm_owner_assignments (owner);
+
+create table if not exists public.crm_lead_followups (
+  customer_key text primary key,
+  customer_id text,
+  customer_name text,
+  phone_key text,
+  phone1 text,
+  phone2 text,
+  product_group text,
+  lead_status text,
+  follow_up_status text,
+  follow_up_date date,
+  follow_up_note text,
+  priority text,
+  updated_by text,
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_crm_lead_followups_phone_key
+  on public.crm_lead_followups (phone_key);
+create index if not exists idx_crm_lead_followups_updated_at
+  on public.crm_lead_followups (updated_at desc);
+
+create table if not exists public.crm_product_options (
+  id bigserial primary key,
+  sku text,
+  product_group text not null,
+  product_name text not null,
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_by text,
+  updated_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (product_group, product_name)
+);
+
+create index if not exists idx_crm_product_options_active_sort
+  on public.crm_product_options (is_active, sku, sort_order, product_group, product_name);

@@ -1,31 +1,17 @@
-import os
 from io import BytesIO
 from datetime import datetime, timezone
-from urllib.parse import quote
 
 import pandas as pd
-import requests
 import streamlit as st
 
 from auth_utils import can_manage_all, require_login
 from nav_utils import render_sidebar_nav
-
-
-PRODUCT_OPTIONS_TABLE = "crm_product_options"
-
-
-def get_secret(*names: str) -> str:
-    for name in names:
-        if name in st.secrets:
-            return str(st.secrets[name])
-        value = os.getenv(name, "")
-        if value:
-            return value
-    return ""
-
-
-SUPABASE_URL = get_secret("CRM_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
-SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY")
+from neon_utils import (
+    delete_product_option,
+    fetch_product_options,
+    update_product_option,
+    upsert_product_options,
+)
 
 
 st.set_page_config(page_title="สินค้า", layout="wide")
@@ -160,38 +146,7 @@ def main() -> None:
     if not can_manage_all(auth_user):
         st.warning("หน้านี้จัดการได้เฉพาะตำแหน่ง EDITOR เท่านั้น")
         st.stop()
-    require_config()
     render_product_options(auth_user)
-
-
-def require_config() -> None:
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        st.error("ยังไม่ได้ตั้งค่า CRM_SUPABASE_URL หรือ CRM_SUPABASE_SERVICE_KEY")
-        st.stop()
-
-
-def headers(prefer: str = "return=minimal") -> dict[str, str]:
-    return {
-        "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": prefer,
-    }
-
-
-def api_request(method: str, table: str, params: str = "", payload=None, prefer: str = "return=minimal"):
-    response = requests.request(
-        method,
-        f"{SUPABASE_URL}/rest/v1/{table}{params}",
-        headers=headers(prefer),
-        json=payload,
-        timeout=60,
-    )
-    if response.status_code >= 300:
-        raise RuntimeError(response.text)
-    if not response.text:
-        return []
-    return response.json()
 
 
 def render_product_options(auth_user: dict) -> None:
@@ -216,25 +171,14 @@ def render_product_options(auth_user: dict) -> None:
                 "updated_by": clean(auth_user.get("email")),
                 "updated_at": now_iso(),
             }
-            api_request(
-                "POST",
-                PRODUCT_OPTIONS_TABLE,
-                params="?on_conflict=product_group,product_name",
-                payload=payload,
-                prefer="resolution=merge-duplicates,return=minimal",
-            )
+            upsert_product_options([payload])
             st.success("เพิ่ม/อัปเดตสินค้าแล้ว")
             st.cache_data.clear()
             st.rerun()
 
     render_product_import(auth_user)
 
-    rows = api_request(
-        "GET",
-        PRODUCT_OPTIONS_TABLE,
-        params="?select=id,sku,product_group,product_name,is_active,sort_order,updated_at&order=sku.asc,sort_order.asc,product_group.asc,product_name.asc",
-        prefer="return=representation",
-    )
+    rows = fetch_product_options()
     df = pd.DataFrame(rows)
     if df.empty:
         st.info("ยังไม่มีรายการสินค้า")
@@ -299,13 +243,7 @@ def render_product_import(auth_user: dict) -> None:
                         "updated_at": now_iso(),
                     }
                 )
-            api_request(
-                "POST",
-                PRODUCT_OPTIONS_TABLE,
-                params="?on_conflict=product_group,product_name",
-                payload=records,
-                prefer="resolution=merge-duplicates,return=minimal",
-            )
+            upsert_product_options(records)
             st.success(f"นำเข้าสินค้าแล้ว {len(records):,} แถว")
             st.cache_data.clear()
             st.rerun()
@@ -331,11 +269,9 @@ def render_product_row(row: dict, auth_user: dict) -> None:
         if not clean(group) or not clean(product):
             st.error("กรุณากรอกกลุ่มสินค้าและสินค้า")
             return
-        api_request(
-            "PATCH",
-            PRODUCT_OPTIONS_TABLE,
-            params=f"?id=eq.{quote(row_id)}",
-            payload={
+        update_product_option(
+            row_id,
+            {
                 "sku": normalize_sku(sku),
                 "product_group": clean(group),
                 "product_name": clean(product),
@@ -358,7 +294,7 @@ def render_product_row(row: dict, auth_user: dict) -> None:
         if clean(confirm) != "ลบ":
             st.error(f"กรุณาพิมพ์คำว่า ลบ เพื่อยืนยันลบถาวร: {label}")
             return
-        api_request("DELETE", PRODUCT_OPTIONS_TABLE, params=f"?id=eq.{quote(row_id)}")
+        delete_product_option(row_id)
         st.success(f"ลบถาวรแล้ว: {label}")
         st.cache_data.clear()
         st.rerun()

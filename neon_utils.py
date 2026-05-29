@@ -95,6 +95,46 @@ create table if not exists public.crm_owner_assignments (
 
 create index if not exists idx_crm_owner_assignments_owner
   on public.crm_owner_assignments (owner);
+
+create table if not exists public.crm_lead_followups (
+  customer_key text primary key,
+  customer_id text,
+  customer_name text,
+  phone_key text,
+  phone1 text,
+  phone2 text,
+  product_group text,
+  lead_status text,
+  follow_up_status text,
+  follow_up_date date,
+  follow_up_note text,
+  priority text,
+  updated_by text,
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_crm_lead_followups_phone_key
+  on public.crm_lead_followups (phone_key);
+create index if not exists idx_crm_lead_followups_updated_at
+  on public.crm_lead_followups (updated_at desc);
+
+create table if not exists public.crm_product_options (
+  id bigserial primary key,
+  sku text,
+  product_group text not null,
+  product_name text not null,
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_by text,
+  updated_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (product_group, product_name)
+);
+
+create index if not exists idx_crm_product_options_active_sort
+  on public.crm_product_options (is_active, sku, sort_order, product_group, product_name);
 """
 
 
@@ -650,3 +690,161 @@ def delete_import_batch(batch_id: str) -> int:
             deleted = cur.rowcount
         conn.commit()
     return int(deleted or 0)
+
+
+def fetch_lead_followups(limit: int = 100000) -> list[dict]:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  customer_key,
+                  customer_id,
+                  customer_name,
+                  phone_key,
+                  phone1,
+                  phone2,
+                  product_group,
+                  lead_status,
+                  follow_up_status,
+                  follow_up_date::text as follow_up_date,
+                  follow_up_note,
+                  priority,
+                  updated_by,
+                  updated_at,
+                  created_at
+                from public.crm_lead_followups
+                order by updated_at desc
+                limit %s
+                """,
+                [int(limit)],
+            )
+            return cur.fetchall()
+
+
+def upsert_lead_followup(payload: dict) -> None:
+    ensure_crm_data_imports_schema()
+    columns = [
+        "customer_key",
+        "customer_id",
+        "customer_name",
+        "phone_key",
+        "phone1",
+        "phone2",
+        "product_group",
+        "lead_status",
+        "follow_up_status",
+        "follow_up_date",
+        "follow_up_note",
+        "priority",
+        "updated_by",
+        "updated_at",
+    ]
+    values = [payload.get(column) for column in columns]
+    set_clause = ", ".join([f"{column} = excluded.{column}" for column in columns[1:]])
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    insert into public.crm_lead_followups ({', '.join(columns)})
+                    values ({', '.join(['%s'] * len(columns))})
+                    on conflict (customer_key) do update
+                    set {set_clause}
+                    """,
+                    values,
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def fetch_product_options() -> list[dict]:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  id::text as id,
+                  sku,
+                  product_group,
+                  product_name,
+                  is_active,
+                  sort_order,
+                  updated_at
+                from public.crm_product_options
+                order by sku asc nulls last, sort_order asc, product_group asc, product_name asc
+                """
+            )
+            return cur.fetchall()
+
+
+def upsert_product_options(records: list[dict]) -> None:
+    if not records:
+        return
+    ensure_crm_data_imports_schema()
+    columns = [
+        "sku",
+        "product_group",
+        "product_name",
+        "sort_order",
+        "is_active",
+        "created_by",
+        "updated_by",
+        "updated_at",
+    ]
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    f"""
+                    insert into public.crm_product_options ({', '.join(columns)})
+                    values ({', '.join(['%s'] * len(columns))})
+                    on conflict (product_group, product_name) do update
+                    set sku = excluded.sku,
+                        sort_order = excluded.sort_order,
+                        is_active = excluded.is_active,
+                        updated_by = excluded.updated_by,
+                        updated_at = excluded.updated_at
+                    """,
+                    [tuple(record.get(column) for column in columns) for record in records],
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def update_product_option(option_id: str, payload: dict) -> None:
+    ensure_crm_data_imports_schema()
+    fields = ["sku", "product_group", "product_name", "sort_order", "is_active", "updated_by", "updated_at"]
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    update public.crm_product_options
+                    set {', '.join([f'{field} = %s' for field in fields])}
+                    where id = %s
+                    """,
+                    [payload.get(field) for field in fields] + [option_id],
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def delete_product_option(option_id: str) -> None:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("delete from public.crm_product_options where id = %s", [option_id])
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
