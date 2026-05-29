@@ -179,19 +179,62 @@ def render_staff_options(auth_user: dict) -> None:
     if df.empty:
         st.info("ยังไม่มีรายการพนักงาน")
         return
-    st.dataframe(df.drop(columns=["id"], errors="ignore"), use_container_width=True)
+    st.markdown("### รายการพนักงาน")
+    header = st.columns([1.8, 0.45, 0.55, 0.75, 0.95])
+    header[0].markdown("**ชื่อผู้ดูแล/พนักงาน**")
+    header[1].markdown("**ลำดับ**")
+    header[2].markdown("**สถานะ**")
+    header[3].markdown("**แก้ไข**")
+    header[4].markdown("**ลบถาวร**")
+    for _, row in df.iterrows():
+        render_staff_row(row.to_dict(), auth_user)
 
-    selected = st.selectbox("เลือกพนักงานที่ต้องการเปิด/ปิด", df["staff_name"].tolist())
-    selected_row = df[df["staff_name"] == selected].iloc[0].to_dict()
-    next_active = not bool(selected_row.get("is_active"))
-    if st.button("เปิดใช้งาน" if next_active else "ปิดใช้งาน", use_container_width=True):
+
+def render_staff_row(row: dict, auth_user: dict) -> None:
+    row_id = clean(row.get("id"))
+    original_name = clean(row.get("staff_name"))
+    cols = st.columns([1.8, 0.45, 0.55, 0.75, 0.95])
+    staff_name = cols[0].text_input("ชื่อผู้ดูแล/พนักงาน", value=original_name, key=f"staff_name_{row_id}", label_visibility="collapsed")
+    sort_order = cols[1].number_input(
+        "ลำดับ",
+        min_value=0,
+        value=int(row.get("sort_order") or 0),
+        step=1,
+        key=f"staff_sort_{row_id}",
+        label_visibility="collapsed",
+    )
+    is_active = cols[2].checkbox("เปิด", value=bool(row.get("is_active")), key=f"staff_active_{row_id}", label_visibility="collapsed")
+    if cols[3].button("บันทึก", key=f"staff_save_{row_id}", use_container_width=True):
+        if not clean(staff_name):
+            st.error("กรุณากรอกชื่อผู้ดูแล/พนักงาน")
+            return
         api_request(
             "PATCH",
             STAFF_OPTIONS_TABLE,
-            params=f"?id=eq.{quote(selected_row['id'])}",
-            payload={"is_active": next_active, "updated_by": clean(auth_user.get("email")), "updated_at": now_iso()},
+            params=f"?id=eq.{quote(row_id)}",
+            payload={
+                "staff_name": clean(staff_name),
+                "sort_order": int(sort_order),
+                "is_active": bool(is_active),
+                "updated_by": clean(auth_user.get("email")),
+                "updated_at": now_iso(),
+            },
         )
-        st.success("อัปเดตสถานะแล้ว")
+        st.success("บันทึกพนักงานแล้ว")
+        st.cache_data.clear()
+        st.rerun()
+    confirm = cols[4].text_input(
+        "พิมพ์ ลบ",
+        key=f"staff_delete_confirm_{row_id}",
+        placeholder="พิมพ์ ลบ",
+        label_visibility="collapsed",
+    )
+    if cols[4].button("ลบ", key=f"staff_delete_{row_id}", use_container_width=True):
+        if clean(confirm) != "ลบ":
+            st.error(f"กรุณาพิมพ์คำว่า ลบ เพื่อยืนยันลบถาวร: {original_name}")
+            return
+        api_request("DELETE", STAFF_OPTIONS_TABLE, params=f"?id=eq.{quote(row_id)}")
+        st.success(f"ลบถาวรแล้ว: {original_name}")
         st.cache_data.clear()
         st.rerun()
 

@@ -181,22 +181,65 @@ def render_product_options(auth_user: dict) -> None:
     if df.empty:
         st.info("ยังไม่มีรายการสินค้า")
         return
-    st.dataframe(df.drop(columns=["id"], errors="ignore"), use_container_width=True)
+    st.markdown("### รายการสินค้า")
+    header = st.columns([1.3, 1.6, 0.45, 0.55, 0.75, 0.95])
+    header[0].markdown("**กลุ่มสินค้า**")
+    header[1].markdown("**สินค้า**")
+    header[2].markdown("**ลำดับ**")
+    header[3].markdown("**สถานะ**")
+    header[4].markdown("**แก้ไข**")
+    header[5].markdown("**ลบถาวร**")
+    for _, row in df.iterrows():
+        render_product_row(row.to_dict(), auth_user)
 
-    selected = st.selectbox(
-        "เลือกสินค้าที่ต้องการเปิด/ปิด",
-        [f"{row['product_group']} / {row['product_name']}" for _, row in df.iterrows()],
+
+def render_product_row(row: dict, auth_user: dict) -> None:
+    row_id = clean(row.get("id"))
+    label = f"{clean(row.get('product_group'))} / {clean(row.get('product_name'))}"
+    cols = st.columns([1.3, 1.6, 0.45, 0.55, 0.75, 0.95])
+    group = cols[0].text_input("กลุ่มสินค้า", value=clean(row.get("product_group")), key=f"product_group_{row_id}", label_visibility="collapsed")
+    product = cols[1].text_input("สินค้า", value=clean(row.get("product_name")), key=f"product_name_{row_id}", label_visibility="collapsed")
+    sort_order = cols[2].number_input(
+        "ลำดับ",
+        min_value=0,
+        value=int(row.get("sort_order") or 0),
+        step=1,
+        key=f"product_sort_{row_id}",
+        label_visibility="collapsed",
     )
-    selected_row = df.iloc[[f"{row['product_group']} / {row['product_name']}" for _, row in df.iterrows()].index(selected)]
-    next_active = not bool(selected_row.get("is_active"))
-    if st.button("เปิดใช้งาน" if next_active else "ปิดใช้งาน", use_container_width=True):
+    is_active = cols[3].checkbox("เปิด", value=bool(row.get("is_active")), key=f"product_active_{row_id}", label_visibility="collapsed")
+    if cols[4].button("บันทึก", key=f"product_save_{row_id}", use_container_width=True):
+        if not clean(group) or not clean(product):
+            st.error("กรุณากรอกกลุ่มสินค้าและสินค้า")
+            return
         api_request(
             "PATCH",
             PRODUCT_OPTIONS_TABLE,
-            params=f"?id=eq.{quote(selected_row['id'])}",
-            payload={"is_active": next_active, "updated_by": clean(auth_user.get("email")), "updated_at": now_iso()},
+            params=f"?id=eq.{quote(row_id)}",
+            payload={
+                "product_group": clean(group),
+                "product_name": clean(product),
+                "sort_order": int(sort_order),
+                "is_active": bool(is_active),
+                "updated_by": clean(auth_user.get("email")),
+                "updated_at": now_iso(),
+            },
         )
-        st.success("อัปเดตสถานะแล้ว")
+        st.success("บันทึกสินค้าแล้ว")
+        st.cache_data.clear()
+        st.rerun()
+    confirm = cols[5].text_input(
+        "พิมพ์ ลบ",
+        key=f"product_delete_confirm_{row_id}",
+        placeholder="พิมพ์ ลบ",
+        label_visibility="collapsed",
+    )
+    if cols[5].button("ลบ", key=f"product_delete_{row_id}", use_container_width=True):
+        if clean(confirm) != "ลบ":
+            st.error(f"กรุณาพิมพ์คำว่า ลบ เพื่อยืนยันลบถาวร: {label}")
+            return
+        api_request("DELETE", PRODUCT_OPTIONS_TABLE, params=f"?id=eq.{quote(row_id)}")
+        st.success(f"ลบถาวรแล้ว: {label}")
         st.cache_data.clear()
         st.rerun()
 
