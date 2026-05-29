@@ -10,6 +10,7 @@ import streamlit as st
 
 from auth_utils import can_edit_customer_lead, can_manage_all, require_login
 from neon_utils import (
+    assign_owner_to_phones,
     fetch_customer_by_id,
     fetch_customer_page,
     fetch_filter_options,
@@ -570,6 +571,31 @@ def load_customer_filter_options() -> dict[str, list[str]]:
 
 
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
+def load_staff_options() -> list[str]:
+    try:
+        rows, error = api_get(
+            "crm_staff_options",
+            [
+                "select=staff_name",
+                "is_active=eq.true",
+                "order=sort_order.asc,staff_name.asc",
+                "limit=1000",
+            ],
+            api_key=SUPABASE_SERVICE_KEY or None,
+        )
+    except Exception:
+        return []
+    if error:
+        return []
+    names: list[str] = []
+    for row in rows:
+        name = clean(row.get("staff_name"))
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+@st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
 def search_order_customer_terms(keyword: str) -> dict[str, tuple[str, ...]]:
     try:
         return search_terms(keyword)
@@ -879,7 +905,11 @@ def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
         st.rerun()
 
     name = first_value(customer, "customer", "customer_name") or "(ไม่ระบุชื่อลูกค้า)"
-    st.subheader(name)
+    title_col, owner_col = st.columns([2.2, 1])
+    with title_col:
+        st.subheader(name)
+    with owner_col:
+        render_owner_assignment(customer, phones, auth_user)
     st.markdown(
         f"""
         <span class="badge">โทร {html_escape(first_value(customer, "phone1")) or "-"}</span>
@@ -930,6 +960,46 @@ def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
     st.subheader("รายการสินค้าในออเดอร์ล่าสุด")
     st.markdown(product_table(latest_products), unsafe_allow_html=True)
     render_order_history(orders)
+
+
+def render_owner_assignment(customer: pd.Series, phones: tuple[str, ...], auth_user: dict) -> None:
+    if not can_manage_all(auth_user):
+        return
+    staff_options = load_staff_options()
+    if not staff_options:
+        st.info("ยังไม่มีรายชื่อพนักงานให้เลือก")
+        return
+
+    current_owner = first_value(customer, "sales_staff", "owner")
+    options = [""] + staff_options
+    selected_index = safe_index(options, current_owner) if current_owner in options else 0
+    with st.form("customer360_owner_assignment_form"):
+        selected_owner = st.selectbox(
+            "ผู้ดูแล",
+            options,
+            index=selected_index,
+            format_func=lambda value: value or "เลือกผู้ดูแล",
+        )
+        submitted = st.form_submit_button("ยืนยันผู้ดูแล", use_container_width=True)
+
+    if submitted:
+        if not selected_owner:
+            st.warning("กรุณาเลือกผู้ดูแลก่อนบันทึก")
+            return
+        try:
+            updated = assign_owner_to_phones(
+                phones,
+                selected_owner,
+                clean(auth_user.get("email")) or clean(auth_user.get("staff_name")),
+            )
+            load_crm_customers.clear()
+            load_customer_by_detail_key.clear()
+            load_customer_filter_options.clear()
+            search_orders_by_phones.clear()
+            st.success(f"อัปเดตผู้ดูแลแล้ว {updated:,} แถว")
+            st.rerun()
+        except Exception as exc:
+            st.error("บันทึกผู้ดูแลไม่สำเร็จ: " + str(exc))
 
 
 def render_lead_followup_panel(customer: pd.Series, auth_user: dict) -> None:

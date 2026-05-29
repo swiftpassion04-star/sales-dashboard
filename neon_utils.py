@@ -73,6 +73,28 @@ create index if not exists idx_crm_data_imports_owner
   on public.crm_data_imports (owner);
 create index if not exists idx_crm_data_imports_tracking_no
   on public.crm_data_imports (tracking_no);
+create index if not exists idx_crm_data_imports_customer_phone_latest
+  on public.crm_data_imports (
+    (
+      case
+        when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+        else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+      end
+    ),
+    order_date desc,
+    uploaded_at desc
+  )
+  where import_status = 'valid';
+
+create table if not exists public.crm_owner_assignments (
+  phone_key text primary key,
+  owner text not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_crm_owner_assignments_owner
+  on public.crm_owner_assignments (owner);
 """
 
 
@@ -288,6 +310,7 @@ def insert_import_records(records: list[dict], batch_size: int = 500) -> None:
     with neon_connection() as conn:
         try:
             with conn.cursor() as cur:
+                apply_owner_assignments(cur, records)
                 for start in range(0, len(records), batch_size):
                     chunk = records[start : start + batch_size]
                     values = []
@@ -304,45 +327,73 @@ def insert_import_records(records: list[dict], batch_size: int = 500) -> None:
             raise
 
 
+def apply_owner_assignments(cur, records: list[dict]) -> None:
+    phones = sorted(
+        {
+            normalize_phone(record.get(name))
+            for record in records
+            for name in ("phone1", "phone2")
+            if normalize_phone(record.get(name))
+        }
+    )
+    if not phones:
+        return
+    cur.execute(
+        """
+        select phone_key, owner
+        from public.crm_owner_assignments
+        where phone_key = any(%s)
+        """,
+        [phones],
+    )
+    owner_by_phone = {row["phone_key"]: clean(row["owner"]) for row in cur.fetchall()}
+    for record in records:
+        if clean(record.get("owner")):
+            continue
+        for name in ("phone1", "phone2"):
+            owner = owner_by_phone.get(normalize_phone(record.get(name)))
+            if owner:
+                record["owner"] = owner
+                break
+
+
 def fetch_customer_page(filters: dict[str, str], page_size: int, page: int) -> tuple[list[dict], int]:
     ensure_crm_data_imports_schema()
     where, params = build_customer_where(filters)
     limit = int(page_size)
     offset = (max(int(page), 1) - 1) * limit
-    select_cols = """
-      id::text as id,
-      id::text as customer_id,
-      customer_name as customer,
-      owner as sales_staff,
-      order_id,
-      url as product_url,
-      url as channel_url,
-      product_name,
-      phone1,
-      phone2,
-      sku,
-      province,
-      city,
-      postal_code as postcode,
-      tracking_no,
-      carrier,
-      order_status,
-      total_amount,
-      order_date,
-      order_date::text as order_date_text,
-      raw_data,
-      updated_at
+    select_cols = customer_select_columns()
+    source_sql = f"""
+      from (
+        select
+          *,
+          case
+            when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+            else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+          end as phone_key
+        from public.crm_data_imports
+        {where}
+      ) keyed
     """
     with neon_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"select count(*) as total from public.crm_data_imports {where}", params)
+            cur.execute(f"select count(distinct phone_key) as total {source_sql}", params)
             total = int(cur.fetchone()["total"] or 0)
             cur.execute(
                 f"""
+                with ranked as (
+                  select
+                    keyed.*,
+                    row_number() over (
+                      partition by phone_key
+                      order by order_date desc nulls last, uploaded_at desc, id desc
+                    ) as rn
+                  {source_sql}
+                )
                 select {select_cols}
-                from public.crm_data_imports
-                {where}
-                order by uploaded_at desc, id desc
+                from ranked
+                where rn = 1
+                order by order_date desc nulls last, uploaded_at desc, id desc
                 limit %s offset %s
                 """,
                 params + [limit, offset],
@@ -371,6 +422,33 @@ def build_customer_where(filters: dict[str, str]) -> tuple[str, list]:
     return "where " + " and ".join(clauses), params
 
 
+def customer_select_columns() -> str:
+    return """
+      id::text as id,
+      id::text as customer_id,
+      customer_name as customer,
+      owner as sales_staff,
+      order_id,
+      url as product_url,
+      url as channel_url,
+      product_name,
+      phone1,
+      phone2,
+      sku,
+      province,
+      city,
+      postal_code as postcode,
+      tracking_no,
+      carrier,
+      order_status,
+      total_amount,
+      order_date,
+      order_date::text as order_date_text,
+      raw_data,
+      updated_at
+    """
+
+
 def fetch_customer_by_id(customer_id: str) -> list[dict]:
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
@@ -378,28 +456,7 @@ def fetch_customer_by_id(customer_id: str) -> list[dict]:
             cur.execute(
                 """
                 select
-                  id::text as id,
-                  id::text as customer_id,
-                  customer_name as customer,
-                  owner as sales_staff,
-                  order_id,
-                  url as product_url,
-                  url as channel_url,
-                  product_name,
-                  phone1,
-                  phone2,
-                  sku,
-                  province,
-                  city,
-                  postal_code as postcode,
-                  tracking_no,
-                  carrier,
-                  order_status,
-                  total_amount,
-                  order_date,
-                  order_date::text as order_date_text,
-                  raw_data,
-                  updated_at
+                  """ + customer_select_columns() + """
                 from public.crm_data_imports
                 where id = %s
                 limit 1
@@ -407,6 +464,43 @@ def fetch_customer_by_id(customer_id: str) -> list[dict]:
                 [customer_id],
             )
             return cur.fetchall()
+
+
+def assign_owner_to_phones(phones: tuple[str, ...], owner: str, updated_by: str) -> int:
+    clean_phones = sorted({normalize_phone(phone) for phone in phones if normalize_phone(phone)})
+    owner = clean(owner)
+    if not clean_phones or not owner:
+        return 0
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update public.crm_data_imports
+                    set owner = %s,
+                        updated_at = now()
+                    where phone1 = any(%s) or phone2 = any(%s)
+                    """,
+                    [owner, clean_phones, clean_phones],
+                )
+                updated = int(cur.rowcount or 0)
+                cur.executemany(
+                    """
+                    insert into public.crm_owner_assignments (phone_key, owner, updated_by, updated_at)
+                    values (%s, %s, %s, now())
+                    on conflict (phone_key) do update
+                    set owner = excluded.owner,
+                        updated_by = excluded.updated_by,
+                        updated_at = now()
+                    """,
+                    [(phone, owner, clean(updated_by)) for phone in clean_phones],
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return updated
 
 
 def fetch_filter_options() -> dict[str, list[str]]:

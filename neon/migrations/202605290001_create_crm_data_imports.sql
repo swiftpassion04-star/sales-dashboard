@@ -52,3 +52,25 @@ create index if not exists idx_crm_data_imports_owner
   on public.crm_data_imports (owner);
 create index if not exists idx_crm_data_imports_tracking_no
   on public.crm_data_imports (tracking_no);
+create index if not exists idx_crm_data_imports_customer_phone_latest
+  on public.crm_data_imports (
+    (
+      case
+        when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+        else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+      end
+    ),
+    order_date desc,
+    uploaded_at desc
+  )
+  where import_status = 'valid';
+
+create table if not exists public.crm_owner_assignments (
+  phone_key text primary key,
+  owner text not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_crm_owner_assignments_owner
+  on public.crm_owner_assignments (owner);
