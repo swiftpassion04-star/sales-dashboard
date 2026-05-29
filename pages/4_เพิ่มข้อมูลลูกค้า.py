@@ -1,5 +1,6 @@
 import os
 import uuid
+from io import BytesIO
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -23,6 +24,7 @@ CUSTOMER_COLUMNS = [
     "customer",
     "sales_staff",
     "product_url",
+    "product_sku",
     "product_name",
     "phone1",
     "phone2",
@@ -104,6 +106,7 @@ def main() -> None:
     require_config()
 
     render_create_customer_v2(auth_user)
+    render_customer_import(auth_user)
 
 
 def inject_css() -> None:
@@ -342,7 +345,7 @@ def load_product_options() -> list[dict]:
         rows = api_request(
             "GET",
             PRODUCT_OPTIONS_TABLE,
-            params="?select=id,product_group,product_name,is_active,sort_order&is_active=eq.true&order=sort_order.asc,product_group.asc,product_name.asc",
+            params="?select=id,sku,product_group,product_name,is_active,sort_order&is_active=eq.true&order=sku.asc,sort_order.asc,product_group.asc,product_name.asc",
             prefer="return=representation",
         )
     except Exception:
@@ -375,6 +378,12 @@ def select_or_manual(container, label: str, options: list[str], key: str) -> str
     return choice
 
 
+def product_option_label(row: dict) -> str:
+    sku = normalize_sku(row.get("sku"))
+    product_name = clean(row.get("product_name"))
+    return f"{sku} {product_name}".strip() if sku else product_name
+
+
 def render_create_customer_v2(auth_user: dict) -> None:
     product_options = load_product_options()
     staff_options = load_staff_options()
@@ -383,11 +392,12 @@ def render_create_customer_v2(auth_user: dict) -> None:
     option_col1, option_col2, option_col3 = st.columns(3)
     product_group = select_or_manual(option_col1, "กลุ่มสินค้า", product_groups, "customer_v2_product_group")
     available_products = [
-        clean(row.get("product_name"))
+        product_option_label(row)
         for row in product_options
         if clean(row.get("product_group")) == clean(product_group) and clean(row.get("product_name"))
     ]
-    product_name = select_or_manual(option_col2, "สินค้า", available_products, "customer_v2_product_name")
+    product_label = select_or_manual(option_col2, "สินค้า", available_products, "customer_v2_product_name")
+    product_sku, product_name = split_product_label(product_label)
     sales_staff = select_or_manual(option_col3, "ผู้ดูแล", staff_names, "customer_v2_sales_staff")
 
     with st.form("customer_v2_create", clear_on_submit=True):
@@ -407,6 +417,7 @@ def render_create_customer_v2(auth_user: dict) -> None:
         "customer_id": "web:" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
         "customer": clean(customer),
         "product_group": clean(product_group),
+        "product_sku": clean(product_sku),
         "product_name": clean(product_name),
         "sales_staff": clean(sales_staff),
         "phone1": clean(phone1),
@@ -421,6 +432,139 @@ def render_create_customer_v2(auth_user: dict) -> None:
     api_request("POST", CUSTOMERS_V2_TABLE, payload=payload)
     st.success("สร้างข้อมูลลูกค้า SQL v2 แล้ว")
     st.cache_data.clear()
+
+
+def render_customer_import(auth_user: dict) -> None:
+    with st.expander("นำเข้าลูกค้าจาก Excel", expanded=False):
+        headers = ["ชื่อลูกค้า", "พนักงานดูแล", "URL", "SKU", "สินค้า", "เบอร์โทรติดต่อ", "เบอร์โทรสำรอง", "กลุ่มสินค้า"]
+        st.download_button(
+            "ดาวน์โหลดฟอร์มเพิ่มข้อมูลลูกค้า (.xlsx)",
+            data=build_xlsx_template(headers, "เพิ่มข้อมูลลูกค้า"),
+            file_name="crm_customer_import_template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        uploaded = st.file_uploader("อัปโหลดไฟล์ลูกค้า .xlsx", type=["xlsx"], key="customer_v2_upload")
+        if not uploaded:
+            st.info("ใช้หัวตาราง: " + " / ".join(headers))
+            return
+        try:
+            df = pd.read_excel(uploaded, dtype=str).fillna("")
+        except Exception as exc:
+            st.error(f"อ่านไฟล์ไม่สำเร็จ: {exc}")
+            return
+        missing = [column for column in headers if column not in df.columns]
+        if missing:
+            st.error("หัวตารางไม่ครบ: " + ", ".join(missing))
+            return
+        import_df = df[headers].copy()
+        for column in headers:
+            import_df[column] = import_df[column].map(clean)
+        import_df["SKU"] = import_df["SKU"].map(normalize_sku)
+        import_df = import_df[import_df["ชื่อลูกค้า"] != ""]
+        st.dataframe(import_df.head(100), use_container_width=True)
+        st.caption(f"พร้อมนำเข้า {len(import_df):,} แถว")
+        confirm = st.checkbox("ยืนยันนำเข้าลูกค้า", key="confirm_customer_v2_import")
+        if st.button("นำเข้าลูกค้า", disabled=not confirm or import_df.empty, use_container_width=True):
+            created = 0
+            updated = 0
+            for _, row in import_df.iterrows():
+                result = merge_customer_import_row(row.to_dict(), auth_user)
+                if result == "created":
+                    created += 1
+                elif result == "updated":
+                    updated += 1
+            st.success(f"นำเข้าเสร็จ: เพิ่มใหม่ {created:,} แถว / merge {updated:,} แถว")
+            st.cache_data.clear()
+            st.rerun()
+
+
+def merge_customer_import_row(row: dict, auth_user: dict) -> str:
+    customer = clean(row.get("ชื่อลูกค้า"))
+    staff = clean(row.get("พนักงานดูแล"))
+    url = clean(row.get("URL"))
+    sku = normalize_sku(row.get("SKU"))
+    product = clean(row.get("สินค้า"))
+    phone1 = clean(row.get("เบอร์โทรติดต่อ"))
+    phone2 = clean(row.get("เบอร์โทรสำรอง"))
+    group = clean(row.get("กลุ่มสินค้า"))
+    existing = find_existing_customer_v2(customer, phone1, phone2)
+    product_name = format_product_name(sku, product)
+    if existing:
+        payload = {
+            "customer": customer or clean(existing.get("customer")),
+            "sales_staff": staff or clean(existing.get("sales_staff")),
+            "product_url": url or clean(existing.get("product_url")),
+            "product_sku": merge_csv_values(clean(existing.get("product_sku")), sku),
+            "product_name": merge_csv_values(clean(existing.get("product_name")), product_name),
+            "phone1": phone1 or clean(existing.get("phone1")),
+            "phone2": phone2 or clean(existing.get("phone2")),
+            "product_group": group or clean(existing.get("product_group")),
+            "updated_by": clean(auth_user.get("email")),
+            "updated_at": now_iso(),
+        }
+        api_request("PATCH", CUSTOMERS_V2_TABLE, params=f"?id=eq.{quote(clean(existing.get('id')))}", payload=payload)
+        return "updated"
+    payload = {
+        "customer_id": "web:" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+        "customer": customer,
+        "sales_staff": staff,
+        "product_url": url,
+        "product_sku": sku,
+        "product_name": product_name,
+        "phone1": phone1,
+        "phone2": phone2,
+        "product_group": group,
+        "source": "excel",
+        "created_by": clean(auth_user.get("email")),
+        "updated_by": clean(auth_user.get("email")),
+        "updated_at": now_iso(),
+    }
+    api_request("POST", CUSTOMERS_V2_TABLE, payload=payload)
+    return "created"
+
+
+def find_existing_customer_v2(customer: str, phone1: str, phone2: str) -> dict | None:
+    select = "select=id,customer,phone1,phone2,sales_staff,product_url,product_sku,product_name,product_group"
+    filters = []
+    if phone1:
+        q = quote(phone1)
+        filters.extend([f"phone1.eq.{q}", f"phone2.eq.{q}"])
+    if phone2:
+        q = quote(phone2)
+        filters.extend([f"phone1.eq.{q}", f"phone2.eq.{q}"])
+    if filters:
+        rows = api_request("GET", CUSTOMERS_V2_TABLE, params=f"?{select}&or=({','.join(filters)})&limit=1", prefer="return=representation")
+        if rows:
+            return rows[0]
+    if customer:
+        rows = api_request("GET", CUSTOMERS_V2_TABLE, params=f"?{select}&customer=eq.{quote(customer)}&limit=1", prefer="return=representation")
+        if rows:
+            return rows[0]
+    return None
+
+
+def merge_csv_values(existing: str, new_value: str) -> str:
+    values = [clean(value) for value in existing.split(",") if clean(value)]
+    if clean(new_value) and clean(new_value) not in values:
+        values.append(clean(new_value))
+    return ", ".join(values)
+
+
+def format_product_name(sku: str, product: str) -> str:
+    sku = normalize_sku(sku)
+    product = clean(product)
+    return f"{sku} {product}".strip() if sku else product
+
+
+def split_product_label(label: str) -> tuple[str, str]:
+    label = clean(label)
+    if not label:
+        return "", ""
+    first, _, rest = label.partition(" ")
+    if first.isdigit():
+        return normalize_sku(first), clean(rest)
+    return "", label
 
 
 def render_customers_v2(auth_user: dict) -> None:
@@ -702,6 +846,22 @@ def clean(value) -> str:
         return ""
     text = str(value).strip()
     return "" if text.upper() in {"NULL", "NONE", "NAN"} else text
+
+
+def normalize_sku(value) -> str:
+    text = clean(value)
+    if not text:
+        return ""
+    if text.endswith(".0") and text[:-2].isdigit():
+        text = text[:-2]
+    return text.zfill(3) if text.isdigit() and len(text) <= 3 else text
+
+
+def build_xlsx_template(headers: list[str], sheet_name: str) -> bytes:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        pd.DataFrame(columns=headers).to_excel(writer, index=False, sheet_name=sheet_name)
+    return output.getvalue()
 
 
 def to_number(value) -> float:
