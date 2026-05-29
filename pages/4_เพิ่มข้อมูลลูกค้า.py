@@ -11,6 +11,8 @@ from auth_utils import can_manage_all, require_login
 
 
 CUSTOMERS_V2_TABLE = "crm_customers_v2"
+PRODUCT_OPTIONS_TABLE = "crm_product_options"
+STAFF_OPTIONS_TABLE = "crm_staff_options"
 ORDER_TABLE = "order_history"
 IMPORT_BATCH_TABLE = "data_raw_import_batches"
 BATCH_SIZE = 500
@@ -334,13 +336,63 @@ def api_request(method: str, table: str, params: str = "", payload=None, prefer:
     return response.json()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_product_options() -> list[dict]:
+    try:
+        rows = api_request(
+            "GET",
+            PRODUCT_OPTIONS_TABLE,
+            params="?select=id,product_group,product_name,is_active,sort_order&is_active=eq.true&order=sort_order.asc,product_group.asc,product_name.asc",
+            prefer="return=representation",
+        )
+    except Exception:
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_staff_options() -> list[dict]:
+    try:
+        rows = api_request(
+            "GET",
+            STAFF_OPTIONS_TABLE,
+            params="?select=id,staff_name,is_active,sort_order&is_active=eq.true&order=sort_order.asc,staff_name.asc",
+            prefer="return=representation",
+        )
+    except Exception:
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def select_or_manual(container, label: str, options: list[str], key: str) -> str:
+    cleaned_options = [clean(option) for option in options if clean(option)]
+    choices = ["เลือกจากรายการ"] + cleaned_options + ["พิมพ์เอง"]
+    choice = container.selectbox(label, choices, key=f"{key}_choice")
+    if choice == "พิมพ์เอง":
+        return container.text_input(f"{label} (พิมพ์เอง)", key=f"{key}_manual")
+    if choice == "เลือกจากรายการ":
+        return ""
+    return choice
+
+
 def render_create_customer_v2(auth_user: dict) -> None:
+    product_options = load_product_options()
+    staff_options = load_staff_options()
+    product_groups = sorted({clean(row.get("product_group")) for row in product_options if clean(row.get("product_group"))})
+    staff_names = [clean(row.get("staff_name")) for row in staff_options if clean(row.get("staff_name"))]
+    option_col1, option_col2, option_col3 = st.columns(3)
+    product_group = select_or_manual(option_col1, "กลุ่มสินค้า", product_groups, "customer_v2_product_group")
+    available_products = [
+        clean(row.get("product_name"))
+        for row in product_options
+        if clean(row.get("product_group")) == clean(product_group) and clean(row.get("product_name"))
+    ]
+    product_name = select_or_manual(option_col2, "สินค้า", available_products, "customer_v2_product_name")
+    sales_staff = select_or_manual(option_col3, "ผู้ดูแล", staff_names, "customer_v2_sales_staff")
+
     with st.form("customer_v2_create", clear_on_submit=True):
         col1, col2 = st.columns(2)
         customer = col1.text_input("ชื่อลูกค้า")
-        product_group = col2.text_input("กลุ่มสินค้า")
-        product_name = col1.text_input("สินค้า")
-        sales_staff = col2.text_input("ผู้ดูแล")
         phone1 = col1.text_input("เบอร์โทรติดต่อ")
         phone2 = col2.text_input("เบอร์โทรสำรอง")
         product_url = st.text_input("URL")
