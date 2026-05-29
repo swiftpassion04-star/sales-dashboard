@@ -18,29 +18,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sync:
+  disabled:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install sync dependencies
-        run: pip install -r requirements-sync.txt
-
-      - name: Sync DATA_RAW
-        env:
-          CRM_SUPABASE_URL: ${{ secrets.CRM_SUPABASE_URL }}
-          CRM_SUPABASE_SERVICE_KEY: ${{ secrets.CRM_SUPABASE_SERVICE_KEY }}
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          SYNC_TRIGGER_TYPE: github_actions
-          DATA_RAW_BATCH_SIZE: ${{ github.event.inputs.batch_size || '100' }}
-          DATA_RAW_MIN_BATCH_SIZE: ${{ github.event.inputs.min_batch_size || '20' }}
-          DATA_RAW_MAX_UPSERT_RETRIES: "3"
-          DATA_RAW_RETRY_SLEEP_SECONDS: "2"
-        run: python sync_data_raw_to_supabase.py
+      - name: Legacy workflow disabled
+        run: echo "Legacy DATA_RAW sync is disabled because order_history was replaced by crm_data_imports Excel import."

@@ -11,11 +11,11 @@ import streamlit as st
 from auth_utils import can_edit_customer_lead, can_manage_all, require_login
 
 
-CUSTOMERS_TABLE = "crm_customers_deduped"
-ORDERS_TABLE = "order_history"
+CUSTOMERS_TABLE = "crm_data_imports"
+ORDERS_TABLE = "crm_data_imports"
 LEAD_FOLLOWUPS_TABLE = "crm_lead_followups"
-FILTER_OPTIONS_TABLE = "crm_customer_filter_options"
-CUSTOMERS_V2_TABLE = "crm_customers_v2"
+FILTER_OPTIONS_TABLE = "crm_data_imports"
+CUSTOMERS_V2_TABLE = "crm_data_imports"
 FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
@@ -40,19 +40,21 @@ LEAD_FOLLOWUP_COLUMNS = [
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500]
 ALL_FILTER = "ทั้งหมด"
 CUSTOMER_SELECT_COLUMNS = [
-    "customer_id",
-    "customer",
-    "sales_staff",
-    "product_url",
+    "id",
+    "customer_id:dedupe_key",
+    "customer:customer_name",
+    "sales_staff:care_staff",
+    "product_url:url",
     "product_name",
     "phone1",
     "phone2",
-    "product_group",
-    "note",
+    "order_id",
+    "sku",
+    "postcode",
+    "tracking_no",
+    "order_date",
+    "order_date_text",
     "updated_at",
-    "call_1",
-    "call_2",
-    "call_3",
 ]
 LEAD_STATUS_OPTIONS = {
     "new": "ลูกค้าใหม่",
@@ -584,7 +586,7 @@ def load_crm_customers(filters: tuple[str, str, str, str], page_size: int, page:
     page_size = int(page_size)
     offset = (page - 1) * page_size
     params = customer_query_params(filters, page_size, offset)
-    rows, total_count, error = api_get_counted(CUSTOMERS_TABLE, params)
+    rows, total_count, error = api_get_counted(CUSTOMERS_TABLE, params, api_key=SUPABASE_SERVICE_KEY or None)
     if error:
         st.session_state.customer360_customer_error = error
         return pd.DataFrame(), 0
@@ -597,13 +599,16 @@ def load_customer_by_detail_key(detail_key: str) -> pd.DataFrame:
     prefix, _, value = clean(detail_key).partition(":")
     if prefix not in {"customer_id", "id"} or not value:
         return pd.DataFrame()
+    filter_column = "dedupe_key" if prefix == "customer_id" else "id"
     rows, error = api_get(
         CUSTOMERS_TABLE,
         [
             "select=" + ",".join(CUSTOMER_SELECT_COLUMNS),
-            f"{prefix}=eq.{quote(value)}",
+            f"{filter_column}=eq.{quote(value)}",
+            "deleted_at=is.null",
             "limit=1",
         ],
+        api_key=SUPABASE_SERVICE_KEY or None,
     )
     if error:
         st.session_state.customer360_customer_error = error
@@ -615,19 +620,16 @@ def load_customer_by_detail_key(detail_key: str) -> pd.DataFrame:
 def load_customer_filter_options() -> dict[str, list[str]]:
     rows, error = api_get(
         FILTER_OPTIONS_TABLE,
-        ["select=option_type,option_value", "order=option_type.asc,option_value.asc", "limit=5000"],
+        ["select=care_staff", "deleted_at=is.null", "order=care_staff.asc", "limit=5000"],
+        api_key=SUPABASE_SERVICE_KEY or None,
     )
     if error:
-        return {"product_group": PRODUCT_GROUP_ORDER.copy(), "sales_staff": []}
+        return {"product_group": [], "sales_staff": []}
     options = {"product_group": [], "sales_staff": []}
     for row in rows:
-        option_type = clean(row.get("option_type"))
-        option_value = clean(row.get("option_value"))
-        if option_type in options and option_value and option_value not in options[option_type]:
-            options[option_type].append(option_value)
-    product_groups = [group for group in PRODUCT_GROUP_ORDER if group in set(options["product_group"])]
-    extras = sorted(set(options["product_group"]) - set(product_groups))
-    options["product_group"] = product_groups + extras
+        option_value = clean(row.get("care_staff"))
+        if option_value and option_value not in options["sales_staff"]:
+            options["sales_staff"].append(option_value)
     return options
 
 
@@ -640,10 +642,12 @@ def search_order_customer_terms(keyword: str) -> dict[str, tuple[str, ...]]:
     rows, error = api_get(
         ORDERS_TABLE,
         [
-            "select=customer,phone1,phone2,order_id,postcode,tracking_no",
-            f"or=(customer.ilike.*{q}*,phone1.ilike.*{q}*,phone2.ilike.*{q}*,order_id.ilike.*{q}*,postcode.ilike.*{q}*,tracking_no.ilike.*{q}*)",
+            "select=customer_name,phone1,phone2,order_id,postcode,tracking_no",
+            "deleted_at=is.null",
+            f"or=(customer_name.ilike.*{q}*,phone1.ilike.*{q}*,phone2.ilike.*{q}*,order_id.ilike.*{q}*,postcode.ilike.*{q}*,tracking_no.ilike.*{q}*)",
             "limit=80",
         ],
+        api_key=SUPABASE_SERVICE_KEY or None,
     )
     if error:
         return {"phones": (), "customers": ()}
@@ -654,7 +658,7 @@ def search_order_customer_terms(keyword: str) -> dict[str, tuple[str, ...]]:
             phone = normalize_phone(row.get(name))
             if phone and phone not in phones:
                 phones.append(phone)
-        customer = clean(row.get("customer"))
+        customer = clean(row.get("customer_name"))
         if customer and customer not in customers:
             customers.append(customer)
     return {"phones": tuple(phones[:30]), "customers": tuple(customers[:20])}
@@ -665,11 +669,12 @@ def customer_query_params(filters: tuple[str, str, str, str], page_size: int, of
     params = [
         "select=" + ",".join(CUSTOMER_SELECT_COLUMNS),
         "order=updated_at.desc",
+        "deleted_at=is.null",
         f"limit={page_size}",
         f"offset={offset}",
     ]
     if staff != ALL_FILTER:
-        params.append(f"sales_staff=eq.{quote(staff)}")
+        params.append(f"care_staff=eq.{quote(staff)}")
     keyword_parts = customer_keyword_filters(keyword)
     if keyword_parts:
         params.append(f"or=({','.join(keyword_parts)})")
@@ -682,17 +687,20 @@ def customer_keyword_filters(keyword: str) -> list[str]:
         return []
     q = quote(keyword)
     filters = [
-        f"customer.ilike.*{q}*",
+        f"customer_name.ilike.*{q}*",
         f"phone1.ilike.*{q}*",
         f"phone2.ilike.*{q}*",
-        f"customer_id.ilike.*{q}*",
+        f"dedupe_key.ilike.*{q}*",
+        f"order_id.ilike.*{q}*",
+        f"postcode.ilike.*{q}*",
+        f"tracking_no.ilike.*{q}*",
     ]
     order_terms = search_order_customer_terms(keyword)
     for phone in order_terms["phones"]:
         phone_q = quote(phone)
         filters.extend([f"phone1.ilike.*{phone_q}*", f"phone2.ilike.*{phone_q}*"])
     for customer in order_terms["customers"]:
-        filters.append(f"customer.ilike.*{quote(customer)}*")
+        filters.append(f"customer_name.ilike.*{quote(customer)}*")
     return filters
 
 
@@ -722,37 +730,31 @@ def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
 
     select_cols = ",".join(
         [
-            "source_key",
+            "source_key:dedupe_key",
             "order_id",
-            "year",
-            "month",
-            "day",
-            "date_text",
-            "customer",
+            "date_text:order_date_text",
+            "order_date",
+            "customer:customer_name",
             "phone1",
             "phone2",
-            "address",
+            "address:shipping_address",
             "subdistrict",
             "district",
             "province",
             "postcode",
-            "channel",
-            "sales_staff",
+            "channel:sales_channel",
+            "sales_staff:billing_staff",
             "upsell_staff",
             "care_staff",
-            "product_group",
-            "total_sales",
-            "order_status",
+            "total_sales:price",
             "payment_method",
-            "delivery_status",
-            "shipping",
+            "shipping:shipping_provider",
             "tracking_no",
-            "channel_url",
-            "products",
-            "note",
-            "source_sheet",
-            "year_file",
-            "synced_at",
+            "channel_url:url",
+            "sku",
+            "product_name",
+            "quantity",
+            "updated_at",
         ]
     )
     exact_phone_filters = []
@@ -762,15 +764,11 @@ def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
         exact_phone_filters.extend([f"phone1.eq.{q}", f"phone2.eq.{q}"])
         fuzzy_phone_filters.extend([f"phone1.ilike.*{q}*", f"phone2.ilike.*{q}*"])
 
-    base = [f"select={select_cols}", f"or=({','.join(exact_phone_filters)})"]
-    if year != ALL_FILTER:
-        base.append(f"year_file=eq.{quote(year)}")
+    base = [f"select={select_cols}", "deleted_at=is.null", f"or=({','.join(exact_phone_filters)})"]
 
     rows = fetch_order_pages(base)
     if not rows:
-        fallback_base = [f"select={select_cols}", f"or=({','.join(fuzzy_phone_filters)})"]
-        if year != ALL_FILTER:
-            fallback_base.append(f"year_file=eq.{quote(year)}")
+        fallback_base = [f"select={select_cols}", "deleted_at=is.null", f"or=({','.join(fuzzy_phone_filters)})"]
         rows = fetch_order_pages(fallback_base)
 
     df = pd.DataFrame(rows)
@@ -781,7 +779,20 @@ def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
     def exact_phone_match(row: pd.Series) -> bool:
         return bool({normalize_phone(row.get("phone1")), normalize_phone(row.get("phone2"))} & target_phones)
 
-    return df[df.apply(exact_phone_match, axis=1)].copy()
+    df = df[df.apply(exact_phone_match, axis=1)].copy()
+    if not df.empty:
+        df["products"] = df.apply(
+            lambda row: [
+                {
+                    "sku": clean(row.get("sku")),
+                    "name": clean(row.get("product_name")),
+                    "qty": clean(row.get("quantity")),
+                    "price": clean(row.get("price") or row.get("total_sales")),
+                }
+            ],
+            axis=1,
+        )
+    return df
 
 
 def fetch_order_pages(base_params: list[str]) -> list[dict]:
@@ -794,8 +805,9 @@ def fetch_order_pages(base_params: list[str]) -> list[dict]:
             + [
                 f"limit={min(FETCH_LIMIT, ORDER_MAX_FETCH - offset)}",
                 f"offset={offset}",
-                "order=synced_at.desc",
+                "order=updated_at.desc",
             ],
+            api_key=SUPABASE_SERVICE_KEY or None,
         )
         if error or not page:
             break
@@ -1053,7 +1065,7 @@ def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
     render_detail_grid(
         [
             ("เลขออเดอร์", latest.get("order_id")),
-            ("วันที่", latest.get("date_text")),
+            ("วันที่", latest.get("date_text") or latest.get("order_date")),
             ("วิธีการชำระ", payment_badge(latest.get("payment_method"))),
             ("สถานะจัดส่ง", delivery_badge(latest.get("delivery_status"))),
             ("ผู้ขายเดิม", latest.get("sales_staff")),
@@ -1407,11 +1419,11 @@ def delivery_badge(value: object) -> str:
 def render_setup_warning() -> None:
     error = st.session_state.get("customer360_customer_error", "")
     if error:
-        st.error("ยังอ่านตาราง crm_customers ไม่ได้จาก Supabase")
+        st.error("ยังอ่านตาราง crm_data_imports ไม่ได้จาก Supabase")
         st.code(error, language="json")
     else:
-        st.warning("ยังไม่มีข้อมูลลูกค้าใน crm_customers")
-    st.info("ให้ตรวจ Supabase project ของ Streamlit secrets และรัน migration สำหรับสร้าง/เปิดสิทธิ์ตาราง crm_customers ก่อน deploy ใช้งานจริง")
+        st.warning("ยังไม่มีข้อมูลใน crm_data_imports")
+    st.info("ให้นำเข้าไฟล์ Excel ผ่านหน้าเพิ่มข้อมูลลูกค้า เพื่อเติมข้อมูลเข้า crm_data_imports")
 
 
 def unique_customer_count(df: pd.DataFrame) -> int:
@@ -1422,11 +1434,10 @@ def unique_customer_count(df: pd.DataFrame) -> int:
 
 
 def sort_orders(orders: list[dict]) -> list[dict]:
-    def key(order: dict) -> tuple[int, int, int, str]:
+    def key(order: dict) -> tuple[str, str]:
+        order_date = clean(order.get("order_date")) or clean(order.get("date_text"))
         return (
-            to_int(order.get("year_file") or order.get("year")),
-            to_int(order.get("month")),
-            to_int(order.get("day")),
+            order_date,
             clean(order.get("source_key")),
         )
 

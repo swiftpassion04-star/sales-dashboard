@@ -12,25 +12,38 @@ from auth_utils import can_manage_all, require_login
 from nav_utils import render_sidebar_nav
 
 
-CUSTOMERS_V2_TABLE = "crm_customers_v2"
+CRM_DATA_TABLE = "crm_data_imports"
+CUSTOMERS_V2_TABLE = CRM_DATA_TABLE
 PRODUCT_OPTIONS_TABLE = "crm_product_options"
 STAFF_OPTIONS_TABLE = "crm_staff_options"
-ORDER_TABLE = "order_history"
+ORDER_TABLE = CRM_DATA_TABLE
 IMPORT_BATCH_TABLE = "data_raw_import_batches"
 BATCH_SIZE = 500
 PREVIEW_ROWS = 100
 
-CUSTOMER_COLUMNS = [
-    "customer_id",
-    "customer",
-    "sales_staff",
-    "product_url",
-    "product_sku",
-    "product_name",
-    "phone1",
-    "phone2",
-    "product_group",
-    "note",
+DATA_IMPORT_HEADERS = [
+    "วันที่สั่งซื้อ",
+    "เลขคำสั่งซื้อ",
+    "ช่องทางขาย",
+    "SKU",
+    "สินค้า",
+    "จำนวน",
+    "ราคา",
+    "วิธีการชำระ",
+    "ขนส่ง",
+    "หมายเลขพัสดุ",
+    "URL",
+    "ชื่อลูกค้า",
+    "เบอร์โทร",
+    "เบอร์สำรอง",
+    "ที่อยู่จัดส่ง",
+    "ตำบล",
+    "อำเภอ",
+    "จังหวัด",
+    "รหัสไปรษณีย์",
+    "พนักงานเปิดบิล",
+    "พนักงานอัพเซลล์",
+    "พนักงานดูแล",
 ]
 
 ORDER_COLUMNS = [
@@ -99,7 +112,7 @@ def main() -> None:
     inject_css()
     render_sidebar_nav()
     st.title("เพิ่มข้อมูลลูกค้า")
-    st.caption("เพิ่มข้อมูลเข้า crm_customers_v2 ก่อน โดยยังไม่เปลี่ยน source หลักของรายงาน")
+    st.caption("เพิ่มหรือนำเข้าข้อมูลเข้า crm_data_imports โดยใช้ไฟล์ Excel คอลัม A-V")
 
     auth_user = require_login()
     if not can_manage_all(auth_user):
@@ -442,64 +455,88 @@ def product_option_label(row: dict) -> str:
 def render_create_customer_v2(auth_user: dict) -> None:
     product_options = load_product_options()
     staff_options = load_staff_options()
-    product_groups = sorted({clean(row.get("product_group")) for row in product_options if clean(row.get("product_group"))})
     staff_names = [clean(row.get("staff_name")) for row in staff_options if clean(row.get("staff_name"))]
-    option_col1, option_col2, option_col3 = st.columns(3)
-    product_group = select_or_manual(option_col1, "กลุ่มสินค้า", product_groups, "customer_v2_product_group")
-    available_products = [
-        product_option_label(row)
-        for row in product_options
-        if clean(row.get("product_group")) == clean(product_group) and clean(row.get("product_name"))
-    ]
-    product_label = select_or_manual(option_col2, "สินค้า", available_products, "customer_v2_product_name")
+    product_labels = [product_option_label(row) for row in product_options if clean(row.get("product_name"))]
+    option_col1, option_col2 = st.columns(2)
+    product_label = select_or_manual(option_col1, "สินค้า", product_labels, "customer_v2_product_name")
     product_sku, product_name = split_product_label(product_label)
-    sales_staff = select_or_manual(option_col3, "ผู้ดูแล", staff_names, "customer_v2_sales_staff")
+    care_staff = select_or_manual(option_col2, "พนักงานดูแล", staff_names, "customer_v2_sales_staff")
 
     with st.form("customer_v2_create", clear_on_submit=True):
         col1, col2 = st.columns(2)
+        order_date = col1.date_input("วันที่สั่งซื้อ", value=None)
+        order_id = col2.text_input("เลขคำสั่งซื้อ")
+        sales_channel = col1.text_input("ช่องทางขาย")
+        quantity = col2.number_input("จำนวน", min_value=0.0, value=1.0, step=1.0)
+        price = col1.number_input("ราคา", min_value=0.0, value=0.0, step=1.0)
+        payment_method = col2.text_input("วิธีการชำระ")
+        shipping_provider = col1.text_input("ขนส่ง")
+        tracking_no = col2.text_input("หมายเลขพัสดุ")
         customer = col1.text_input("ชื่อลูกค้า")
-        phone1 = col1.text_input("เบอร์โทรติดต่อ")
-        phone2 = col2.text_input("เบอร์โทรสำรอง")
+        phone1 = col2.text_input("เบอร์โทร")
+        phone2 = col1.text_input("เบอร์สำรอง")
         product_url = st.text_input("URL")
-        note = st.text_area("โน๊ต", height=90)
-        submitted = st.form_submit_button("สร้างข้อมูลลูกค้า", use_container_width=True)
+        address = st.text_area("ที่อยู่จัดส่ง", height=80)
+        c1, c2, c3, c4 = st.columns(4)
+        subdistrict = c1.text_input("ตำบล")
+        district = c2.text_input("อำเภอ")
+        province = c3.text_input("จังหวัด")
+        postcode = c4.text_input("รหัสไปรษณีย์")
+        billing_staff = col1.text_input("พนักงานเปิดบิล")
+        upsell_staff = col2.text_input("พนักงานอัพเซลล์")
+        submitted = st.form_submit_button("สร้างข้อมูล", use_container_width=True)
     if not submitted:
         return
-    if not clean(customer):
-        st.error("กรุณากรอกชื่อลูกค้า")
+    if not clean(order_id) and not clean(customer) and not clean(phone1):
+        st.error("กรุณากรอกอย่างน้อย เลขคำสั่งซื้อ / ชื่อลูกค้า / เบอร์โทร")
         return
-    payload = {
-        "customer_id": "web:" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
-        "customer": clean(customer),
-        "product_group": clean(product_group),
-        "product_sku": clean(product_sku),
-        "product_name": clean(product_name),
-        "sales_staff": clean(sales_staff),
-        "phone1": clean(phone1),
-        "phone2": clean(phone2),
-        "product_url": clean(product_url),
-        "note": clean(note),
-        "source": "web",
-        "created_by": clean(auth_user.get("email")),
-        "updated_by": clean(auth_user.get("email")),
-        "updated_at": now_iso(),
+    row = {
+        "วันที่สั่งซื้อ": order_date.isoformat() if order_date else "",
+        "เลขคำสั่งซื้อ": order_id,
+        "ช่องทางขาย": sales_channel,
+        "SKU": product_sku,
+        "สินค้า": product_name,
+        "จำนวน": quantity,
+        "ราคา": price,
+        "วิธีการชำระ": payment_method,
+        "ขนส่ง": shipping_provider,
+        "หมายเลขพัสดุ": tracking_no,
+        "URL": product_url,
+        "ชื่อลูกค้า": customer,
+        "เบอร์โทร": phone1,
+        "เบอร์สำรอง": phone2,
+        "ที่อยู่จัดส่ง": address,
+        "ตำบล": subdistrict,
+        "อำเภอ": district,
+        "จังหวัด": province,
+        "รหัสไปรษณีย์": postcode,
+        "พนักงานเปิดบิล": billing_staff,
+        "พนักงานอัพเซลล์": upsell_staff,
+        "พนักงานดูแล": care_staff,
     }
-    api_request("POST", CUSTOMERS_V2_TABLE, payload=payload)
-    st.success("สร้างข้อมูลลูกค้า SQL v2 แล้ว")
+    payload = build_crm_data_record(row, auth_user, "web", "", 1)
+    api_request(
+        "POST",
+        CRM_DATA_TABLE,
+        params="?on_conflict=dedupe_key",
+        payload=[payload],
+        prefer="resolution=merge-duplicates,return=minimal",
+    )
+    st.success("บันทึกข้อมูลเข้า crm_data_imports แล้ว")
     st.cache_data.clear()
 
 
 def render_customer_import(auth_user: dict) -> None:
-    with st.expander("นำเข้าลูกค้าจาก Excel", expanded=False):
-        headers = ["ชื่อลูกค้า", "พนักงานดูแล", "URL", "SKU", "สินค้า", "เบอร์โทรติดต่อ", "เบอร์โทรสำรอง", "กลุ่มสินค้า"]
+    with st.expander("นำเข้าข้อมูลจาก Excel", expanded=False):
+        headers = DATA_IMPORT_HEADERS
         st.download_button(
-            "ดาวน์โหลดฟอร์มเพิ่มข้อมูลลูกค้า (.xlsx)",
+            "ดาวน์โหลดฟอร์มนำเข้าข้อมูล (.xlsx)",
             data=build_xlsx_template(headers, "เพิ่มข้อมูลลูกค้า"),
-            file_name="crm_customer_import_template.xlsx",
+            file_name="crm_data_import_template.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
-        uploaded = st.file_uploader("อัปโหลดไฟล์ลูกค้า .xlsx", type=["xlsx"], key="customer_v2_upload")
+        uploaded = st.file_uploader("อัปโหลดไฟล์ .xlsx", type=["xlsx"], key="customer_v2_upload")
         if not uploaded:
             st.info("ใช้หัวตาราง: " + " / ".join(headers))
             return
@@ -516,100 +553,103 @@ def render_customer_import(auth_user: dict) -> None:
         for column in headers:
             import_df[column] = import_df[column].map(clean)
         import_df["SKU"] = import_df["SKU"].map(normalize_sku)
-        import_df = import_df[import_df["ชื่อลูกค้า"] != ""]
+        import_df = import_df[
+            import_df.apply(
+                lambda row: any(
+                    clean(row.get(column))
+                    for column in ["เลขคำสั่งซื้อ", "ชื่อลูกค้า", "เบอร์โทร", "เบอร์สำรอง", "หมายเลขพัสดุ"]
+                ),
+                axis=1,
+            )
+        ]
         st.dataframe(import_df.head(100), use_container_width=True)
         st.caption(f"พร้อมนำเข้า {len(import_df):,} แถว")
-        confirm = st.checkbox("ยืนยันนำเข้าลูกค้า", key="confirm_customer_v2_import")
-        if st.button("นำเข้าลูกค้า", disabled=not confirm or import_df.empty, use_container_width=True):
-            created = 0
-            updated = 0
-            for _, row in import_df.iterrows():
-                result = merge_customer_import_row(row.to_dict(), auth_user)
-                if result == "created":
-                    created += 1
-                elif result == "updated":
-                    updated += 1
-            st.success(f"นำเข้าเสร็จ: เพิ่มใหม่ {created:,} แถว / merge {updated:,} แถว")
+        confirm = st.checkbox("ยืนยันนำเข้าข้อมูลเข้า crm_data_imports", key="confirm_customer_v2_import")
+        if st.button("นำเข้าข้อมูล", disabled=not confirm or import_df.empty, use_container_width=True):
+            records = [
+                build_crm_data_record(row.to_dict(), auth_user, uploaded.name, "เพิ่มข้อมูลลูกค้า", index + 2)
+                for index, row in import_df.iterrows()
+            ]
+            progress = st.progress(0)
+            imported = 0
+            for start in range(0, len(records), BATCH_SIZE):
+                chunk = records[start : start + BATCH_SIZE]
+                api_request(
+                    "POST",
+                    CRM_DATA_TABLE,
+                    params="?on_conflict=dedupe_key",
+                    payload=chunk,
+                    prefer="resolution=merge-duplicates,return=minimal",
+                )
+                imported += len(chunk)
+                progress.progress(min(imported / max(len(records), 1), 1.0))
+            st.success(f"นำเข้า/อัปเดตข้อมูลเสร็จ {imported:,} แถว")
             st.cache_data.clear()
             st.rerun()
 
 
-def merge_customer_import_row(row: dict, auth_user: dict) -> str:
-    customer = clean(row.get("ชื่อลูกค้า"))
-    staff = clean(row.get("พนักงานดูแล"))
-    url = clean(row.get("URL"))
-    sku = normalize_sku(row.get("SKU"))
-    product = clean(row.get("สินค้า"))
-    phone1 = clean(row.get("เบอร์โทรติดต่อ"))
-    phone2 = clean(row.get("เบอร์โทรสำรอง"))
-    group = clean(row.get("กลุ่มสินค้า"))
-    existing = find_existing_customer_v2(customer, phone1, phone2)
-    product_name = format_product_name(sku, product)
-    if existing:
-        payload = {
-            "customer": customer or clean(existing.get("customer")),
-            "sales_staff": staff or clean(existing.get("sales_staff")),
-            "product_url": url or clean(existing.get("product_url")),
-            "product_sku": merge_csv_values(clean(existing.get("product_sku")), sku),
-            "product_name": merge_csv_values(clean(existing.get("product_name")), product_name),
-            "phone1": phone1 or clean(existing.get("phone1")),
-            "phone2": phone2 or clean(existing.get("phone2")),
-            "product_group": group or clean(existing.get("product_group")),
-            "updated_by": clean(auth_user.get("email")),
-            "updated_at": now_iso(),
-        }
-        api_request("PATCH", CUSTOMERS_V2_TABLE, params=f"?id=eq.{quote(clean(existing.get('id')))}", payload=payload)
-        return "updated"
-    payload = {
-        "customer_id": "web:" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
-        "customer": customer,
-        "sales_staff": staff,
-        "product_url": url,
-        "product_sku": sku,
-        "product_name": product_name,
-        "phone1": phone1,
-        "phone2": phone2,
-        "product_group": group,
-        "source": "excel",
+def build_crm_data_record(row: dict, auth_user: dict, filename: str, worksheet: str, row_number: int) -> dict:
+    order_date_text = clean(row.get("วันที่สั่งซื้อ"))
+    record = {
+        "dedupe_key": make_dedupe_key(row, filename, row_number),
+        "order_date": parse_import_date(order_date_text),
+        "order_date_text": order_date_text,
+        "order_id": clean(row.get("เลขคำสั่งซื้อ")),
+        "sales_channel": clean(row.get("ช่องทางขาย")),
+        "sku": normalize_sku(row.get("SKU")),
+        "product_name": clean(row.get("สินค้า")),
+        "quantity": to_number(row.get("จำนวน")),
+        "price": to_number(row.get("ราคา")),
+        "payment_method": clean(row.get("วิธีการชำระ")),
+        "shipping_provider": clean(row.get("ขนส่ง")),
+        "tracking_no": clean(row.get("หมายเลขพัสดุ")),
+        "url": clean(row.get("URL")),
+        "customer_name": clean(row.get("ชื่อลูกค้า")),
+        "phone1": clean(row.get("เบอร์โทร")),
+        "phone2": clean(row.get("เบอร์สำรอง")),
+        "shipping_address": clean(row.get("ที่อยู่จัดส่ง")),
+        "subdistrict": clean(row.get("ตำบล")),
+        "district": clean(row.get("อำเภอ")),
+        "province": clean(row.get("จังหวัด")),
+        "postcode": clean(row.get("รหัสไปรษณีย์")),
+        "billing_staff": clean(row.get("พนักงานเปิดบิล")),
+        "upsell_staff": clean(row.get("พนักงานอัพเซลล์")),
+        "care_staff": clean(row.get("พนักงานดูแล")),
+        "source_filename": clean(filename),
+        "source_worksheet": clean(worksheet),
+        "source_row_number": int(row_number),
+        "imported_by": clean(auth_user.get("email")),
         "created_by": clean(auth_user.get("email")),
         "updated_by": clean(auth_user.get("email")),
         "updated_at": now_iso(),
     }
-    api_request("POST", CUSTOMERS_V2_TABLE, payload=payload)
-    return "created"
+    return record
 
 
-def find_existing_customer_v2(customer: str, phone1: str, phone2: str) -> dict | None:
-    select = "select=id,customer,phone1,phone2,sales_staff,product_url,product_sku,product_name,product_group"
-    filters = []
-    if phone1:
-        q = quote(phone1)
-        filters.extend([f"phone1.eq.{q}", f"phone2.eq.{q}"])
-    if phone2:
-        q = quote(phone2)
-        filters.extend([f"phone1.eq.{q}", f"phone2.eq.{q}"])
-    if filters:
-        rows = api_request("GET", CUSTOMERS_V2_TABLE, params=f"?{select}&or=({','.join(filters)})&limit=1", prefer="return=representation")
-        if rows:
-            return rows[0]
-    if customer:
-        rows = api_request("GET", CUSTOMERS_V2_TABLE, params=f"?{select}&customer=eq.{quote(customer)}&limit=1", prefer="return=representation")
-        if rows:
-            return rows[0]
-    return None
+def make_dedupe_key(row: dict, filename: str = "", row_number: int = 0) -> str:
+    parts = [
+        clean(row.get("เลขคำสั่งซื้อ")),
+        normalize_phone(row.get("เบอร์โทร")),
+        normalize_phone(row.get("เบอร์สำรอง")),
+        clean(row.get("หมายเลขพัสดุ")),
+    ]
+    if any(parts):
+        return "|".join(parts)
+    return f"manual:{clean(filename) or 'web'}:{row_number}:{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
 
 
-def merge_csv_values(existing: str, new_value: str) -> str:
-    values = [clean(value) for value in existing.split(",") if clean(value)]
-    if clean(new_value) and clean(new_value) not in values:
-        values.append(clean(new_value))
-    return ", ".join(values)
+def parse_import_date(value) -> str | None:
+    text = clean(value)
+    if not text:
+        return None
+    parsed = pd.to_datetime(text, errors="coerce", dayfirst=True)
+    if pd.isna(parsed):
+        return None
+    return parsed.date().isoformat()
 
 
-def format_product_name(sku: str, product: str) -> str:
-    sku = normalize_sku(sku)
-    product = clean(product)
-    return f"{sku} {product}".strip() if sku else product
+def normalize_phone(value) -> str:
+    return "".join(ch for ch in clean(value) if ch.isdigit())
 
 
 def split_product_label(label: str) -> tuple[str, str]:

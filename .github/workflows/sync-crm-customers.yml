@@ -1,41 +1,16 @@
 name: Sync CRM Customers to Supabase
 
 on:
-  schedule:
-    # 00:00 Asia/Bangkok. GitHub Actions cron uses UTC.
-    - cron: "0 17 * * *"
   workflow_dispatch:
-    inputs:
-      batch_size:
-        description: "CRM customer upsert batch size. Lower is gentler for Supabase Free Plan."
-        required: false
-        default: "100"
 
 concurrency:
   group: crm-customers-sync
   cancel-in-progress: false
 
 jobs:
-  sync:
+  disabled:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install sync dependencies
-        run: pip install -r requirements-sync.txt
-
-      - name: Sync CRM Customers
-        env:
-          CRM_SUPABASE_URL: ${{ secrets.CRM_SUPABASE_URL }}
-          CRM_SUPABASE_SERVICE_KEY: ${{ secrets.CRM_SUPABASE_SERVICE_KEY }}
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          CRM_MANAGER_SHEETS_JSON: ${{ secrets.CRM_MANAGER_SHEETS_JSON }}
-          CRM_CUSTOMERS_BATCH_SIZE: ${{ github.event.inputs.batch_size || '100' }}
-        run: python sync_crm_customers_to_supabase.py
+      - name: Legacy workflow disabled
+        run: echo "Legacy crm_customers sync is disabled because crm_customers was replaced by crm_data_imports."
