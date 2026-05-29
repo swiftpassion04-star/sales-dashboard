@@ -109,7 +109,6 @@ def render_customer360() -> None:
     init_filter_state()
 
     st.title("ข้อมูลลูกค้า")
-    render_create_customer_v2_panel(auth_user)
     filters = sidebar_filters()
     page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customer360_page_size")
     page = max(int(st.session_state.get("customer360_page", 1)), 1)

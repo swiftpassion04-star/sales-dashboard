@@ -87,13 +87,13 @@ SUPABASE_URL = get_secret("CRM_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
 SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY")
 
 
-st.set_page_config(page_title="SQL Workspace", layout="wide")
+st.set_page_config(page_title="เพิ่มข้อมูลลูกค้า", layout="wide")
 
 
 def main() -> None:
     inject_css()
-    st.title("SQL Workspace")
-    st.caption("พื้นที่ทดลอง SQL-first: จัดการลูกค้า v2 และนำเข้า DATA_RAW โดยยังไม่เปลี่ยน source หลักของรายงาน")
+    st.title("เพิ่มข้อมูลลูกค้า")
+    st.caption("เพิ่มข้อมูลเข้า crm_customers_v2 ก่อน โดยยังไม่เปลี่ยน source หลักของรายงาน")
 
     auth_user = require_login()
     if not can_manage_all(auth_user):
@@ -101,11 +101,7 @@ def main() -> None:
         st.stop()
     require_config()
 
-    tab_customer, tab_upload = st.tabs(["ลูกค้า SQL v2", "นำเข้า DATA_RAW"])
-    with tab_customer:
-        render_customers_v2(auth_user)
-    with tab_upload:
-        render_data_raw_upload(auth_user)
+    render_create_customer_v2(auth_user)
 
 
 def inject_css() -> None:
@@ -336,6 +332,43 @@ def api_request(method: str, table: str, params: str = "", payload=None, prefer:
     if not response.text:
         return []
     return response.json()
+
+
+def render_create_customer_v2(auth_user: dict) -> None:
+    with st.form("customer_v2_create", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        customer = col1.text_input("ชื่อลูกค้า")
+        product_group = col2.text_input("กลุ่มสินค้า")
+        product_name = col1.text_input("สินค้า")
+        sales_staff = col2.text_input("ผู้ดูแล")
+        phone1 = col1.text_input("เบอร์โทรติดต่อ")
+        phone2 = col2.text_input("เบอร์โทรสำรอง")
+        product_url = st.text_input("URL")
+        note = st.text_area("โน๊ต", height=90)
+        submitted = st.form_submit_button("สร้างข้อมูลลูกค้า", use_container_width=True)
+    if not submitted:
+        return
+    if not clean(customer):
+        st.error("กรุณากรอกชื่อลูกค้า")
+        return
+    payload = {
+        "customer_id": "web:" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+        "customer": clean(customer),
+        "product_group": clean(product_group),
+        "product_name": clean(product_name),
+        "sales_staff": clean(sales_staff),
+        "phone1": clean(phone1),
+        "phone2": clean(phone2),
+        "product_url": clean(product_url),
+        "note": clean(note),
+        "source": "web",
+        "created_by": clean(auth_user.get("email")),
+        "updated_by": clean(auth_user.get("email")),
+        "updated_at": now_iso(),
+    }
+    api_request("POST", CUSTOMERS_V2_TABLE, payload=payload)
+    st.success("สร้างข้อมูลลูกค้า SQL v2 แล้ว")
+    st.cache_data.clear()
 
 
 def render_customers_v2(auth_user: dict) -> None:
