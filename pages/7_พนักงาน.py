@@ -7,6 +7,7 @@ import requests
 import streamlit as st
 
 from auth_utils import can_manage_all, require_login
+from nav_utils import render_sidebar_nav
 
 
 STAFF_OPTIONS_TABLE = "crm_staff_options"
@@ -126,6 +127,7 @@ button[kind="formSubmit"] {
 
 def main() -> None:
     inject_css()
+    render_sidebar_nav()
     st.title("พนักงาน")
     st.caption("จัดการตัวเลือกผู้ดูแล สำหรับใช้ในหน้าเพิ่มข้อมูลลูกค้า")
     auth_user = require_login()

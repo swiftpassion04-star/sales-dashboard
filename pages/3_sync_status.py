@@ -5,9 +5,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from auth_utils import can_manage_system_page, can_view_system_page, require_login
+from nav_utils import render_sidebar_nav
 
 
 st.set_page_config(page_title="DATA_RAW Sync", layout="wide")
+render_sidebar_nav()
 
 SUPABASE_URL = st.secrets.get("CRM_SUPABASE_URL", st.secrets.get("SUPABASE_URL", ""))
 ANON_KEY = st.secrets.get("CRM_SUPABASE_ANON_KEY", st.secrets.get("SUPABASE_ANON_KEY", ""))

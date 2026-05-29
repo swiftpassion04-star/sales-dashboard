@@ -8,6 +8,7 @@ import requests
 import streamlit as st
 
 from auth_utils import can_manage_all, require_login
+from nav_utils import render_sidebar_nav
 
 
 PRODUCT_OPTIONS_TABLE = "crm_product_options"
@@ -152,6 +153,7 @@ button[kind="formSubmit"] {
 
 def main() -> None:
     inject_css()
+    render_sidebar_nav()
     st.title("สินค้า")
     st.caption("จัดการตัวเลือกกลุ่มสินค้าและสินค้า สำหรับใช้ในหน้าเพิ่มข้อมูลลูกค้า")
     auth_user = require_login()
