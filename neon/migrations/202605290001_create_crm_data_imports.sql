@@ -1,0 +1,54 @@
+create table if not exists public.crm_data_imports (
+  id bigserial primary key,
+  import_batch_id uuid not null,
+  source_file_name text,
+  sheet_name text,
+  row_number integer,
+  uploaded_by text,
+  uploaded_at timestamptz not null default now(),
+  raw_data jsonb not null default '{}'::jsonb,
+  order_id text,
+  url text,
+  customer_name text,
+  phone1 text,
+  phone2 text,
+  product_name text,
+  sku text,
+  order_date date,
+  province text,
+  city text,
+  postal_code text,
+  tracking_no text,
+  carrier text,
+  order_status text,
+  total_amount numeric,
+  owner text,
+  import_status text not null default 'valid',
+  validation_error text,
+  dedupe_key text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.crm_data_imports
+  add column if not exists order_id text,
+  add column if not exists url text;
+
+create index if not exists idx_crm_data_imports_phone1
+  on public.crm_data_imports (phone1);
+create index if not exists idx_crm_data_imports_phone2
+  on public.crm_data_imports (phone2);
+create index if not exists idx_crm_data_imports_sku
+  on public.crm_data_imports (sku);
+create index if not exists idx_crm_data_imports_order_id
+  on public.crm_data_imports (order_id);
+create index if not exists idx_crm_data_imports_order_date
+  on public.crm_data_imports (order_date);
+create index if not exists idx_crm_data_imports_uploaded_at
+  on public.crm_data_imports (uploaded_at desc);
+create index if not exists idx_crm_data_imports_import_batch_id
+  on public.crm_data_imports (import_batch_id);
+create index if not exists idx_crm_data_imports_owner
+  on public.crm_data_imports (owner);
+create index if not exists idx_crm_data_imports_tracking_no
+  on public.crm_data_imports (tracking_no);

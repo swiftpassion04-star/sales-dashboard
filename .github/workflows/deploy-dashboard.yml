@@ -21,4 +21,4 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Validate dashboard syntax
-        run: python -m py_compile app.py auth_utils.py customer360.py crm_dashboard.py pages/3_sync_status.py sync_crm_customers_to_supabase.py
+        run: python -m py_compile app.py auth_utils.py neon_utils.py customer360.py crm_dashboard.py pages/3_sync_status.py pages/4_เพิ่มข้อมูลลูกค้า.py pages/5_ฐานข้อมูลลูกค้า.py pages/6_สินค้า.py pages/7_พนักงาน.py

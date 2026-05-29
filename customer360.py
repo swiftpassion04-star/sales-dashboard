@@ -9,13 +9,19 @@ import requests
 import streamlit as st
 
 from auth_utils import can_edit_customer_lead, can_manage_all, require_login
+from neon_utils import (
+    fetch_customer_by_id,
+    fetch_customer_page,
+    fetch_filter_options,
+    fetch_orders_by_phones,
+    search_terms,
+)
 
 
 CUSTOMERS_TABLE = "crm_data_imports"
 ORDERS_TABLE = "crm_data_imports"
 LEAD_FOLLOWUPS_TABLE = "crm_lead_followups"
 FILTER_OPTIONS_TABLE = "crm_data_imports"
-CUSTOMERS_V2_TABLE = "crm_data_imports"
 FETCH_LIMIT = 1000
 ORDER_MAX_FETCH = 5000
 CUSTOMER_MAX_FETCH = 100000
@@ -524,71 +530,19 @@ def api_upsert(path: str, payload: dict, conflict_key: str) -> tuple[list[dict],
     return response.json() if response.text else [], None
 
 
-def api_service_write(method: str, path: str, payload: dict, params: list[str] | None = None) -> str | None:
-    require_config()
-    if not SUPABASE_SERVICE_KEY:
-        return "ยังไม่ได้ตั้งค่า CRM_SUPABASE_SERVICE_KEY สำหรับจัดการข้อมูล SQL v2"
-    query = "&".join(params or [])
-    url = f"{SUPABASE_URL}/rest/v1/{path}" + (f"?{query}" if query else "")
-    headers = request_headers(api_key=SUPABASE_SERVICE_KEY, prefer="return=minimal")
-    headers["Content-Type"] = "application/json"
-    response = requests.request(method, url, headers=headers, json=payload, timeout=30)
-    if response.status_code not in (200, 201, 204):
-        return response.text
-    return None
-
-
-def render_create_customer_v2_panel(auth_user: dict) -> None:
-    if not can_manage_all(auth_user):
-        return
-    with st.expander("สร้างข้อมูลลูกค้า SQL v2", expanded=False):
-        st.caption("บันทึกลง crm_customers_v2 ก่อน ยังไม่เปลี่ยนหน้ารายงานหลักไปใช้ v2 จนกว่าจะยืนยันอีกครั้ง")
-        with st.form("create_customer_v2_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            customer = col1.text_input("ชื่อลูกค้า")
-            product_group = col2.text_input("กลุ่มสินค้า")
-            product_name = col1.text_input("สินค้า")
-            sales_staff = col2.text_input("ผู้ดูแล")
-            phone1 = col1.text_input("เบอร์โทรติดต่อ")
-            phone2 = col2.text_input("เบอร์โทรสำรอง")
-            product_url = st.text_input("URL")
-            note = st.text_area("โน๊ต", height=90)
-            submitted = st.form_submit_button("สร้างข้อมูลลูกค้า", use_container_width=True)
-        if submitted:
-            if not clean(customer):
-                st.error("กรุณากรอกชื่อลูกค้า")
-                return
-            payload = {
-                "customer_id": "web:" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
-                "customer": clean(customer),
-                "product_group": clean(product_group),
-                "product_name": clean(product_name),
-                "sales_staff": clean(sales_staff),
-                "phone1": clean(phone1),
-                "phone2": clean(phone2),
-                "product_url": clean(product_url),
-                "note": clean(note),
-                "source": "web",
-                "created_by": clean(auth_user.get("email")),
-                "updated_by": clean(auth_user.get("email")),
-                "updated_at": datetime.utcnow().isoformat() + "Z",
-            }
-            error = api_service_write("POST", CUSTOMERS_V2_TABLE, payload)
-            if error:
-                st.error("สร้างลูกค้า v2 ไม่สำเร็จ: " + error)
-            else:
-                st.success("สร้างข้อมูลลูกค้าใน SQL v2 แล้ว")
-
-
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner="กำลังโหลดลูกค้า CRM...")
 def load_crm_customers(filters: tuple[str, str, str, str], page_size: int, page: int) -> tuple[pd.DataFrame, int]:
     page = max(int(page), 1)
     page_size = int(page_size)
     offset = (page - 1) * page_size
-    params = customer_query_params(filters, page_size, offset)
-    rows, total_count, error = api_get_counted(CUSTOMERS_TABLE, params, api_key=SUPABASE_SERVICE_KEY or None)
-    if error:
-        st.session_state.customer360_customer_error = error
+    try:
+        rows, total_count = fetch_customer_page(
+            {"staff": filters[1], "keyword": filters[2]},
+            page_size,
+            page,
+        )
+    except Exception as exc:
+        st.session_state.customer360_customer_error = str(exc)
         return pd.DataFrame(), 0
     st.session_state.customer360_customer_error = ""
     return pd.DataFrame(rows), total_count
@@ -599,69 +553,28 @@ def load_customer_by_detail_key(detail_key: str) -> pd.DataFrame:
     prefix, _, value = clean(detail_key).partition(":")
     if prefix not in {"customer_id", "id"} or not value:
         return pd.DataFrame()
-    filter_column = "dedupe_key" if prefix == "customer_id" else "id"
-    rows, error = api_get(
-        CUSTOMERS_TABLE,
-        [
-            "select=" + ",".join(CUSTOMER_SELECT_COLUMNS),
-            f"{filter_column}=eq.{quote(value)}",
-            "deleted_at=is.null",
-            "limit=1",
-        ],
-        api_key=SUPABASE_SERVICE_KEY or None,
-    )
-    if error:
-        st.session_state.customer360_customer_error = error
+    try:
+        rows = fetch_customer_by_id(value)
+    except Exception as exc:
+        st.session_state.customer360_customer_error = str(exc)
         return pd.DataFrame()
     return pd.DataFrame(rows)
 
 
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
 def load_customer_filter_options() -> dict[str, list[str]]:
-    rows, error = api_get(
-        FILTER_OPTIONS_TABLE,
-        ["select=care_staff", "deleted_at=is.null", "order=care_staff.asc", "limit=5000"],
-        api_key=SUPABASE_SERVICE_KEY or None,
-    )
-    if error:
+    try:
+        return fetch_filter_options()
+    except Exception:
         return {"product_group": [], "sales_staff": []}
-    options = {"product_group": [], "sales_staff": []}
-    for row in rows:
-        option_value = clean(row.get("care_staff"))
-        if option_value and option_value not in options["sales_staff"]:
-            options["sales_staff"].append(option_value)
-    return options
 
 
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
 def search_order_customer_terms(keyword: str) -> dict[str, tuple[str, ...]]:
-    keyword = clean(keyword)
-    if not keyword:
+    try:
+        return search_terms(keyword)
+    except Exception:
         return {"phones": (), "customers": ()}
-    q = quote(keyword)
-    rows, error = api_get(
-        ORDERS_TABLE,
-        [
-            "select=customer_name,phone1,phone2,order_id,postcode,tracking_no",
-            "deleted_at=is.null",
-            f"or=(customer_name.ilike.*{q}*,phone1.ilike.*{q}*,phone2.ilike.*{q}*,order_id.ilike.*{q}*,postcode.ilike.*{q}*,tracking_no.ilike.*{q}*)",
-            "limit=80",
-        ],
-        api_key=SUPABASE_SERVICE_KEY or None,
-    )
-    if error:
-        return {"phones": (), "customers": ()}
-    phones: list[str] = []
-    customers: list[str] = []
-    for row in rows:
-        for name in ("phone1", "phone2"):
-            phone = normalize_phone(row.get(name))
-            if phone and phone not in phones:
-                phones.append(phone)
-        customer = clean(row.get("customer_name"))
-        if customer and customer not in customers:
-            customers.append(customer)
-    return {"phones": tuple(phones[:30]), "customers": tuple(customers[:20])}
 
 
 def customer_query_params(filters: tuple[str, str, str, str], page_size: int, offset: int) -> list[str]:
@@ -724,75 +637,11 @@ def has_active_filters(filters: dict[str, str]) -> bool:
 
 @st.cache_data(ttl=120, show_spinner="กำลังจับคู่ประวัติคำสั่งซื้อ...")
 def search_orders_by_phones(phones: tuple[str, ...], year: str) -> pd.DataFrame:
-    clean_phones = tuple(phone for phone in phones if phone)
-    if not clean_phones:
-        return pd.DataFrame()
-
-    select_cols = ",".join(
-        [
-            "source_key:dedupe_key",
-            "order_id",
-            "date_text:order_date_text",
-            "order_date",
-            "customer:customer_name",
-            "phone1",
-            "phone2",
-            "address:shipping_address",
-            "subdistrict",
-            "district",
-            "province",
-            "postcode",
-            "channel:sales_channel",
-            "sales_staff:billing_staff",
-            "upsell_staff",
-            "care_staff",
-            "total_sales:price",
-            "payment_method",
-            "shipping:shipping_provider",
-            "tracking_no",
-            "channel_url:url",
-            "sku",
-            "product_name",
-            "quantity",
-            "updated_at",
-        ]
-    )
-    exact_phone_filters = []
-    fuzzy_phone_filters = []
-    for phone in clean_phones[:6]:
-        q = quote(phone)
-        exact_phone_filters.extend([f"phone1.eq.{q}", f"phone2.eq.{q}"])
-        fuzzy_phone_filters.extend([f"phone1.ilike.*{q}*", f"phone2.ilike.*{q}*"])
-
-    base = [f"select={select_cols}", "deleted_at=is.null", f"or=({','.join(exact_phone_filters)})"]
-
-    rows = fetch_order_pages(base)
-    if not rows:
-        fallback_base = [f"select={select_cols}", "deleted_at=is.null", f"or=({','.join(fuzzy_phone_filters)})"]
-        rows = fetch_order_pages(fallback_base)
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-    target_phones = set(clean_phones)
-
-    def exact_phone_match(row: pd.Series) -> bool:
-        return bool({normalize_phone(row.get("phone1")), normalize_phone(row.get("phone2"))} & target_phones)
-
-    df = df[df.apply(exact_phone_match, axis=1)].copy()
-    if not df.empty:
-        df["products"] = df.apply(
-            lambda row: [
-                {
-                    "sku": clean(row.get("sku")),
-                    "name": clean(row.get("product_name")),
-                    "qty": clean(row.get("quantity")),
-                    "price": clean(row.get("price") or row.get("total_sales")),
-                }
-            ],
-            axis=1,
-        )
-    return df
+    try:
+        rows = fetch_orders_by_phones(tuple(phone for phone in phones if phone), ORDER_MAX_FETCH)
+    except Exception:
+        rows = []
+    return pd.DataFrame(rows)
 
 
 def fetch_order_pages(base_params: list[str]) -> list[dict]:
@@ -1419,11 +1268,11 @@ def delivery_badge(value: object) -> str:
 def render_setup_warning() -> None:
     error = st.session_state.get("customer360_customer_error", "")
     if error:
-        st.error("ยังอ่านตาราง crm_data_imports ไม่ได้จาก Supabase")
+        st.error("ยังอ่านตาราง crm_data_imports จาก Neon ไม่ได้")
         st.code(error, language="json")
     else:
         st.warning("ยังไม่มีข้อมูลใน crm_data_imports")
-    st.info("ให้นำเข้าไฟล์ Excel ผ่านหน้าเพิ่มข้อมูลลูกค้า เพื่อเติมข้อมูลเข้า crm_data_imports")
+    st.info("ให้นำเข้าไฟล์ Excel ผ่านหน้า “นำเข้าข้อมูลลูกค้า” เพื่อเติมข้อมูลเข้า Neon crm_data_imports")
 
 
 def unique_customer_count(df: pd.DataFrame) -> int:
