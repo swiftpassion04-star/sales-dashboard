@@ -293,6 +293,59 @@ button[kind="formSubmit"]:hover {
 [data-testid="stDataFrame"] * {
   color:#111827 !important;
 }
+[data-testid="stExpander"] {
+  background:#ffffff !important;
+  border:1px solid var(--crm-border) !important;
+  border-radius:14px !important;
+  box-shadow:var(--crm-shadow);
+  overflow:hidden;
+}
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] summary {
+  background:#ffffff !important;
+  color:var(--crm-text) !important;
+}
+[data-testid="stExpander"] summary {
+  border-bottom:1px solid #ffedd5 !important;
+  font-weight:800 !important;
+}
+[data-testid="stExpander"] summary *,
+[data-testid="stFileUploader"] *,
+[data-testid="stDownloadButton"] * {
+  color:var(--crm-text) !important;
+}
+[data-testid="stFileUploader"] {
+  background:#ffffff !important;
+  border:1px dashed var(--crm-border-strong) !important;
+  border-radius:14px !important;
+  padding:14px !important;
+}
+[data-testid="stFileUploader"] section {
+  background:#fffaf5 !important;
+  border:1px dashed #fdba74 !important;
+  border-radius:12px !important;
+}
+[data-testid="stFileUploader"] button,
+[data-testid="stDownloadButton"] button {
+  background:#ffffff !important;
+  color:#9a3412 !important;
+  border:1px solid var(--crm-accent) !important;
+  border-radius:10px !important;
+  font-weight:800 !important;
+}
+.stButton > button[kind="primary"],
+[data-testid="stFormSubmitButton"] button {
+  background:linear-gradient(90deg,#f97316 0%,#ea580c 100%) !important;
+  color:#ffffff !important;
+  border:1px solid var(--crm-accent-dark) !important;
+}
+[data-testid="stFileUploaderDropzone"] {
+  background:#fffaf5 !important;
+  color:var(--crm-text) !important;
+}
+[data-testid="stFileUploaderDropzone"] * {
+  color:var(--crm-text) !important;
+}
 hr {
   border-color:var(--crm-border) !important;
 }

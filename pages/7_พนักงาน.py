@@ -91,6 +91,32 @@ button[kind="formSubmit"] {
   border-radius:12px !important;
   box-shadow:var(--crm-shadow);
 }
+[data-testid="stExpander"] {
+  background:#ffffff !important;
+  border:1px solid var(--crm-border) !important;
+  border-radius:14px !important;
+  box-shadow:var(--crm-shadow);
+  overflow:hidden;
+}
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] summary {
+  background:#ffffff !important;
+  color:var(--crm-text) !important;
+}
+[data-testid="stExpander"] summary {
+  border-bottom:1px solid #ffedd5 !important;
+  font-weight:800 !important;
+}
+[data-testid="stFileUploader"] *,
+[data-testid="stDownloadButton"] * {
+  color:var(--crm-text) !important;
+}
+.stButton > button[kind="primary"],
+[data-testid="stFormSubmitButton"] button {
+  background:linear-gradient(90deg,#f97316 0%,#ea580c 100%) !important;
+  color:#ffffff !important;
+  border:1px solid var(--crm-accent-dark) !important;
+}
 [data-testid="stAlert"] * { color:#111827 !important; }
 </style>
 """,
