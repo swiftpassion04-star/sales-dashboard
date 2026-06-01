@@ -921,16 +921,36 @@ def apply_owner_assignments(cur, records: list[dict]) -> None:
                 break
 
 
-def fetch_customer_page(filters: dict[str, str], page_size: int, page: int) -> tuple[list[dict], int]:
+def fetch_customer_page(filters: dict[str, str], page_size: int, page: int, user: dict | None = None) -> tuple[list[dict], int]:
     ensure_crm_data_imports_schema()
-    where, params = build_customer_where(filters)
+    where, params = build_customer_where(filters, user)
     limit = int(page_size)
     offset = (max(int(page), 1) - 1) * limit
     select_cols = customer_select_columns()
     source_sql = f"""
       from (
         select
-          *,
+          id,
+          customer_name,
+          owner,
+          staff_code,
+          order_id,
+          url,
+          product_name,
+          phone1,
+          phone2,
+          sku,
+          province,
+          city,
+          postal_code,
+          tracking_no,
+          carrier,
+          order_status,
+          total_amount,
+          order_date,
+          raw_data,
+          uploaded_at,
+          updated_at,
           case
             when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
             else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
@@ -965,9 +985,93 @@ def fetch_customer_page(filters: dict[str, str], page_size: int, page: int) -> t
             return cur.fetchall(), total
 
 
-def build_customer_where(filters: dict[str, str]) -> tuple[str, list]:
+def fetch_dashboard_kpis(user: dict | None = None) -> dict:
+    ensure_crm_data_imports_schema()
+    where = ["d.import_status = 'valid'"]
+    params: list = []
+    role = clean((user or {}).get("role"))
+    staff_code = clean((user or {}).get("staff_code"))
+    if role not in {"EDITOR"}:
+        if staff_code:
+            where.append("d.staff_code = %s")
+            params.append(staff_code)
+        else:
+            where.append("1 = 0")
+    where_sql = "where " + " and ".join(where)
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                with latest_customers as (
+                  select distinct on (
+                    case
+                      when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+                      else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+                    end
+                  )
+                    id,
+                    phone1,
+                    phone2,
+                    updated_at
+                  from public.crm_data_imports d
+                  {where_sql}
+                  order by
+                    case
+                      when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+                      else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+                    end,
+                    order_date desc nulls last,
+                    uploaded_at desc,
+                    id desc
+                )
+                select
+                  (select count(*) from latest_customers) as total_customers,
+                  count(*) filter (where coalesce(l.next_followup_date, l.follow_up_date) = current_date and coalesce(l.followup_status, l.follow_up_status, 'none') <> 'done') as due_today,
+                  count(*) filter (where coalesce(l.next_followup_date, l.follow_up_date) < current_date and coalesce(l.followup_status, l.follow_up_status, 'none') <> 'done') as overdue,
+                  count(*) filter (where coalesce(l.lead_status, 'new') = 'interested') as interested,
+                  count(*) filter (where coalesce(l.lead_status, 'new') = 'won') as won,
+                  max(greatest(coalesce(l.updated_at, 'epoch'::timestamptz), coalesce(d.updated_at, 'epoch'::timestamptz))) as latest_update
+                from latest_customers d
+                left join lateral (
+                  select
+                    lead_status,
+                    followup_status,
+                    follow_up_status,
+                    next_followup_date,
+                    follow_up_date,
+                    updated_at
+                  from public.crm_lead_followups l
+                  where l.crm_data_import_id = d.id
+                     or (nullif(l.phone1, '') is not null and (l.phone1 = d.phone1 or l.phone1 = d.phone2))
+                     or (nullif(l.phone2, '') is not null and (l.phone2 = d.phone1 or l.phone2 = d.phone2))
+                  order by updated_at desc nulls last, id desc
+                  limit 1
+                ) l on true
+                """,
+                params,
+            )
+            row = cur.fetchone() or {}
+            return {
+                "total_customers": int(row.get("total_customers") or 0),
+                "due_today": int(row.get("due_today") or 0),
+                "overdue": int(row.get("overdue") or 0),
+                "interested": int(row.get("interested") or 0),
+                "won": int(row.get("won") or 0),
+                "latest_update": clean(row.get("latest_update")),
+            }
+
+
+def build_customer_where(filters: dict[str, str], user: dict | None = None) -> tuple[str, list]:
     clauses = ["import_status = 'valid'"]
     params: list = []
+    role = clean((user or {}).get("role"))
+    staff_code = clean((user or {}).get("staff_code"))
+    if role and role != "EDITOR":
+        if staff_code:
+            clauses.append("staff_code = %s")
+            params.append(staff_code)
+        else:
+            clauses.append("1 = 0")
     staff = clean(filters.get("staff"))
     keyword = clean(filters.get("keyword"))
     if staff and staff != "ทั้งหมด":
@@ -1324,6 +1428,14 @@ def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list
         clauses.append("(d.phone1 like %s or d.phone2 like %s)")
         params.extend([like_phone, like_phone])
         return "where " + " and ".join(clauses), params
+
+    keyword = clean(filters.get("keyword"))
+    if keyword:
+        like = f"%{keyword}%"
+        clauses.append(
+            "(d.customer_name ilike %s or d.order_id ilike %s or d.sku ilike %s or d.product_name ilike %s)"
+        )
+        params.extend([like, like, like, like])
 
     owner = clean(filters.get("owner"))
     if owner and owner != "ทั้งหมด":

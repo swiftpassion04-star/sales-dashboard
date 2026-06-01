@@ -6,7 +6,7 @@ from nav_utils import render_sidebar_nav
 from neon_utils import fetch_dashboard_kpis
 
 
-st.set_page_config(page_title="Sales CRM", layout="wide")
+st.set_page_config(page_title="Dashboard", layout="wide")
 
 
 def main() -> None:
@@ -25,14 +25,16 @@ def main() -> None:
     cols[4].metric("ปิดการขายแล้ว", f"{kpis['won']:,}")
     cols[5].metric("อัปเดตล่าสุด", kpis["latest_update"][:10] if kpis["latest_update"] else "-")
 
-    st.markdown('<div class="crm-section-title">Quick Access</div>', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.page_link("pages/customers.py", label="เปิดหน้าลูกค้า")
-    with c2:
-        st.page_link("pages/followup.py", label="เปิดหน้าติดตามลูกค้า")
-    with c3:
-        st.page_link("pages/import_excel.py", label="เปิดหน้า Import Excel")
+    st.markdown('<div class="crm-section-title">สถานะระบบ</div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+<div class="crm-card">
+  ข้อมูล CRM หลักอ่าน/เขียนจาก Neon PostgreSQL และ Supabase ใช้เฉพาะ Login/Auth เท่านั้น
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 main()
+
