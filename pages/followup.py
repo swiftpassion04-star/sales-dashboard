@@ -68,15 +68,15 @@ def render_filters(user: dict) -> dict[str, str]:
         options = {"owners": [], "products": []}
     with st.form("followup_filters_v2"):
         c1, c2, c3 = st.columns(3)
-        lead_status = c1.selectbox("Lead Status", [ALL] + list(LEAD_STATUS_OPTIONS.keys()), format_func=lead_label)
-        followup_status = c2.selectbox("Follow-up Status", [ALL] + list(FOLLOWUP_STATUS_OPTIONS.keys()), format_func=followup_label)
-        priority = c3.selectbox("Priority", [ALL] + list(PRIORITY_OPTIONS.keys()), format_func=priority_label)
+        lead_status = c1.selectbox("สถานะลูกค้า", [ALL] + list(LEAD_STATUS_OPTIONS.keys()), format_func=lead_label)
+        followup_status = c2.selectbox("สถานะติดตาม", [ALL] + list(FOLLOWUP_STATUS_OPTIONS.keys()), format_func=followup_label)
+        priority = c3.selectbox("ความสำคัญ", [ALL] + list(PRIORITY_OPTIONS.keys()), format_func=priority_label)
         c4, c5 = st.columns(2)
-        product = c4.selectbox("Product / SKU", [ALL] + options.get("products", []))
+        product = c4.selectbox("สินค้า / SKU", [ALL] + options.get("products", []))
         owner = ALL
         if clean(user.get("role")) == ROLE_EDITOR:
-            owner = c5.selectbox("Owner", [ALL] + options.get("owners", []))
-        keyword = st.text_input("Search", placeholder="เบอร์โทร / ชื่อลูกค้า / เลขคำสั่งซื้อ")
+            owner = c5.selectbox("ผู้ดูแล", [ALL] + options.get("owners", []))
+        keyword = st.text_input("ค้นหา", placeholder="เบอร์โทร / ชื่อลูกค้า / เลขคำสั่งซื้อ")
         submitted = st.form_submit_button("ค้นหา", use_container_width=True)
     if submitted:
         st.session_state.followup_page_v2 = 1
@@ -116,21 +116,20 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
     st.markdown(
         """
 <div class="crm-table">
-  <div class="crm-table-header" style="grid-template-columns:1fr 1.35fr 1fr 1.2fr .8fr 1fr 1fr .9fr .8fr;">
+  <div class="crm-table-header" style="grid-template-columns:1fr 1.35fr 1fr .8fr 1.2fr 1fr 1fr .9fr .8fr;">
     <div class="crm-table-cell">วันนัด</div>
     <div class="crm-table-cell">ชื่อลูกค้า</div>
     <div class="crm-table-cell">เบอร์โทร</div>
-    <div class="crm-table-cell">สินค้า</div>
     <div class="crm-table-cell">SKU</div>
-    <div class="crm-table-cell">Lead</div>
-    <div class="crm-table-cell">Follow-up</div>
-    <div class="crm-table-cell">Priority</div>
+    <div class="crm-table-cell">สินค้า</div>
+    <div class="crm-table-cell">สถานะลูกค้า</div>
+    <div class="crm-table-cell">สถานะติดตาม</div>
+    <div class="crm-table-cell">ความสำคัญ</div>
     <div class="crm-table-cell">URL</div>
   </div>
 """,
         unsafe_allow_html=True,
     )
-    row_map = {row_key(row): row for row in rows}
     selected_id = clean(st.session_state.get("followup_selected_id_v2"))
     for row in rows:
         key = row_key(row)
@@ -138,12 +137,12 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
         url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
         st.markdown(
             f"""
-<div class="crm-table-row" style="grid-template-columns:1fr 1.35fr 1fr 1.2fr .8fr 1fr 1fr .9fr .8fr;">
+<div class="crm-table-row" style="grid-template-columns:1fr 1.35fr 1fr .8fr 1.2fr 1fr 1fr .9fr .8fr;">
   <div class="crm-table-cell">{html.escape(clean(row.get("next_followup_date")) or "ว่าง")}</div>
   <div class="crm-table-cell">{html.escape(clean(row.get("customer_name")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("product_name")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(row.get("sku")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(clean(row.get("product_name")) or "-")}</div>
   <div class="crm-table-cell">{badge(lead_label(clean(row.get("lead_status")) or "new"), "blue")}</div>
   <div class="crm-table-cell">{badge(followup_label(clean(row.get("followup_status")) or "none"), "gray")}</div>
   <div class="crm-table-cell">{priority_badge(clean(row.get("priority")) or "normal")}</div>
@@ -152,26 +151,61 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
 """,
             unsafe_allow_html=True,
         )
-        if st.button(f"เปิดรายละเอียด: {clean(row.get('customer_name')) or key}", key=f"open_followup_detail_{key}", use_container_width=True):
-            st.session_state.followup_selected_id_v2 = key
-            selected_id = key
+        is_selected = selected_id == key
+        toggle_label = f"{'ปิด' if is_selected else 'เปิด'}รายละเอียด: {clean(row.get('customer_name')) or key}"
+        st.button(
+            toggle_label,
+            key=f"open_followup_detail_{key}",
+            use_container_width=True,
+            on_click=select_followup_row,
+            args=(key,),
+        )
+        if is_selected:
+            render_detail(row, user)
     st.markdown("</div>", unsafe_allow_html=True)
-    if selected_id in row_map:
-        render_detail(row_map[selected_id], user)
+
+
+def select_followup_row(next_id: str) -> None:
+    current_id = clean(st.session_state.get("followup_selected_id_v2"))
+    save_followup_draft(current_id)
+    st.session_state.followup_selected_id_v2 = "" if current_id == next_id else next_id
+
+
+def save_followup_draft(row_id: str) -> None:
+    if not row_id:
+        return
+    drafts = st.session_state.setdefault("followup_drafts_v2", {})
+    field_keys = {
+        "lead_status": f"followup_lead_status_{row_id}",
+        "followup_status": f"followup_status_{row_id}",
+        "priority": f"followup_priority_{row_id}",
+        "next_followup_date": f"followup_next_date_{row_id}",
+        "clear_date": f"followup_clear_date_{row_id}",
+        "followup_note": f"followup_note_{row_id}",
+    }
+    draft = {}
+    for field, state_key in field_keys.items():
+        if state_key in st.session_state:
+            draft[field] = st.session_state[state_key]
+    if draft:
+        drafts[row_id] = draft
 
 
 def render_detail(row: dict, user: dict) -> None:
-    st.markdown('<div class="crm-section-title">รายละเอียด Follow-up</div>', unsafe_allow_html=True)
-    with st.form(f"followup_save_v2_{row_key(row)}"):
+    key = row_key(row)
+    prepare_followup_form_state(key, row)
+    st.markdown('<div class="crm-inline-detail-title">รายละเอียด Follow-up</div>', unsafe_allow_html=True)
+    with st.form(f"followup_save_v2_{key}"):
         c1, c2, c3 = st.columns(3)
-        lead_status = c1.selectbox("Lead Status", list(LEAD_STATUS_OPTIONS.keys()), index=safe_index(list(LEAD_STATUS_OPTIONS.keys()), clean(row.get("lead_status")) or "new"), format_func=lead_label)
-        followup_status = c2.selectbox("Follow-up Status", list(FOLLOWUP_STATUS_OPTIONS.keys()), index=safe_index(list(FOLLOWUP_STATUS_OPTIONS.keys()), clean(row.get("followup_status")) or "none"), format_func=followup_label)
-        priority = c3.selectbox("Priority", list(PRIORITY_OPTIONS.keys()), index=safe_index(list(PRIORITY_OPTIONS.keys()), clean(row.get("priority")) or "normal"), format_func=priority_label)
-        next_date = st.date_input("วันนัดติดตาม", value=parse_date(row.get("next_followup_date")))
-        clear_date = st.checkbox("ล้างวันที่", value=False)
-        note = st.text_area("โน้ตติดตาม", value=clean(row.get("followup_note")), height=110)
+        lead_status = c1.selectbox("สถานะลูกค้า", list(LEAD_STATUS_OPTIONS.keys()), format_func=lead_label, key=f"followup_lead_status_{key}")
+        followup_status = c2.selectbox("สถานะติดตาม", list(FOLLOWUP_STATUS_OPTIONS.keys()), format_func=followup_label, key=f"followup_status_{key}")
+        priority = c3.selectbox("ความสำคัญ", list(PRIORITY_OPTIONS.keys()), format_func=priority_label, key=f"followup_priority_{key}")
+        next_date = st.date_input("วันนัดติดตาม", key=f"followup_next_date_{key}")
+        clear_date = st.checkbox("ล้างวันที่", key=f"followup_clear_date_{key}")
+        note = st.text_area("โน้ตติดตาม", height=110, key=f"followup_note_{key}")
         submitted = st.form_submit_button("บันทึก Follow-up", use_container_width=True)
     if submitted:
+        selected_date = None if clear_date or not next_date else next_date.isoformat()
         payload = {
             "customer_key": clean(row.get("customer_key")),
             "crm_data_import_id": clean(row.get("crm_data_import_id")),
@@ -188,19 +222,35 @@ def render_detail(row: dict, user: dict) -> None:
             "owner": clean(row.get("owner")),
             "lead_status": lead_status,
             "followup_status": followup_status,
-            "next_followup_date": None if clear_date else next_date.isoformat(),
+            "next_followup_date": selected_date,
             "followup_note": note,
             "follow_up_status": followup_status,
-            "follow_up_date": None if clear_date else next_date.isoformat(),
+            "follow_up_date": selected_date,
             "follow_up_note": note,
             "priority": priority,
             "updated_by": clean(user.get("email")),
             "updated_at": datetime.utcnow().isoformat() + "Z",
         }
         upsert_lead_followup(payload)
+        st.session_state.setdefault("followup_drafts_v2", {}).pop(key, None)
         st.cache_data.clear()
         st.success("บันทึก Follow-up แล้ว")
         st.rerun()
+
+
+def prepare_followup_form_state(key: str, row: dict) -> None:
+    draft = st.session_state.setdefault("followup_drafts_v2", {}).get(key, {})
+    defaults = {
+        f"followup_lead_status_{key}": draft.get("lead_status", clean(row.get("lead_status")) or "new"),
+        f"followup_status_{key}": draft.get("followup_status", clean(row.get("followup_status")) or "none"),
+        f"followup_priority_{key}": draft.get("priority", clean(row.get("priority")) or "normal"),
+        f"followup_next_date_{key}": draft.get("next_followup_date", parse_date(row.get("next_followup_date"))),
+        f"followup_clear_date_{key}": draft.get("clear_date", False),
+        f"followup_note_{key}": draft.get("followup_note", clean(row.get("followup_note"))),
+    }
+    for state_key, value in defaults.items():
+        if state_key not in st.session_state:
+            st.session_state[state_key] = value
 
 
 def priority_badge(value: str) -> str:
@@ -222,10 +272,6 @@ def priority_label(value: str) -> str:
 
 def row_key(row: dict) -> str:
     return clean(row.get("crm_data_import_id")) or clean(row.get("customer_key")) or clean(row.get("order_id")) or clean(row.get("phone1")) or clean(row.get("phone2"))
-
-
-def safe_index(options: list[str], value: str) -> int:
-    return options.index(value) if value in options else 0
 
 
 def parse_date(value):

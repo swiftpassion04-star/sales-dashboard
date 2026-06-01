@@ -254,6 +254,16 @@ button[kind="formSubmit"],
   font-size:14px;
   overflow-wrap:anywhere;
 }
+.crm-inline-detail-title {
+  margin:10px 0 8px;
+  padding:10px 14px;
+  background:#EFF6FF;
+  border:1px solid #BFDBFE;
+  border-radius:8px;
+  color:#1D4ED8;
+  font-size:14px;
+  font-weight:800;
+}
 .crm-muted { color:var(--crm-muted) !important; }
 a.crm-link { color:var(--crm-primary) !important; font-weight:700; text-decoration:none; }
 a.crm-link:hover { text-decoration:underline; }
@@ -285,4 +295,3 @@ def render_page_header(title: str, subtitle: str = "", eyebrow: str = "CRM Core"
 def badge(text: str, tone: str = "gray") -> str:
     safe = html.escape(str(text or "-"))
     return f'<span class="crm-badge crm-badge-{tone}">{safe}</span>'
-
