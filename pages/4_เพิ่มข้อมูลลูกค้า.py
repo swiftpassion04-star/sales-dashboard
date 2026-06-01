@@ -219,8 +219,33 @@ def render_excel_import(auth_user: dict) -> None:
 
     duplicate_count = count_duplicate_records(records)
     invalid_count = sum(1 for record in records if record["import_status"] == "invalid")
+    try:
+        import_plan = neon.analyze_import_records(records)
+    except Exception as exc:
+        st.error(f"ตรวจข้อมูลซ้ำจาก Neon ไม่สำเร็จ: {exc}")
+        return
 
     st.subheader("Preview")
+    summary = import_plan["summary"]
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("ทั้งหมด", f"{len(records):,}")
+    metric_cols[1].metric("จะนำเข้า", f"{summary['insert']:,}")
+    metric_cols[2].metric("จะไม่นำเข้า", f"{summary['skip']:,}")
+    metric_cols[3].metric("เบอร์ซ้ำที่ merge", f"{summary['phone_duplicate']:,}")
+    st.caption(f"invalid {invalid_count:,} แถว / ซ้ำในไฟล์ {duplicate_count:,} แถว")
+
+    skipped_df = pd.DataFrame(import_plan["skipped_records"])
+    if skipped_df.empty:
+        st.success("ไม่พบข้อมูลที่จะถูกกันออกจาก import")
+    else:
+        st.warning("รายการด้านล่างจะไม่นำเข้า กรุณาแก้ไฟล์แล้ว import ใหม่หากต้องการนำเข้ารายการเหล่านี้")
+        st.dataframe(skipped_df.head(PREVIEW_ROWS), use_container_width=True)
+
+    phone_dup_df = pd.DataFrame(import_plan["phone_duplicate_records"])
+    if not phone_dup_df.empty:
+        with st.expander(f"เบอร์ซ้ำในฐานข้อมูลที่จะ merge url/owner {len(phone_dup_df):,} รายการ", expanded=False):
+            st.dataframe(phone_dup_df.head(PREVIEW_ROWS), use_container_width=True)
+
     display_columns = [
         "customer_name",
         "phone1",
@@ -239,7 +264,8 @@ def render_excel_import(auth_user: dict) -> None:
         "import_status",
         "validation_error",
     ]
-    st.dataframe(pd.DataFrame(records).head(PREVIEW_ROWS)[display_columns], use_container_width=True)
+    with st.expander("ดูตัวอย่างข้อมูลทั้งหมดก่อน import", expanded=False):
+        st.dataframe(pd.DataFrame(records).head(PREVIEW_ROWS)[display_columns], use_container_width=True)
     st.caption(f"ทั้งหมด {len(records):,} แถว / invalid {invalid_count:,} แถว / ซ้ำในไฟล์ {duplicate_count:,} แถว")
     if duplicate_count:
         st.warning("พบข้อมูลซ้ำในไฟล์เดียวกันตาม key เลขคำสั่งซื้อ + เบอร์โทร + เบอร์สำรอง + หมายเลขพัสดุ")
@@ -259,13 +285,15 @@ def render_excel_import(auth_user: dict) -> None:
     if st.button("Import เข้า Neon", disabled=not confirm_import or not confirm_same_file, use_container_width=True):
         progress = st.progress(0)
         try:
-            for current in range(0, len(records), BATCH_SIZE):
-                progress.progress(min(current / max(len(records), 1), 1.0))
+            import_count = max(summary["insert"], 1)
+            for current in range(0, summary["insert"], BATCH_SIZE):
+                progress.progress(min(current / import_count, 1.0))
             neon.insert_import_records(records, batch_size=BATCH_SIZE)
             progress.progress(1.0)
         except Exception as exc:
             st.error(f"Import ไม่สำเร็จ และ rollback batch นี้แล้ว: {exc}")
             return
+        st.info(f"สรุป import: นำเข้า {summary['insert']:,} แถว / merge เบอร์ซ้ำ {summary['phone_duplicate']:,} รายการ / กันออก {summary['skip']:,} แถว")
         st.session_state.neon_current_import_batch_id = neon.new_batch_id()
         st.success(f"Import สำเร็จ {len(records):,} แถว เข้า batch {batch_id}")
         st.cache_data.clear()

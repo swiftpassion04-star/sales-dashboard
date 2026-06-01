@@ -350,9 +350,9 @@ def insert_import_records(records: list[dict], batch_size: int = 500) -> None:
     with neon_connection() as conn:
         try:
             with conn.cursor() as cur:
-                apply_owner_assignments(cur, records)
-                for start in range(0, len(records), batch_size):
-                    chunk = records[start : start + batch_size]
+                insert_records = prepare_import_records(cur, records)
+                for start in range(0, len(insert_records), batch_size):
+                    chunk = insert_records[start : start + batch_size]
                     values = []
                     for record in chunk:
                         row_values = []
@@ -365,6 +365,197 @@ def insert_import_records(records: list[dict], batch_size: int = 500) -> None:
         except Exception:
             conn.rollback()
             raise
+
+
+def analyze_import_records(records: list[dict]) -> dict:
+    if not records:
+        return {
+            "insert_records": [],
+            "skipped_records": [],
+            "phone_duplicate_records": [],
+            "summary": {"insert": 0, "skip": 0, "phone_duplicate": 0},
+        }
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            return build_import_plan(cur, records, mutate_records=False)
+
+
+def prepare_import_records(cur, records: list[dict]) -> list[dict]:
+    plan = build_import_plan(cur, records, mutate_records=True)
+    return plan["insert_records"]
+
+
+def build_import_plan(cur, records: list[dict], mutate_records: bool) -> dict:
+    apply_owner_assignments(cur, records)
+    existing_order_ids = fetch_existing_order_ids(cur, records)
+    latest_by_phone = fetch_latest_customer_rows_by_phone(cur, records)
+    seen_order_ids: set[str] = set()
+    insert_records: list[dict] = []
+    skipped_records: list[dict] = []
+    phone_duplicate_records: list[dict] = []
+    latest_updates: dict[str, dict] = {}
+
+    for record in records:
+        row_number = record.get("row_number")
+        phone1 = normalize_phone(record.get("phone1"))
+        phone2 = normalize_phone(record.get("phone2"))
+        phones = [phone for phone in (phone1, phone2) if phone]
+        order_id = clean(record.get("order_id"))
+
+        if record.get("import_status") == "invalid" or not phones:
+            skipped_records.append(skip_preview(record, "ไม่มีเบอร์โทร"))
+            continue
+        if order_id and order_id in existing_order_ids:
+            skipped_records.append(skip_preview(record, "ซ้ำเลขออเดอร์ในฐานข้อมูล"))
+            continue
+        if order_id and order_id in seen_order_ids:
+            skipped_records.append(skip_preview(record, "ซ้ำเลขออเดอร์ในไฟล์"))
+            continue
+
+        latest_matches = unique_latest_matches(latest_by_phone, phones)
+        if latest_matches:
+            phone_duplicate_records.append(
+                {
+                    "row_number": row_number,
+                    "customer_name": clean(record.get("customer_name")),
+                    "phone1": phone1,
+                    "phone2": phone2,
+                    "order_id": order_id,
+                    "matched_rows": len(latest_matches),
+                    "latest_customer_id": latest_matches[0]["id"],
+                }
+            )
+            update = latest_updates.setdefault(
+                latest_matches[0]["id"],
+                {"id": latest_matches[0]["id"], "url": "", "owner": ""},
+            )
+            if clean(record.get("url")):
+                update["url"] = clean(record.get("url"))
+            if clean(record.get("owner")):
+                update["owner"] = clean(record.get("owner"))
+
+        insert_records.append(record)
+        if order_id:
+            seen_order_ids.add(order_id)
+
+    if mutate_records:
+        apply_latest_customer_updates(cur, latest_updates.values())
+
+    return {
+        "insert_records": insert_records,
+        "skipped_records": skipped_records,
+        "phone_duplicate_records": phone_duplicate_records,
+        "summary": {
+            "insert": len(insert_records),
+            "skip": len(skipped_records),
+            "phone_duplicate": len(phone_duplicate_records),
+        },
+    }
+
+
+def fetch_existing_order_ids(cur, records: list[dict]) -> set[str]:
+    order_ids = sorted({clean(record.get("order_id")) for record in records if clean(record.get("order_id"))})
+    if not order_ids:
+        return set()
+    cur.execute(
+        """
+        select order_id
+        from public.crm_data_imports
+        where order_id = any(%s)
+          and import_status = 'valid'
+        """,
+        [order_ids],
+    )
+    return {clean(row["order_id"]) for row in cur.fetchall()}
+
+
+def fetch_latest_customer_rows_by_phone(cur, records: list[dict]) -> dict[str, list[dict]]:
+    phones = sorted(
+        {
+            normalize_phone(record.get(name))
+            for record in records
+            for name in ("phone1", "phone2")
+            if normalize_phone(record.get(name))
+        }
+    )
+    if not phones:
+        return {}
+    cur.execute(
+        """
+        with matched as (
+          select
+            id,
+            phone1,
+            phone2,
+            row_number() over (
+              partition by matched_phone
+              order by order_date desc nulls last, uploaded_at desc, id desc
+            ) as rn,
+            matched_phone
+          from (
+            select id, phone1, phone2, order_date, uploaded_at, phone1 as matched_phone
+            from public.crm_data_imports
+            where import_status = 'valid' and phone1 = any(%s)
+            union all
+            select id, phone1, phone2, order_date, uploaded_at, phone2 as matched_phone
+            from public.crm_data_imports
+            where import_status = 'valid' and phone2 = any(%s)
+          ) src
+        )
+        select id::text, phone1, phone2, matched_phone
+        from matched
+        where rn = 1
+        """,
+        [phones, phones],
+    )
+    by_phone: dict[str, list[dict]] = {}
+    for row in cur.fetchall():
+        by_phone.setdefault(clean(row["matched_phone"]), []).append(row)
+    return by_phone
+
+
+def unique_latest_matches(latest_by_phone: dict[str, list[dict]], phones: list[str]) -> list[dict]:
+    matches: list[dict] = []
+    seen: set[str] = set()
+    for phone in phones:
+        for row in latest_by_phone.get(phone, []):
+            row_id = clean(row.get("id"))
+            if row_id and row_id not in seen:
+                seen.add(row_id)
+                matches.append(row)
+    return matches
+
+
+def apply_latest_customer_updates(cur, updates) -> None:
+    for update in updates:
+        row_id = clean(update.get("id"))
+        url = clean(update.get("url"))
+        owner = clean(update.get("owner"))
+        if not row_id or (not url and not owner):
+            continue
+        cur.execute(
+            """
+            update public.crm_data_imports
+            set url = coalesce(nullif(%s, ''), url),
+                owner = coalesce(nullif(%s, ''), owner),
+                updated_at = now()
+            where id = %s
+            """,
+            [url, owner, row_id],
+        )
+
+
+def skip_preview(record: dict, reason: str) -> dict:
+    return {
+        "row_number": record.get("row_number"),
+        "reason": reason,
+        "customer_name": clean(record.get("customer_name")),
+        "order_id": clean(record.get("order_id")),
+        "phone1": clean(record.get("phone1")),
+        "phone2": clean(record.get("phone2")),
+        "tracking_no": clean(record.get("tracking_no")),
+    }
 
 
 def apply_owner_assignments(cur, records: list[dict]) -> None:
