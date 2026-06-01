@@ -492,6 +492,211 @@ def insert_import_records(records: list[dict], batch_size: int = 500) -> None:
             raise
 
 
+def upsert_manual_order(payload: dict) -> dict:
+    ensure_crm_data_imports_schema()
+    order_id = clean(payload.get("order_id"))
+    customer_name = clean(payload.get("customer_name"))
+    phone1 = normalize_phone(payload.get("phone1"))
+    phone2 = normalize_phone(payload.get("phone2"))
+    product_name = clean(payload.get("product_name"))
+    url = clean(payload.get("url"))
+    order_date = parse_date(payload.get("order_date")) or datetime.now(timezone.utc).date().isoformat()
+    owner = clean(payload.get("owner"))
+    staff_code = clean(payload.get("staff_code")) or owner_to_staff_code(owner)
+    uploaded_by = clean(payload.get("uploaded_by"))
+    now = now_iso()
+    raw_data = {
+        "source": "manual_order",
+        "order_id": order_id,
+        "customer_name": customer_name,
+        "phone1": phone1,
+        "phone2": phone2,
+        "product_name": product_name,
+        "url": url,
+        "order_date": order_date,
+        "owner": owner,
+        "staff_code": staff_code,
+        "uploaded_by": uploaded_by,
+    }
+    errors = []
+    if not order_id:
+        errors.append("order_id ว่าง")
+    if not customer_name:
+        errors.append("customer_name ว่าง")
+    if not phone1 and not phone2:
+        errors.append("phone1/phone2 ว่าง")
+    if not product_name:
+        errors.append("product_name ว่าง")
+    if not owner:
+        errors.append("owner ว่าง")
+    if errors:
+        raise ValueError("; ".join(errors))
+
+    update_columns = [
+        "customer_name",
+        "phone1",
+        "phone2",
+        "product_name",
+        "url",
+        "order_date",
+        "owner",
+        "staff_code",
+        "uploaded_by",
+        "raw_data",
+        "import_status",
+        "validation_error",
+        "updated_at",
+    ]
+    update_values = [
+        customer_name,
+        phone1,
+        phone2,
+        product_name,
+        url,
+        order_date,
+        owner,
+        staff_code,
+        uploaded_by,
+        raw_data,
+        "valid",
+        "",
+        now,
+    ]
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                target_id = ""
+                if order_id:
+                    cur.execute(
+                        """
+                        select id::text as id
+                        from public.crm_data_imports
+                        where import_status = 'valid'
+                          and order_id = %s
+                        order by order_date desc nulls last, uploaded_at desc, id desc
+                        limit 1
+                        """,
+                        [order_id],
+                    )
+                    row = cur.fetchone()
+                    target_id = clean(row.get("id")) if row else ""
+
+                if not target_id and (phone1 or phone2):
+                    phones = [phone for phone in (phone1, phone2) if phone]
+                    cur.execute(
+                        """
+                        select id::text as id
+                        from public.crm_data_imports
+                        where import_status = 'valid'
+                          and nullif(order_id, '') is null
+                          and (phone1 = any(%s) or phone2 = any(%s))
+                        order by order_date desc nulls last, uploaded_at desc, id desc
+                        limit 1
+                        """,
+                        [phones, phones],
+                    )
+                    row = cur.fetchone()
+                    target_id = clean(row.get("id")) if row else ""
+
+                if target_id:
+                    set_sql = ", ".join(
+                        [
+                            f"{column} = coalesce(nullif(%s, ''), {column})"
+                            if column not in {"raw_data", "import_status", "validation_error", "updated_at", "order_date"}
+                            else f"{column} = %s"
+                            for column in update_columns
+                        ]
+                    )
+                    cur.execute(
+                        f"""
+                        update public.crm_data_imports
+                        set order_id = coalesce(nullif(%s, ''), order_id),
+                            {set_sql}
+                        where id = %s
+                        """,
+                        [order_id, *[Jsonb(value) if column == "raw_data" else value for column, value in zip(update_columns, update_values)], target_id],
+                    )
+                    action = "updated"
+                    record_id = target_id
+                else:
+                    columns = [
+                        "import_batch_id",
+                        "source_file_name",
+                        "sheet_name",
+                        "row_number",
+                        "uploaded_by",
+                        "uploaded_at",
+                        "raw_data",
+                        "order_id",
+                        "url",
+                        "customer_name",
+                        "phone1",
+                        "phone2",
+                        "product_name",
+                        "sku",
+                        "order_date",
+                        "province",
+                        "city",
+                        "postal_code",
+                        "tracking_no",
+                        "carrier",
+                        "order_status",
+                        "total_amount",
+                        "owner",
+                        "staff_code",
+                        "import_status",
+                        "validation_error",
+                        "created_at",
+                        "updated_at",
+                    ]
+                    values = {
+                        "import_batch_id": f"manual-{new_batch_id()}",
+                        "source_file_name": "manual_order",
+                        "sheet_name": "manual_form",
+                        "row_number": 1,
+                        "uploaded_by": uploaded_by,
+                        "uploaded_at": now,
+                        "raw_data": raw_data,
+                        "order_id": order_id,
+                        "url": url,
+                        "customer_name": customer_name,
+                        "phone1": phone1,
+                        "phone2": phone2,
+                        "product_name": product_name,
+                        "sku": "",
+                        "order_date": order_date,
+                        "province": "",
+                        "city": "",
+                        "postal_code": "",
+                        "tracking_no": "",
+                        "carrier": "",
+                        "order_status": "",
+                        "total_amount": None,
+                        "owner": owner,
+                        "staff_code": staff_code,
+                        "import_status": "valid",
+                        "validation_error": "",
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    cur.execute(
+                        f"""
+                        insert into public.crm_data_imports ({', '.join(columns)})
+                        values ({', '.join(['%s'] * len(columns))})
+                        returning id::text as id
+                        """,
+                        [Jsonb(values[column]) if column == "raw_data" else values[column] for column in columns],
+                    )
+                    inserted = cur.fetchone()
+                    action = "inserted"
+                    record_id = clean(inserted.get("id")) if inserted else ""
+            conn.commit()
+            return {"action": action, "id": record_id}
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def analyze_import_records(records: list[dict]) -> dict:
     if not records:
         return {

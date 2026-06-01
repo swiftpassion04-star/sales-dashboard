@@ -1,10 +1,11 @@
+from datetime import date
 from io import BytesIO
 
 import pandas as pd
 import streamlit as st
 
 import neon_utils as neon
-from auth_utils import can_manage_all, require_login
+from auth_utils import ROLE_TELESELL_ALIASES, can_manage_all, current_user, require_login
 from nav_utils import render_sidebar_nav
 
 
@@ -74,14 +75,21 @@ def main() -> None:
     st.caption("อัปโหลด Excel .xlsx เข้า Neon table crm_data_imports พร้อม preview, mapping, validation และ import history")
 
     auth_user = require_login()
-    if not can_manage_all(auth_user):
-        st.warning("หน้านี้จัดการได้เฉพาะตำแหน่ง EDITOR เท่านั้น")
+    user = current_user() or auth_user
+    is_editor = can_manage_all(user)
+    is_telesell = neon.clean(user.get("role")) in ROLE_TELESELL_ALIASES
+    if not is_editor and not is_telesell:
+        st.warning("หน้านี้ใช้ได้เฉพาะ EDITOR และพนักงานที่มีสิทธิเพิ่มคำสั่งซื้อ")
         st.stop()
 
     neon.require_neon_config()
     neon.ensure_crm_data_imports_schema()
-    render_excel_import(auth_user)
-    render_import_history()
+    render_manual_order_form(user, is_editor)
+    if is_editor:
+        render_excel_import(user)
+        render_import_history()
+    else:
+        st.info("บัญชีพนักงานเพิ่มคำสั่งซื้อได้ แต่ไม่มีสิทธินำเข้า Excel หรือจัดการ import history")
 
 
 def inject_css() -> None:
@@ -152,10 +160,133 @@ div.stFormSubmitButton > button {
   color:#111827 !important;
 }
 [data-testid="stAlert"] * { color:#111827 !important; }
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] details summary,
+[data-testid="stExpander"] details summary *,
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploader"] section *,
+div[data-baseweb="base-input"],
+div[data-baseweb="textarea"] {
+  background:#ffffff !important;
+  color:var(--crm-text) !important;
+  -webkit-text-fill-color:var(--crm-text) !important;
+}
+[data-testid="stFileUploader"] section {
+  border:1px dashed var(--crm-border-strong) !important;
+  border-radius:12px !important;
+}
+[data-testid="stExpander"] details summary {
+  border:1px solid var(--crm-border) !important;
+  border-radius:12px !important;
+}
+.crm-manual-card {
+  background:#ffffff;
+  border:1px solid var(--crm-border);
+  border-radius:14px;
+  padding:18px;
+  box-shadow:var(--crm-shadow);
+  margin-bottom:22px;
+}
+.crm-manual-meta {
+  color:var(--crm-muted);
+  font-size:14px;
+  margin-bottom:12px;
+}
 </style>
 """,
         unsafe_allow_html=True,
     )
+
+
+def render_manual_order_form(user: dict, is_editor: bool) -> None:
+    st.subheader("เพิ่มคำสั่งซื้อ")
+    st.markdown(
+        '<div class="crm-manual-meta">พนักงานเพิ่มคำสั่งซื้อได้ทีละรายการ ส่วนการนำเข้า Excel ใช้ได้เฉพาะ EDITOR</div>',
+        unsafe_allow_html=True,
+    )
+    staff_options = []
+    if is_editor:
+        try:
+            staff_options = neon.fetch_staff_options(active_only=True)
+        except Exception as exc:
+            st.warning(f"โหลดรายชื่อพนักงานไม่สำเร็จ: {exc}")
+
+    with st.form("manual_order_form", clear_on_submit=False):
+        col1, col2 = st.columns(2)
+        order_id = col1.text_input("หมายเลขคำสั่งซื้อ")
+        customer_name = col2.text_input("ชื่อลูกค้า")
+        phone_col1, phone_col2 = st.columns(2)
+        phone1 = phone_col1.text_input("เบอร์โทร")
+        phone2 = phone_col2.text_input("เบอร์สำรอง")
+        product_name = st.text_input("ชื่อสินค้า")
+        url = st.text_input("URL")
+        order_date = date.today().isoformat()
+        st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
+
+        owner = neon.clean(user.get("staff_name"))
+        staff_code = neon.clean(user.get("staff_code"))
+        if is_editor:
+            labels = [staff_label(row) for row in staff_options]
+            if labels:
+                selected_label = st.selectbox("ผู้ดูแล", labels, index=0, placeholder="เลือกผู้ดูแล")
+                selected_staff = staff_options[labels.index(selected_label)] if selected_label in labels else {}
+                owner = neon.clean(selected_staff.get("staff_name"))
+                staff_code = neon.clean(selected_staff.get("staff_code")) or neon.owner_to_staff_code(owner)
+            else:
+                owner = st.text_input("ผู้ดูแล")
+                staff_code = neon.owner_to_staff_code(owner)
+        else:
+            owner = owner or staff_code
+            st.text_input("ผู้ดูแล", value=owner or "-", disabled=True)
+
+        submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
+
+    if not submitted:
+        return
+
+    errors = []
+    if not neon.clean(order_id):
+        errors.append("กรุณากรอกหมายเลขคำสั่งซื้อ")
+    if not neon.clean(customer_name):
+        errors.append("กรุณากรอกชื่อลูกค้า")
+    if not neon.normalize_phone(phone1):
+        errors.append("กรุณากรอกเบอร์โทร")
+    if not neon.clean(product_name):
+        errors.append("กรุณากรอกชื่อสินค้า")
+    if not owner:
+        errors.append("กรุณาระบุผู้ดูแล")
+    if errors:
+        st.error(" / ".join(errors))
+        return
+
+    try:
+        result = neon.upsert_manual_order(
+            {
+                "order_id": order_id,
+                "customer_name": customer_name,
+                "phone1": phone1,
+                "phone2": phone2,
+                "product_name": product_name,
+                "url": url,
+                "order_date": order_date,
+                "owner": owner,
+                "staff_code": staff_code,
+                "uploaded_by": neon.clean(user.get("email")),
+            }
+        )
+    except Exception as exc:
+        st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
+        return
+
+    action_text = "อัปเดตข้อมูลเดิม" if result.get("action") == "updated" else "สร้างประวัติคำสั่งซื้อใหม่"
+    st.cache_data.clear()
+    st.success(f"บันทึกสำเร็จ: {action_text}")
+
+
+def staff_label(row: dict) -> str:
+    name = neon.clean(row.get("staff_name"))
+    code = neon.clean(row.get("staff_code"))
+    return f"{name} ({code})" if code and code != name else name
 
 
 def render_excel_import(auth_user: dict) -> None:
