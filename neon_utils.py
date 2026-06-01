@@ -1113,6 +1113,13 @@ def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list
     elif role not in {"EDITOR"}:
         clauses.append("1 = 0")
 
+    phone = normalize_phone(filters.get("phone"))
+    if phone:
+        like_phone = f"%{phone}%"
+        clauses.append("(d.phone1 like %s or d.phone2 like %s)")
+        params.extend([like_phone, like_phone])
+        return "where " + " and ".join(clauses), params
+
     owner = clean(filters.get("owner"))
     if owner and owner != "ทั้งหมด":
         clauses.append("d.owner = %s")
@@ -1192,7 +1199,20 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
     source_sql = """
       from (
         select
-          *,
+          id,
+          customer_name,
+          phone1,
+          phone2,
+          order_id,
+          sku,
+          product_name,
+          url,
+          owner,
+          staff_code,
+          order_date,
+          uploaded_at,
+          updated_at,
+          import_status,
           case
             when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
             else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
@@ -1216,6 +1236,7 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                        d.order_id,
                        d.sku,
                        d.product_name,
+                       d.url,
                        d.owner,
                        d.staff_code,
                        d.import_status,
@@ -1246,6 +1267,7 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                     d.order_id,
                     d.sku,
                     d.product_name,
+                    d.url,
                     d.owner,
                     d.staff_code,
                     d.import_status,
@@ -1264,6 +1286,7 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                       order_id,
                       sku,
                       product_name,
+                      url,
                       owner,
                       staff_code,
                       order_date,
@@ -1287,6 +1310,7 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                   d.order_id,
                   d.sku,
                   d.product_name,
+                  d.url,
                   d.owner,
                   d.staff_code,
                   coalesce(l.lead_status, 'new') as lead_status,

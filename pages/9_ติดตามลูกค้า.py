@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import html
 
 import streamlit as st
 
@@ -78,6 +79,11 @@ button[kind="formSubmit"], .stButton > button[kind="primary"] {
   margin-bottom:6px;
 }
 .crm-note { color:#6b7280; font-size:14px; }
+.crm-priority-normal { background:#dbeafe; color:#1d4ed8; }
+.crm-priority-high { background:#fef3c7; color:#92400e; }
+.crm-priority-urgent { background:#fee2e2; color:#b91c1c; }
+.crm-row-title { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+a.crm-url { color:#2563eb !important; font-weight:800; text-decoration:underline; }
 </style>
 """,
         unsafe_allow_html=True,
@@ -123,14 +129,15 @@ def render_filters(user: dict) -> dict[str, str]:
         options = {"owners": [], "products": []}
     with st.form("followup_filters"):
         col1, col2, col3 = st.columns(3)
-        lead_status = col1.selectbox("Lead Status", [ALL] + list(LEAD_STATUS_OPTIONS.keys()), format_func=lead_label)
-        followup_status = col2.selectbox("Follow-up Status", [ALL] + list(FOLLOWUP_STATUS_OPTIONS.keys()), format_func=followup_label)
-        priority = col3.selectbox("Priority", [ALL] + list(PRIORITY_OPTIONS.keys()), format_func=priority_label)
+        lead_status = col1.selectbox("สถานะลูกค้า", [ALL] + list(LEAD_STATUS_OPTIONS.keys()), format_func=lead_label)
+        followup_status = col2.selectbox("สถานะติดตาม", [ALL] + list(FOLLOWUP_STATUS_OPTIONS.keys()), format_func=followup_label)
+        priority = col3.selectbox("ความสำคัญ", [ALL] + list(PRIORITY_OPTIONS.keys()), format_func=priority_label)
         col4, col5 = st.columns(2)
-        product = col4.selectbox("Product / SKU", [ALL] + options.get("products", []))
+        product = col4.selectbox("สินค้า / SKU", [ALL] + options.get("products", []))
         owner = ALL
         if clean(user.get("role")) == ROLE_EDITOR:
-            owner = col5.selectbox("Owner", [ALL] + options.get("owners", []))
+            owner = col5.selectbox("ผู้ดูแล", [ALL] + options.get("owners", []))
+        phone = st.text_input("ค้นหาเบอร์โทร", placeholder="ค้นหาเฉพาะเบอร์โทรติดต่อ / เบอร์สำรอง")
         submitted = st.form_submit_button("ค้นหา", use_container_width=True)
     if submitted:
         st.session_state.followup_page = 1
@@ -140,6 +147,7 @@ def render_filters(user: dict) -> dict[str, str]:
         "priority": priority,
         "product": product,
         "owner": owner,
+        "phone": normalize_phone(phone),
     }
 
 
@@ -152,14 +160,29 @@ def render_summary(rows: list[dict], total: int, page_size: int, page: int) -> N
 
 
 def render_followup_row(row: dict, user: dict) -> None:
-    title = f"{clean(row.get('customer_name')) or '-'} | {clean(row.get('phone1')) or clean(row.get('phone2')) or '-'}"
+    title = " | ".join(
+        [
+            f"นัด {clean(row.get('next_followup_date')) or 'ว่าง'}",
+            clean(row.get("customer_name")) or "-",
+            clean(row.get("phone1")) or clean(row.get("phone2")) or "-",
+            clean(product_text(row)) or "-",
+            lead_label(clean(row.get("lead_status")) or "new"),
+            followup_label(clean(row.get("followup_status")) or "none"),
+            priority_label(clean(row.get("priority")) or "normal"),
+            clean(row.get("url")) or "-",
+        ]
+    )
     with st.expander(title):
         st.markdown(
             " ".join(
                 [
-                    chip(f"สินค้า {clean(row.get('sku'))} {clean(row.get('product_name'))}".strip()),
+                    chip(f"วันนัด {clean(row.get('next_followup_date')) or 'ว่าง'}"),
+                    chip(f"สินค้า {product_text(row) or '-'}"),
+                    chip(f"สถานะลูกค้า {lead_label(clean(row.get('lead_status')) or 'new')}"),
+                    chip(f"สถานะติดตาม {followup_label(clean(row.get('followup_status')) or 'none')}"),
+                    priority_chip(clean(row.get("priority")) or "normal"),
                     chip(f"ผู้ดูแล {clean(row.get('owner')) or '-'}"),
-                    chip(f"นัด {clean(row.get('next_followup_date')) or '-'}"),
+                    url_chip(row.get("url")),
                 ]
             ),
             unsafe_allow_html=True,
@@ -170,27 +193,27 @@ def render_followup_row(row: dict, user: dict) -> None:
         with st.form(f"followup_save_{row.get('crm_data_import_id')}"):
             c1, c2, c3 = st.columns(3)
             lead_status = c1.selectbox(
-                "Lead Status",
+                "สถานะลูกค้า",
                 list(LEAD_STATUS_OPTIONS.keys()),
                 index=safe_index(list(LEAD_STATUS_OPTIONS.keys()), clean(row.get("lead_status")) or "new"),
                 format_func=lead_label,
             )
             followup_status = c2.selectbox(
-                "Follow-up Status",
+                "สถานะติดตาม",
                 list(FOLLOWUP_STATUS_OPTIONS.keys()),
                 index=safe_index(list(FOLLOWUP_STATUS_OPTIONS.keys()), clean(row.get("followup_status")) or "none"),
                 format_func=followup_label,
             )
             priority = c3.selectbox(
-                "Priority",
+                "ความสำคัญ",
                 list(PRIORITY_OPTIONS.keys()),
                 index=safe_index(list(PRIORITY_OPTIONS.keys()), clean(row.get("priority")) or "normal"),
                 format_func=priority_label,
             )
             default_date = parse_date(row.get("next_followup_date"))
-            next_date = st.date_input("Next Follow-up Date", value=default_date)
+            next_date = st.date_input("วันนัดติดตาม", value=default_date)
             clear_date = st.checkbox("ล้างวันที่", value=False)
-            note = st.text_area("Follow-up Note", value=clean(row.get("followup_note")), height=110)
+            note = st.text_area("โน๊ตติดตาม", value=clean(row.get("followup_note")), height=110)
             submitted = st.form_submit_button("บันทึก Follow-up", use_container_width=True)
         if submitted:
             payload = {
@@ -205,6 +228,7 @@ def render_followup_row(row: dict, user: dict) -> None:
                 "product_group": "",
                 "product_name": clean(row.get("product_name")),
                 "sku": clean(row.get("sku")),
+                "url": clean(row.get("url")),
                 "staff_code": clean(row.get("staff_code")),
                 "owner": clean(row.get("owner")),
                 "lead_status": lead_status,
@@ -228,7 +252,28 @@ def render_followup_row(row: dict, user: dict) -> None:
 
 
 def chip(text: str) -> str:
-    return f'<span class="crm-chip">{text}</span>'
+    return f'<span class="crm-chip">{html.escape(clean(text))}</span>'
+
+
+def priority_chip(value: str) -> str:
+    css = {
+        "urgent": "crm-priority-urgent",
+        "high": "crm-priority-high",
+        "normal": "crm-priority-normal",
+    }.get(value, "crm-priority-normal")
+    return f'<span class="crm-chip {css}">ความสำคัญ {html.escape(priority_label(value))}</span>'
+
+
+def url_chip(value) -> str:
+    url = clean(value)
+    if not url or url == "-":
+        return chip("URL -")
+    escaped_url = html.escape(url, quote=True)
+    return f'<span class="crm-chip">URL <a class="crm-url" href="{escaped_url}" target="_blank">เปิดลิงก์</a></span>'
+
+
+def product_text(row: dict) -> str:
+    return " ".join(part for part in [clean(row.get("sku")), clean(row.get("product_name"))] if part)
 
 
 def lead_label(value: str) -> str:
@@ -259,6 +304,10 @@ def parse_date(value):
 
 def clean(value) -> str:
     return str(value or "").strip()
+
+
+def normalize_phone(value) -> str:
+    return "".join(ch for ch in clean(value) if ch.isdigit())
 
 
 main()
