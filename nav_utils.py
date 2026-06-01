@@ -70,6 +70,55 @@ def render_sidebar_nav() -> None:
   background:#ffedd5 !important;
   color:#ea580c !important;
 }
+.stApp {
+  background:#fff8f1 !important;
+  color:#111827 !important;
+}
+[data-testid="stForm"],
+[data-testid="stExpander"],
+[data-testid="stFileUploader"],
+[data-testid="stDataFrame"],
+[data-testid="stMetric"] {
+  background:#ffffff !important;
+  color:#111827 !important;
+  border-color:#fed7aa !important;
+}
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] details summary,
+[data-testid="stExpander"] details summary *,
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploader"] section *,
+div[data-baseweb="input"] > div,
+div[data-baseweb="select"] > div,
+div[data-baseweb="base-input"],
+div[data-baseweb="textarea"],
+textarea,
+input {
+  background:#ffffff !important;
+  color:#111827 !important;
+  -webkit-text-fill-color:#111827 !important;
+}
+div[data-baseweb="select"] svg,
+div[data-baseweb="input"] svg {
+  color:#ea580c !important;
+  fill:#ea580c !important;
+}
+[data-testid="stExpander"] details summary {
+  border-radius:12px !important;
+  border:1px solid #fed7aa !important;
+}
+.stButton > button,
+button[kind="formSubmit"] {
+  background:#ffffff !important;
+  color:#9a3412 !important;
+  border:1px solid #f97316 !important;
+  border-radius:10px !important;
+}
+button[kind="formSubmit"],
+.stButton > button[kind="primary"] {
+  background:#f97316 !important;
+  color:#ffffff !important;
+}
 </style>
 """,
         unsafe_allow_html=True,

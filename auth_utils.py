@@ -70,6 +70,23 @@ div.stButton > button[kind="secondary"] {
   border:1px solid #f97316 !important;
   border-radius:8px !important;
 }
+div[data-baseweb="input"] > div,
+div[data-baseweb="select"] > div,
+div[data-baseweb="base-input"],
+div[data-baseweb="textarea"],
+textarea,
+input {
+  background:#ffffff !important;
+  color:#111827 !important;
+  -webkit-text-fill-color:#111827 !important;
+}
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] details summary,
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploader"] section * {
+  background:#ffffff !important;
+  color:#111827 !important;
+}
 </style>
 """,
         unsafe_allow_html=True,

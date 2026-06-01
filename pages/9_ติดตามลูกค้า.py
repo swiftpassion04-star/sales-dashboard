@@ -48,6 +48,26 @@ h1 { color:#111827 !important; border-left:6px solid #f97316; padding-left:14px;
   border-radius:14px !important;
   box-shadow:0 16px 36px rgba(124,45,18,.07);
 }
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] details summary,
+[data-testid="stExpander"] details summary *,
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploader"] section *,
+[data-testid="stHorizontalBlock"] [data-testid="column"],
+div[data-baseweb="input"] > div,
+div[data-baseweb="select"] > div,
+div[data-baseweb="base-input"],
+div[data-baseweb="textarea"],
+textarea,
+input {
+  background:#ffffff !important;
+  color:#111827 !important;
+  -webkit-text-fill-color:#111827 !important;
+}
+[data-testid="stExpander"] details summary {
+  border:1px solid #fed7aa !important;
+  border-radius:12px !important;
+}
 label { color:#7c2d12 !important; font-weight:750 !important; }
 div[data-baseweb="input"] > div,
 div[data-baseweb="select"] > div,
@@ -84,6 +104,34 @@ button[kind="formSubmit"], .stButton > button[kind="primary"] {
 .crm-priority-urgent { background:#fee2e2; color:#b91c1c; }
 .crm-row-title { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
 a.crm-url { color:#2563eb !important; font-weight:800; text-decoration:underline; }
+.crm-table-head {
+  display:grid;
+  grid-template-columns:1.05fr 1.5fr 1.05fr 1.35fr .85fr 1.05fr 1.1fr .95fr .85fr;
+  gap:8px;
+  padding:12px 14px;
+  margin-top:18px;
+  background:#fff1df;
+  border:1px solid #fed7aa;
+  border-bottom:2px solid #fb923c;
+  border-radius:12px 12px 0 0;
+  color:#7c2d12;
+  font-weight:900;
+}
+.crm-table-note {
+  color:#9a3412;
+  font-size:13px;
+  margin:8px 0 4px;
+}
+.crm-cell {
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  color:#111827;
+  font-weight:650;
+  word-break:break-word;
+}
+.crm-cell-muted { color:#6b7280; }
+.crm-link-cell a { color:#2563eb !important; font-weight:800; text-decoration:underline; }
 </style>
 """,
         unsafe_allow_html=True,
@@ -118,8 +166,7 @@ def main() -> None:
     if not rows:
         st.info("ยังไม่มีรายการติดตามลูกค้าตามตัวกรองนี้")
         return
-    for row in rows:
-        render_followup_row(row, user)
+    render_followup_table(rows, user)
 
 
 def render_filters(user: dict) -> dict[str, str]:
@@ -159,19 +206,41 @@ def render_summary(rows: list[dict], total: int, page_size: int, page: int) -> N
     c3.metric("หน้า", f"{page:,} / {total_pages:,}")
 
 
-def render_followup_row(row: dict, user: dict) -> None:
-    title = " | ".join(
-        [
-            f"นัด {clean(row.get('next_followup_date')) or 'ว่าง'}",
-            clean(row.get("customer_name")) or "-",
-            clean(row.get("phone1")) or clean(row.get("phone2")) or "-",
-            clean(product_text(row)) or "-",
-            lead_label(clean(row.get("lead_status")) or "new"),
-            followup_label(clean(row.get("followup_status")) or "none"),
-            priority_label(clean(row.get("priority")) or "normal"),
-            clean(row.get("url")) or "-",
-        ]
+def render_followup_table(rows: list[dict], user: dict) -> None:
+    headers = ["วันนัด", "ชื่อลูกค้า", "เบอร์โทร", "สินค้า", "SKU", "สถานะลูกค้า", "สถานะติดตาม", "ความสำคัญ", "URL"]
+    st.markdown(
+        '<div class="crm-table-note">กดวันที่ในแถวเพื่อเปิดรายละเอียดและบันทึก Follow-up ด้านล่าง</div>',
+        unsafe_allow_html=True,
     )
+    st.markdown(
+        '<div class="crm-table-head">' + "".join(f"<div>{html.escape(label)}</div>" for label in headers) + "</div>",
+        unsafe_allow_html=True,
+    )
+    selected_id = clean(st.session_state.get("selected_followup_id"))
+    row_map = {row_key(row): row for row in rows}
+    for row in rows:
+        key = row_key(row)
+        cols = st.columns([1.05, 1.5, 1.05, 1.35, 0.85, 1.05, 1.1, 0.95, 0.85])
+        date_label = clean(row.get("next_followup_date")) or "ว่าง"
+        if cols[0].button(date_label, key=f"open_followup_{key}", use_container_width=True):
+            st.session_state.selected_followup_id = key
+            selected_id = key
+        cols[1].markdown(cell_html(clean(row.get("customer_name")) or "-"), unsafe_allow_html=True)
+        cols[2].markdown(cell_html(clean(row.get("phone1")) or clean(row.get("phone2")) or "-"), unsafe_allow_html=True)
+        cols[3].markdown(cell_html(clean(row.get("product_name")) or "-"), unsafe_allow_html=True)
+        cols[4].markdown(cell_html(clean(row.get("sku")) or "-"), unsafe_allow_html=True)
+        cols[5].markdown(cell_html(lead_label(clean(row.get("lead_status")) or "new")), unsafe_allow_html=True)
+        cols[6].markdown(cell_html(followup_label(clean(row.get("followup_status")) or "none")), unsafe_allow_html=True)
+        cols[7].markdown(priority_cell(clean(row.get("priority")) or "normal"), unsafe_allow_html=True)
+        cols[8].markdown(url_cell(row.get("url")), unsafe_allow_html=True)
+
+    if selected_id and selected_id in row_map:
+        st.markdown("---")
+        render_followup_row(row_map[selected_id], user)
+
+
+def render_followup_row(row: dict, user: dict) -> None:
+    title = f"รายละเอียดลูกค้า: {clean(row.get('customer_name')) or '-'}"
     with st.expander(title):
         st.markdown(
             " ".join(
@@ -255,6 +324,28 @@ def chip(text: str) -> str:
     return f'<span class="crm-chip">{html.escape(clean(text))}</span>'
 
 
+def cell_html(value: str) -> str:
+    text = html.escape(clean(value) or "-")
+    return f'<div class="crm-cell">{text}</div>'
+
+
+def priority_cell(value: str) -> str:
+    css = {
+        "urgent": "crm-priority-urgent",
+        "high": "crm-priority-high",
+        "normal": "crm-priority-normal",
+    }.get(value, "crm-priority-normal")
+    return f'<div class="crm-cell"><span class="crm-chip {css}">{html.escape(priority_label(value))}</span></div>'
+
+
+def url_cell(value) -> str:
+    url = clean(value)
+    if not url or url == "-":
+        return '<div class="crm-cell crm-cell-muted">-</div>'
+    escaped_url = html.escape(url, quote=True)
+    return f'<div class="crm-cell crm-link-cell"><a href="{escaped_url}" target="_blank">เปิดลิงก์</a></div>'
+
+
 def priority_chip(value: str) -> str:
     css = {
         "urgent": "crm-priority-urgent",
@@ -274,6 +365,10 @@ def url_chip(value) -> str:
 
 def product_text(row: dict) -> str:
     return " ".join(part for part in [clean(row.get("sku")), clean(row.get("product_name"))] if part)
+
+
+def row_key(row: dict) -> str:
+    return clean(row.get("crm_data_import_id")) or clean(row.get("customer_key")) or clean(row.get("order_id")) or clean(row.get("phone1")) or clean(row.get("phone2"))
 
 
 def lead_label(value: str) -> str:
