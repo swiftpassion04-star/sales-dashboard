@@ -14,11 +14,14 @@ except ImportError:  # Local fallback until dependencies are installed.
 AUTH_STORAGE_KEY = "crm_core_auth_session"
 TOKEN_REFRESH_GRACE_SECONDS = 90
 LOCAL_STORAGE_TTL_SECONDS = 8 * 60 * 60
-ROLE_CEO = "CEO"
 ROLE_EDITOR = "EDITOR"
 ROLE_STAFF = "พนักงาน"
 ROLE_VIEWER = "ทั่วไป"
-SYSTEM_VIEW_ROLES = {ROLE_CEO, ROLE_EDITOR}
+ROLE_TELESELL = ROLE_STAFF
+ROLE_STAFF_READONLY = ROLE_VIEWER
+ROLE_TELESELL_ALIASES = {ROLE_TELESELL, "TELESELL"}
+ROLE_STAFF_ALIASES = {ROLE_STAFF_READONLY, "STAFF"}
+SYSTEM_VIEW_ROLES = {ROLE_EDITOR}
 
 
 def get_secret(*names: str) -> str:
@@ -238,6 +241,7 @@ def fetch_user_role(email: str) -> dict:
     default_role = {
         "email": normalized_email,
         "role": ROLE_VIEWER,
+        "staff_code": "",
         "staff_name": "",
         "is_active": True,
     }
@@ -251,6 +255,7 @@ def fetch_user_role(email: str) -> dict:
         return default_role
     row["email"] = normalized_email
     row["role"] = row.get("role") or ROLE_VIEWER
+    row["staff_code"] = row.get("staff_code") or row.get("staff_name") or ""
     row["staff_name"] = row.get("staff_name") or ""
     return row
 
@@ -272,6 +277,7 @@ def current_user() -> dict | None:
     return {
         "email": auth_role.get("email") or auth_user.get("email") or "",
         "role": auth_role.get("role") or ROLE_VIEWER,
+        "staff_code": auth_role.get("staff_code") or "",
         "staff_name": auth_role.get("staff_name") or "",
         "raw_user": auth_user,
     }
@@ -520,20 +526,26 @@ def can_edit_customer_lead(user: dict | None, customer) -> bool:
     role = user.get("role")
     if role == ROLE_EDITOR:
         return True
-    if role != ROLE_STAFF:
+    if role not in ROLE_TELESELL_ALIASES:
         return False
 
+    staff_code = _clean(user.get("staff_code"))
     staff_name = _clean(user.get("staff_name"))
-    if not staff_name:
+    if not staff_code and not staff_name:
         return False
 
-    sales_staff = ""
-    for key in ("sales_staff", "owner"):
+    customer_staff_code = ""
+    customer_owner = ""
+    for key in ("staff_code", "sales_staff", "owner"):
         try:
             value = customer.get(key)
         except AttributeError:
             value = ""
-        if _clean(value):
-            sales_staff = _clean(value)
-            break
-    return sales_staff == staff_name
+        if key == "staff_code" and _clean(value):
+            customer_staff_code = _clean(value)
+        elif key != "staff_code" and _clean(value) and not customer_owner:
+            customer_owner = _clean(value)
+    return bool(
+        (staff_code and customer_staff_code and customer_staff_code == staff_code)
+        or (staff_name and customer_owner and customer_owner == staff_name)
+    )

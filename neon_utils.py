@@ -97,27 +97,63 @@ create index if not exists idx_crm_owner_assignments_owner
   on public.crm_owner_assignments (owner);
 
 create table if not exists public.crm_lead_followups (
+  id bigserial,
   customer_key text primary key,
+  crm_data_import_id bigint,
+  order_id text,
   customer_id text,
   customer_name text,
   phone_key text,
   phone1 text,
   phone2 text,
   product_group text,
+  product_name text,
+  sku text,
+  staff_code text,
+  owner text,
   lead_status text,
-  follow_up_status text,
-  follow_up_date date,
-  follow_up_note text,
+  followup_status text,
+  next_followup_date date,
+  followup_note text,
   priority text,
   updated_by text,
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
 
+alter table public.crm_lead_followups
+  add column if not exists id bigserial,
+  add column if not exists crm_data_import_id bigint,
+  add column if not exists order_id text,
+  add column if not exists product_name text,
+  add column if not exists sku text,
+  add column if not exists staff_code text,
+  add column if not exists owner text,
+  add column if not exists followup_status text,
+  add column if not exists next_followup_date date,
+  add column if not exists followup_note text;
+
+alter table public.crm_lead_followups
+  add column if not exists follow_up_status text,
+  add column if not exists follow_up_date date,
+  add column if not exists follow_up_note text;
+
+update public.crm_lead_followups
+set followup_status = coalesce(nullif(followup_status, ''), follow_up_status),
+    next_followup_date = coalesce(next_followup_date, follow_up_date),
+    followup_note = coalesce(nullif(followup_note, ''), follow_up_note)
+where follow_up_status is not null
+   or follow_up_date is not null
+   or follow_up_note is not null;
+
 create index if not exists idx_crm_lead_followups_phone_key
   on public.crm_lead_followups (phone_key);
 create index if not exists idx_crm_lead_followups_updated_at
   on public.crm_lead_followups (updated_at desc);
+create index if not exists idx_crm_lead_followups_staff_next
+  on public.crm_lead_followups (staff_code, next_followup_date, priority, updated_at desc);
+create index if not exists idx_crm_lead_followups_status
+  on public.crm_lead_followups (lead_status, followup_status, priority);
 
 create table if not exists public.crm_product_options (
   id bigserial primary key,
@@ -139,6 +175,7 @@ create index if not exists idx_crm_product_options_active_sort
 create table if not exists public.crm_user_roles (
   email text primary key,
   role text not null default 'ทั่วไป',
+  staff_code text,
   staff_name text,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
@@ -150,6 +187,7 @@ create index if not exists idx_crm_user_roles_active_email
 
 create table if not exists public.crm_staff_options (
   id bigserial primary key,
+  staff_code text,
   staff_name text not null unique,
   is_active boolean not null default true,
   sort_order integer not null default 0,
@@ -161,6 +199,53 @@ create table if not exists public.crm_staff_options (
 
 create index if not exists idx_crm_staff_options_active_sort
   on public.crm_staff_options (is_active, sort_order, staff_name);
+
+alter table public.crm_user_roles
+  add column if not exists staff_code text;
+
+alter table public.crm_staff_options
+  add column if not exists staff_code text;
+
+alter table public.crm_data_imports
+  add column if not exists staff_code text;
+
+update public.crm_user_roles
+set staff_code = nullif(trim(coalesce(staff_code, staff_name, '')), '')
+where staff_code is null or staff_code = '';
+
+update public.crm_staff_options
+set staff_code = nullif(
+  trim(
+    case
+      when staff_code is not null and staff_code <> '' then staff_code
+      when staff_name ~ '\\([^()]+\\)' then regexp_replace(staff_name, '^.*\\(([^()]*)\\).*$', '\\1')
+      else staff_name
+    end
+  ),
+  ''
+)
+where staff_code is null or staff_code = '';
+
+update public.crm_data_imports
+set staff_code = nullif(
+  trim(
+    case
+      when staff_code is not null and staff_code <> '' then staff_code
+      when owner ~ '\\([^()]+\\)' then regexp_replace(owner, '^.*\\(([^()]*)\\).*$', '\\1')
+      else owner
+    end
+  ),
+  ''
+)
+where (staff_code is null or staff_code = '')
+  and owner is not null
+  and owner <> '';
+
+create index if not exists idx_crm_data_imports_staff_code
+  on public.crm_data_imports (staff_code);
+
+create index if not exists idx_crm_user_roles_staff_code
+  on public.crm_user_roles (staff_code);
 """
 
 
@@ -189,6 +274,7 @@ CRM_COLUMNS = [
     "order_status",
     "total_amount",
     "owner",
+    "staff_code",
     "import_status",
     "validation_error",
     "created_at",
@@ -235,6 +321,17 @@ def ensure_crm_data_imports_schema() -> bool:
 
 def normalize_phone(value) -> str:
     return "".join(ch for ch in clean(value) if ch.isdigit())
+
+
+def owner_to_staff_code(value) -> str:
+    text = clean(value)
+    if not text:
+        return ""
+    if "(" in text and ")" in text:
+        inner = text.rsplit("(", 1)[-1].split(")", 1)[0].strip()
+        if inner:
+            return inner
+    return text
 
 
 def clean(value) -> str:
@@ -304,6 +401,7 @@ def build_record_from_mapping(
         errors.append("phone1/phone2 ว่าง")
 
     raw_data = {str(key): clean(value) for key, value in row.items()}
+    owner = pick("owner")
     return {
         "import_batch_id": batch_id,
         "source_file_name": filename,
@@ -327,7 +425,8 @@ def build_record_from_mapping(
         "carrier": pick("carrier"),
         "order_status": pick("order_status"),
         "total_amount": to_number(pick("total_amount")),
-        "owner": pick("owner"),
+        "owner": owner,
+        "staff_code": owner_to_staff_code(owner),
         "import_status": "invalid" if errors else "valid",
         "validation_error": "; ".join(errors),
         "dedupe_key": make_dedupe_key(order_id, phone1, phone2, tracking_no),
@@ -558,6 +657,7 @@ def apply_latest_customer_updates(cur, updates) -> None:
         row_id = clean(update.get("id"))
         url = clean(update.get("url"))
         owner = clean(update.get("owner"))
+        staff_code = owner_to_staff_code(owner)
         if not row_id or (not url and not owner):
             continue
         cur.execute(
@@ -565,10 +665,11 @@ def apply_latest_customer_updates(cur, updates) -> None:
             update public.crm_data_imports
             set url = coalesce(nullif(%s, ''), url),
                 owner = coalesce(nullif(%s, ''), owner),
+                staff_code = coalesce(nullif(%s, ''), staff_code),
                 updated_at = now()
             where id = %s
             """,
-            [url, owner, row_id],
+            [url, owner, staff_code, row_id],
         )
 
 
@@ -611,6 +712,7 @@ def apply_owner_assignments(cur, records: list[dict]) -> None:
             owner = owner_by_phone.get(normalize_phone(record.get(name)))
             if owner:
                 record["owner"] = owner
+                record["staff_code"] = owner_to_staff_code(owner)
                 break
 
 
@@ -685,6 +787,7 @@ def customer_select_columns() -> str:
       id::text as customer_id,
       customer_name as customer,
       owner as sales_staff,
+      staff_code,
       order_id,
       url as product_url,
       url as channel_url,
@@ -726,6 +829,7 @@ def fetch_customer_by_id(customer_id: str) -> list[dict]:
 def assign_owner_to_phones(phones: tuple[str, ...], owner: str, updated_by: str) -> int:
     clean_phones = sorted({normalize_phone(phone) for phone in phones if normalize_phone(phone)})
     owner = clean(owner)
+    staff_code = owner_to_staff_code(owner)
     if not clean_phones or not owner:
         return 0
     ensure_crm_data_imports_schema()
@@ -736,10 +840,11 @@ def assign_owner_to_phones(phones: tuple[str, ...], owner: str, updated_by: str)
                     """
                     update public.crm_data_imports
                     set owner = %s,
+                        staff_code = %s,
                         updated_at = now()
                     where phone1 = any(%s) or phone2 = any(%s)
                     """,
-                    [owner, clean_phones, clean_phones],
+                    [owner, staff_code, clean_phones, clean_phones],
                 )
                 updated = int(cur.rowcount or 0)
                 cur.executemany(
@@ -916,17 +1021,27 @@ def fetch_lead_followups(limit: int = 100000) -> list[dict]:
             cur.execute(
                 """
                 select
+                  id::text as id,
                   customer_key,
+                  crm_data_import_id::text,
+                  order_id,
                   customer_id,
                   customer_name,
                   phone_key,
                   phone1,
                   phone2,
                   product_group,
+                  product_name,
+                  sku,
+                  staff_code,
+                  owner,
                   lead_status,
-                  follow_up_status,
-                  follow_up_date::text as follow_up_date,
-                  follow_up_note,
+                  coalesce(followup_status, follow_up_status) as follow_up_status,
+                  coalesce(next_followup_date, follow_up_date)::text as follow_up_date,
+                  coalesce(followup_note, follow_up_note) as follow_up_note,
+                  followup_status,
+                  next_followup_date::text as next_followup_date,
+                  followup_note,
                   priority,
                   updated_by,
                   updated_at,
@@ -944,13 +1059,22 @@ def upsert_lead_followup(payload: dict) -> None:
     ensure_crm_data_imports_schema()
     columns = [
         "customer_key",
+        "crm_data_import_id",
+        "order_id",
         "customer_id",
         "customer_name",
         "phone_key",
         "phone1",
         "phone2",
         "product_group",
+        "product_name",
+        "sku",
+        "staff_code",
+        "owner",
         "lead_status",
+        "followup_status",
+        "next_followup_date",
+        "followup_note",
         "follow_up_status",
         "follow_up_date",
         "follow_up_note",
@@ -976,6 +1100,224 @@ def upsert_lead_followup(payload: dict) -> None:
         except Exception:
             conn.rollback()
             raise
+
+
+def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list]:
+    clauses = ["d.import_status = 'valid'"]
+    params: list = []
+    role = clean(user.get("role"))
+    staff_code = clean(user.get("staff_code"))
+    if role in {"พนักงาน", "TELESELL"}:
+        clauses.append("d.staff_code = %s")
+        params.append(staff_code)
+    elif role not in {"EDITOR"}:
+        clauses.append("1 = 0")
+
+    owner = clean(filters.get("owner"))
+    if owner and owner != "ทั้งหมด":
+        clauses.append("d.owner = %s")
+        params.append(owner)
+
+    lead_status = clean(filters.get("lead_status"))
+    if lead_status and lead_status != "ทั้งหมด":
+        clauses.append("coalesce(l.lead_status, 'new') = %s")
+        params.append(lead_status)
+
+    followup_status = clean(filters.get("followup_status"))
+    if followup_status and followup_status != "ทั้งหมด":
+        clauses.append("coalesce(l.followup_status, l.follow_up_status, 'none') = %s")
+        params.append(followup_status)
+
+    priority = clean(filters.get("priority"))
+    if priority and priority != "ทั้งหมด":
+        clauses.append("coalesce(l.priority, 'normal') = %s")
+        params.append(priority)
+
+    product = clean(filters.get("product"))
+    if product and product != "ทั้งหมด":
+        like = f"%{product}%"
+        clauses.append("(d.product_name ilike %s or d.sku ilike %s)")
+        params.extend([like, like])
+
+    return "where " + " and ".join(clauses), params
+
+
+def fetch_followup_filter_options(user: dict) -> dict[str, list[str]]:
+    ensure_crm_data_imports_schema()
+    role = clean(user.get("role"))
+    staff_code = clean(user.get("staff_code"))
+    clauses = ["import_status = 'valid'"]
+    params: list = []
+    if role in {"พนักงาน", "TELESELL"}:
+        clauses.append("staff_code = %s")
+        params.append(staff_code)
+    elif role != "EDITOR":
+        return {"owners": [], "products": []}
+    where = "where " + " and ".join(clauses)
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select distinct owner
+                from public.crm_data_imports
+                {where}
+                  and owner is not null
+                  and owner <> ''
+                order by owner
+                limit 500
+                """,
+                params,
+            )
+            owners = [row["owner"] for row in cur.fetchall()]
+            cur.execute(
+                f"""
+                select distinct concat_ws(' ', nullif(sku, ''), nullif(product_name, '')) as product
+                from public.crm_data_imports
+                {where}
+                  and (sku is not null or product_name is not null)
+                order by product
+                limit 1000
+                """,
+                params,
+            )
+            products = [row["product"] for row in cur.fetchall() if clean(row.get("product"))]
+    return {"owners": owners, "products": products}
+
+
+def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, page: int) -> tuple[list[dict], int]:
+    ensure_crm_data_imports_schema()
+    where, params = build_followup_where(filters, user)
+    limit = int(page_size)
+    offset = (max(int(page), 1) - 1) * limit
+    source_sql = """
+      from (
+        select
+          *,
+          case
+            when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+            else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+          end as phone_key
+        from public.crm_data_imports
+        where import_status = 'valid'
+      ) d
+      left join public.crm_lead_followups l
+        on l.customer_key = concat('customer_id:', d.id::text)
+    """
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            count_sql = f"""
+              with ranked as (
+                select
+                       d.id,
+                       d.phone_key,
+                       d.customer_name,
+                       d.phone1,
+                       d.phone2,
+                       d.order_id,
+                       d.sku,
+                       d.product_name,
+                       d.owner,
+                       d.staff_code,
+                       d.import_status,
+                       row_number() over (
+                         partition by d.phone_key
+                         order by d.order_date desc nulls last, d.uploaded_at desc, d.id desc
+                       ) as rn
+                {source_sql}
+              )
+              select count(*) as total
+              from ranked d
+              left join public.crm_lead_followups l
+                on l.customer_key = concat('customer_id:', d.id::text)
+              {where}
+                and d.rn = 1
+            """
+            cur.execute(count_sql, params)
+            total = int(cur.fetchone()["total"] or 0)
+            cur.execute(
+                f"""
+                with ranked as (
+                  select
+                    d.id,
+                    d.phone_key,
+                    d.customer_name,
+                    d.phone1,
+                    d.phone2,
+                    d.order_id,
+                    d.sku,
+                    d.product_name,
+                    d.owner,
+                    d.staff_code,
+                    d.import_status,
+                    d.order_date,
+                    d.updated_at as customer_updated_at,
+                    row_number() over (
+                      partition by d.phone_key
+                      order by d.order_date desc nulls last, d.uploaded_at desc, d.id desc
+                    ) as rn
+                  from (
+                    select
+                      id,
+                      customer_name,
+                      phone1,
+                      phone2,
+                      order_id,
+                      sku,
+                      product_name,
+                      owner,
+                      staff_code,
+                      order_date,
+                      uploaded_at,
+                      updated_at,
+                      import_status,
+                      case
+                        when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+                        else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+                      end as phone_key
+                    from public.crm_data_imports
+                    where import_status = 'valid'
+                  ) d
+                )
+                select
+                  d.id::text as crm_data_import_id,
+                  concat('customer_id:', d.id::text) as customer_key,
+                  d.customer_name,
+                  d.phone1,
+                  d.phone2,
+                  d.order_id,
+                  d.sku,
+                  d.product_name,
+                  d.owner,
+                  d.staff_code,
+                  coalesce(l.lead_status, 'new') as lead_status,
+                  coalesce(l.followup_status, l.follow_up_status, 'none') as followup_status,
+                  coalesce(l.priority, 'normal') as priority,
+                  coalesce(l.next_followup_date, l.follow_up_date)::text as next_followup_date,
+                  coalesce(l.followup_note, l.follow_up_note, '') as followup_note,
+                  l.updated_by,
+                  coalesce(l.updated_at, d.customer_updated_at) as updated_at
+                from ranked d
+                left join public.crm_lead_followups l
+                  on l.customer_key = concat('customer_id:', d.id::text)
+                {where}
+                  and d.rn = 1
+                order by
+                  coalesce(l.next_followup_date, l.follow_up_date) asc nulls last,
+                  case coalesce(l.priority, 'normal')
+                    when 'urgent' then 3
+                    when 'high' then 2
+                    else 1
+                  end desc,
+                  case coalesce(l.followup_status, l.follow_up_status, 'none')
+                    when 'done' then 1
+                    else 0
+                  end asc,
+                  coalesce(l.updated_at, d.customer_updated_at) desc
+                limit %s offset %s
+                """,
+                params + [limit, offset],
+            )
+            return cur.fetchall(), total
 
 
 def fetch_product_options() -> list[dict]:
@@ -1076,7 +1418,7 @@ def fetch_user_role_from_neon(email: str) -> dict | None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select email, role, staff_name, is_active
+                select email, role, staff_code, staff_name, is_active
                 from public.crm_user_roles
                 where email = %s
                   and is_active = true
@@ -1096,6 +1438,7 @@ def fetch_staff_options(active_only: bool = False) -> list[dict]:
                 f"""
                 select
                   id::text as id,
+                  staff_code,
                   staff_name,
                   is_active,
                   sort_order,
