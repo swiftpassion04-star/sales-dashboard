@@ -1,30 +1,17 @@
-import os
 from datetime import datetime, timezone
-from urllib.parse import quote
 
 import pandas as pd
-import requests
 import streamlit as st
 
 from auth_utils import can_manage_all, require_login
 from nav_utils import render_sidebar_nav
-
-
-STAFF_OPTIONS_TABLE = "crm_staff_options"
-
-
-def get_secret(*names: str) -> str:
-    for name in names:
-        if name in st.secrets:
-            return str(st.secrets[name])
-        value = os.getenv(name, "")
-        if value:
-            return value
-    return ""
-
-
-SUPABASE_URL = get_secret("CRM_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
-SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY")
+from neon_utils import (
+    delete_staff_option,
+    fetch_staff_options,
+    require_neon_config,
+    update_staff_option,
+    upsert_staff_option,
+)
 
 
 st.set_page_config(page_title="พนักงาน", layout="wide")
@@ -139,33 +126,7 @@ def main() -> None:
 
 
 def require_config() -> None:
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        st.error("ยังไม่ได้ตั้งค่า CRM_SUPABASE_URL หรือ CRM_SUPABASE_SERVICE_KEY")
-        st.stop()
-
-
-def headers(prefer: str = "return=minimal") -> dict[str, str]:
-    return {
-        "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": prefer,
-    }
-
-
-def api_request(method: str, table: str, params: str = "", payload=None, prefer: str = "return=minimal"):
-    response = requests.request(
-        method,
-        f"{SUPABASE_URL}/rest/v1/{table}{params}",
-        headers=headers(prefer),
-        json=payload,
-        timeout=60,
-    )
-    if response.status_code >= 300:
-        raise RuntimeError(response.text)
-    if not response.text:
-        return []
-    return response.json()
+    require_neon_config()
 
 
 def render_staff_options(auth_user: dict) -> None:
@@ -186,23 +147,12 @@ def render_staff_options(auth_user: dict) -> None:
                 "updated_by": clean(auth_user.get("email")),
                 "updated_at": now_iso(),
             }
-            api_request(
-                "POST",
-                STAFF_OPTIONS_TABLE,
-                params="?on_conflict=staff_name",
-                payload=payload,
-                prefer="resolution=merge-duplicates,return=minimal",
-            )
+            upsert_staff_option(payload)
             st.success("เพิ่ม/อัปเดตพนักงานแล้ว")
             st.cache_data.clear()
             st.rerun()
 
-    rows = api_request(
-        "GET",
-        STAFF_OPTIONS_TABLE,
-        params="?select=id,staff_name,is_active,sort_order,updated_at&order=sort_order.asc,staff_name.asc",
-        prefer="return=representation",
-    )
+    rows = fetch_staff_options(active_only=False)
     df = pd.DataFrame(rows)
     if df.empty:
         st.info("ยังไม่มีรายการพนักงาน")
@@ -236,11 +186,9 @@ def render_staff_row(row: dict, auth_user: dict) -> None:
         if not clean(staff_name):
             st.error("กรุณากรอกชื่อผู้ดูแล/พนักงาน")
             return
-        api_request(
-            "PATCH",
-            STAFF_OPTIONS_TABLE,
-            params=f"?id=eq.{quote(row_id)}",
-            payload={
+        update_staff_option(
+            row_id,
+            {
                 "staff_name": clean(staff_name),
                 "sort_order": int(sort_order),
                 "is_active": bool(is_active),
@@ -261,7 +209,7 @@ def render_staff_row(row: dict, auth_user: dict) -> None:
         if clean(confirm) != "ลบ":
             st.error(f"กรุณาพิมพ์คำว่า ลบ เพื่อยืนยันลบถาวร: {original_name}")
             return
-        api_request("DELETE", STAFF_OPTIONS_TABLE, params=f"?id=eq.{quote(row_id)}")
+        delete_staff_option(row_id)
         st.success(f"ลบถาวรแล้ว: {original_name}")
         st.cache_data.clear()
         st.rerun()

@@ -2,7 +2,6 @@ import os
 import base64
 import json
 import time
-from urllib.parse import quote
 
 import requests
 import streamlit as st
@@ -12,7 +11,6 @@ except ImportError:  # Local fallback until dependencies are installed.
     streamlit_js_eval = None
 
 
-USER_ROLES_TABLE = "crm_user_roles"
 AUTH_STORAGE_KEY = "crm_core_auth_session"
 TOKEN_REFRESH_GRACE_SECONDS = 90
 LOCAL_STORAGE_TTL_SECONDS = 8 * 60 * 60
@@ -39,10 +37,6 @@ def supabase_url() -> str:
 
 def supabase_anon_key() -> str:
     return get_secret("CRM_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY")
-
-
-def supabase_service_key() -> str:
-    return get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY")
 
 
 def inject_auth_css() -> None:
@@ -247,28 +241,14 @@ def fetch_user_role(email: str) -> dict:
         "staff_name": "",
         "is_active": True,
     }
-    base_url = supabase_url()
-    service_key = supabase_service_key()
-    if not base_url or not service_key:
-        return default_role
+    try:
+        from neon_utils import fetch_user_role_from_neon
 
-    params = (
-        f"?email=eq.{quote(normalized_email)}"
-        "&is_active=eq.true"
-        "&select=email,role,staff_name,is_active"
-        "&limit=1"
-    )
-    response = requests.get(
-        f"{base_url}/rest/v1/{USER_ROLES_TABLE}{params}",
-        headers=_auth_headers(service_key),
-        timeout=20,
-    )
-    if response.status_code >= 400:
+        row = fetch_user_role_from_neon(normalized_email)
+    except Exception:
         return default_role
-    rows = response.json()
-    if not rows:
+    if not row:
         return default_role
-    row = rows[0]
     row["email"] = normalized_email
     row["role"] = row.get("role") or ROLE_VIEWER
     row["staff_name"] = row.get("staff_name") or ""

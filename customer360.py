@@ -1,11 +1,9 @@
 import html
 import json
-import os
 from datetime import date, datetime
 from urllib.parse import urlencode
 
 import pandas as pd
-import requests
 import streamlit as st
 
 from auth_utils import can_edit_customer_lead, can_manage_all, require_login
@@ -16,6 +14,7 @@ from neon_utils import (
     fetch_filter_options,
     fetch_lead_followups,
     fetch_orders_by_phones,
+    fetch_staff_options,
     search_terms,
     upsert_lead_followup,
 )
@@ -74,22 +73,6 @@ PRODUCT_GROUP_ORDER = [
     "รถ/เครื่องมือช่าง",
     "สินค้าทั่วไป",
 ]
-
-
-def get_secret(*names: str) -> str:
-    for name in names:
-        if name in st.secrets:
-            return st.secrets[name]
-        value = os.getenv(name, "")
-        if value:
-            return value
-    return ""
-
-
-SUPABASE_URL = get_secret("CRM_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
-SUPABASE_ANON_KEY = get_secret("CRM_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY")
-SUPABASE_SERVICE_KEY = get_secret("CRM_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_KEY")
-
 
 def render_customer360() -> None:
     inject_css()
@@ -446,38 +429,6 @@ button[kind="formSubmit"]:hover,
     )
 
 
-def require_config() -> None:
-    missing = [
-        name
-        for name, value in {
-            "CRM_SUPABASE_URL": SUPABASE_URL,
-            "CRM_SUPABASE_ANON_KEY": SUPABASE_ANON_KEY,
-        }.items()
-        if not value
-    ]
-    if missing:
-        st.error("ยังไม่ได้ตั้งค่า Streamlit secrets: " + ", ".join(missing))
-        st.stop()
-
-
-def request_headers(api_key: str | None = None, prefer: str = "count=exact") -> dict[str, str]:
-    key = api_key or SUPABASE_ANON_KEY
-    return {
-        "apikey": key,
-        "Authorization": f"Bearer {key}",
-        "Prefer": prefer,
-    }
-
-
-def api_get(path: str, params: list[str], api_key: str | None = None) -> tuple[list[dict], str | None]:
-    require_config()
-    url = f"{SUPABASE_URL}/rest/v1/{path}?{'&'.join(params)}"
-    response = requests.get(url, headers=request_headers(api_key=api_key), timeout=30)
-    if response.status_code not in (200, 206):
-        return [], response.text
-    return response.json(), None
-
-
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner="กำลังโหลดลูกค้า CRM...")
 def load_crm_customers(filters: tuple[str, str, str, str], page_size: int, page: int) -> tuple[pd.DataFrame, int]:
     page = max(int(page), 1)
@@ -520,19 +471,8 @@ def load_customer_filter_options() -> dict[str, list[str]]:
 @st.cache_data(ttl=CUSTOMER_CACHE_SECONDS, show_spinner=False)
 def load_staff_options() -> list[str]:
     try:
-        rows, error = api_get(
-            "crm_staff_options",
-            [
-                "select=staff_name",
-                "is_active=eq.true",
-                "order=sort_order.asc,staff_name.asc",
-                "limit=1000",
-            ],
-            api_key=SUPABASE_SERVICE_KEY or None,
-        )
+        rows = fetch_staff_options(active_only=True)
     except Exception:
-        return []
-    if error:
         return []
     names: list[str] = []
     for row in rows:

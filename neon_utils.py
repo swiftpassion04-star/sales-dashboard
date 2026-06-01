@@ -135,6 +135,32 @@ create table if not exists public.crm_product_options (
 
 create index if not exists idx_crm_product_options_active_sort
   on public.crm_product_options (is_active, sku, sort_order, product_group, product_name);
+
+create table if not exists public.crm_user_roles (
+  email text primary key,
+  role text not null default 'ทั่วไป',
+  staff_name text,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_crm_user_roles_active_email
+  on public.crm_user_roles (is_active, email);
+
+create table if not exists public.crm_staff_options (
+  id bigserial primary key,
+  staff_name text not null unique,
+  is_active boolean not null default true,
+  sort_order integer not null default 0,
+  created_by text,
+  updated_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_crm_staff_options_active_sort
+  on public.crm_staff_options (is_active, sort_order, staff_name);
 """
 
 
@@ -1035,6 +1061,103 @@ def delete_product_option(option_id: str) -> None:
         try:
             with conn.cursor() as cur:
                 cur.execute("delete from public.crm_product_options where id = %s", [option_id])
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def fetch_user_role_from_neon(email: str) -> dict | None:
+    normalized_email = clean(email).lower()
+    if not normalized_email:
+        return None
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select email, role, staff_name, is_active
+                from public.crm_user_roles
+                where email = %s
+                  and is_active = true
+                limit 1
+                """,
+                [normalized_email],
+            )
+            return cur.fetchone()
+
+
+def fetch_staff_options(active_only: bool = False) -> list[dict]:
+    ensure_crm_data_imports_schema()
+    where = "where is_active = true" if active_only else ""
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select
+                  id::text as id,
+                  staff_name,
+                  is_active,
+                  sort_order,
+                  updated_at
+                from public.crm_staff_options
+                {where}
+                order by sort_order asc, staff_name asc
+                """
+            )
+            return cur.fetchall()
+
+
+def upsert_staff_option(payload: dict) -> None:
+    ensure_crm_data_imports_schema()
+    columns = ["staff_name", "sort_order", "is_active", "created_by", "updated_by", "updated_at"]
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    insert into public.crm_staff_options ({', '.join(columns)})
+                    values ({', '.join(['%s'] * len(columns))})
+                    on conflict (staff_name) do update
+                    set sort_order = excluded.sort_order,
+                        is_active = excluded.is_active,
+                        updated_by = excluded.updated_by,
+                        updated_at = excluded.updated_at
+                    """,
+                    [payload.get(column) for column in columns],
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def update_staff_option(option_id: str, payload: dict) -> None:
+    ensure_crm_data_imports_schema()
+    fields = ["staff_name", "sort_order", "is_active", "updated_by", "updated_at"]
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    update public.crm_staff_options
+                    set {', '.join([f'{field} = %s' for field in fields])}
+                    where id = %s
+                    """,
+                    [payload.get(field) for field in fields] + [option_id],
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def delete_staff_option(option_id: str) -> None:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("delete from public.crm_staff_options where id = %s", [option_id])
             conn.commit()
         except Exception:
             conn.rollback()
