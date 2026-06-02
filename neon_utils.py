@@ -1792,6 +1792,51 @@ def fetch_staff_options(active_only: bool = False) -> list[dict]:
             return cur.fetchall()
 
 
+def fetch_owner_user_options(active_only: bool = False) -> list[dict]:
+    ensure_crm_data_imports_schema()
+    active_clause = "and is_active = true" if active_only else ""
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                with source_rows as (
+                  select
+                    staff_code,
+                    staff_name,
+                    is_active,
+                    0 as sort_order,
+                    updated_at
+                  from public.crm_user_roles
+                  where staff_name is not null
+                    and staff_name <> ''
+                    {active_clause}
+                  union all
+                  select
+                    staff_code,
+                    staff_name,
+                    is_active,
+                    sort_order,
+                    updated_at
+                  from public.crm_staff_options
+                  where staff_name is not null
+                    and staff_name <> ''
+                    {active_clause}
+                )
+                select
+                  min(md5(coalesce(staff_code, '') || '|' || staff_name)) as id,
+                  staff_code,
+                  staff_name,
+                  bool_or(is_active) as is_active,
+                  min(sort_order) as sort_order,
+                  max(updated_at) as updated_at
+                from source_rows
+                group by staff_code, staff_name
+                order by min(sort_order) asc, staff_name asc
+                """
+            )
+            return cur.fetchall()
+
+
 def upsert_staff_option(payload: dict) -> None:
     ensure_crm_data_imports_schema()
     columns = ["staff_name", "sort_order", "is_active", "created_by", "updated_by", "updated_at"]

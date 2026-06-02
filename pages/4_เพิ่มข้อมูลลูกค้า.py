@@ -207,7 +207,7 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
     staff_options = []
     if is_editor:
         try:
-            staff_options = neon.fetch_staff_options(active_only=True)
+            staff_options = neon.fetch_owner_user_options(active_only=True)
         except Exception as exc:
             st.warning(f"โหลดรายชื่อพนักงานไม่สำเร็จ: {exc}")
 
@@ -226,17 +226,19 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         owner = neon.clean(user.get("staff_name"))
         staff_code = neon.clean(user.get("staff_code"))
         if is_editor:
-            labels = [staff_label(row) for row in staff_options]
-            if labels:
+            staff_choices = build_staff_choices(staff_options)
+            if staff_choices:
+                labels = [label for label, _row in staff_choices]
                 selected_label = st.selectbox("ผู้ดูแล", labels, index=0, placeholder="เลือกผู้ดูแล")
-                selected_staff = staff_options[labels.index(selected_label)] if selected_label in labels else {}
-                owner = neon.clean(selected_staff.get("staff_name"))
-                staff_code = neon.clean(selected_staff.get("staff_code")) or neon.owner_to_staff_code(owner)
+                selected_staff = dict(staff_choices[labels.index(selected_label)][1]) if selected_label in labels else {}
+                owner = display_staff_name(selected_staff)
+                staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code"))) or neon.owner_to_staff_code(owner)
             else:
                 owner = st.text_input("ผู้ดูแล")
                 staff_code = neon.owner_to_staff_code(owner)
         else:
-            owner = owner or staff_code
+            staff_code = normalize_staff_code(staff_code)
+            owner = strip_duplicate_staff_suffix(owner or staff_code, staff_code)
             st.text_input("ผู้ดูแล", value=owner or "-", disabled=True)
 
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
@@ -284,9 +286,48 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
 
 
 def staff_label(row: dict) -> str:
-    name = neon.clean(row.get("staff_name"))
-    code = neon.clean(row.get("staff_code"))
+    name = display_staff_name(row)
+    code = normalize_staff_code(neon.clean(row.get("staff_code")))
+    if code and name.endswith(f"({code})"):
+        return name
     return f"{name} ({code})" if code and code != name else name
+
+
+def build_staff_choices(rows: list[dict]) -> list[tuple[str, dict]]:
+    choices = []
+    seen = set()
+    for row in rows:
+        label = staff_label(row)
+        key = label.casefold()
+        if not label or key in seen:
+            continue
+        seen.add(key)
+        choices.append((label, row))
+    return choices
+
+
+def display_staff_name(row: dict) -> str:
+    name = neon.clean(row.get("staff_name"))
+    code = normalize_staff_code(neon.clean(row.get("staff_code")))
+    return strip_duplicate_staff_suffix(name, code)
+
+
+def normalize_staff_code(value: str) -> str:
+    text = neon.clean(value)
+    if text.startswith("(") and text.endswith(")") and len(text) > 2:
+        return text[1:-1].strip()
+    return text
+
+
+def strip_duplicate_staff_suffix(name: str, code: str) -> str:
+    cleaned = neon.clean(name)
+    normalized_code = normalize_staff_code(code)
+    if not cleaned or not normalized_code:
+        return cleaned
+    duplicate_suffix = f"({normalized_code}) ({normalized_code})"
+    if cleaned.endswith(duplicate_suffix):
+        return cleaned[: -len(f" ({normalized_code})")].strip()
+    return cleaned
 
 
 def render_excel_import(auth_user: dict) -> None:
