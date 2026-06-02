@@ -1285,7 +1285,7 @@ def fetch_customer_page(filters: dict[str, str], page_size: int, page: int, user
             when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
             else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
           end as phone_key
-        from public.crm_data_imports
+        from public.crm_data_imports d
         {where}
       ) keyed
     """
@@ -1392,28 +1392,24 @@ def fetch_dashboard_kpis(user: dict | None = None) -> dict:
 
 
 def build_customer_where(filters: dict[str, str], user: dict | None = None) -> tuple[str, list]:
-    clauses = ["import_status = 'valid'"]
+    clauses = ["d.import_status = 'valid'"]
     params: list = []
-    role = clean((user or {}).get("role"))
-    staff_code = clean((user or {}).get("staff_code"))
-    if role and role != "EDITOR":
-        if staff_code:
-            clauses.append("staff_code = %s")
-            params.append(staff_code)
-        else:
-            clauses.append("1 = 0")
+    scope_clause, scope_params = _followup_staff_scope(user or {}, "d")
+    if scope_clause:
+        clauses.append(scope_clause)
+        params.extend(scope_params)
     staff = clean(filters.get("staff"))
     keyword = clean(filters.get("keyword"))
     if staff and staff != "ทั้งหมด":
-        clauses.append("owner = %s")
+        clauses.append("d.owner = %s")
         params.append(staff)
     if keyword:
         like = f"%{keyword}%"
         clauses.append(
             "("
-            "customer_name ilike %s or phone1 ilike %s or phone2 ilike %s or "
-            "postal_code ilike %s or tracking_no ilike %s or sku ilike %s or "
-            "order_id ilike %s or raw_data->>'เลขคำสั่งซื้อ' ilike %s"
+            "d.customer_name ilike %s or d.phone1 ilike %s or d.phone2 ilike %s or "
+            "d.postal_code ilike %s or d.tracking_no ilike %s or d.sku ilike %s or "
+            "d.order_id ilike %s or d.raw_data->>'เลขคำสั่งซื้อ' ilike %s"
             ")"
         )
         params.extend([like, like, like, like, like, like, like, like])
@@ -1517,7 +1513,8 @@ def fetch_filter_options() -> dict[str, list[str]]:
                 limit 1000
                 """
             )
-            return {"product_group": [], "sales_staff": [row["owner"] for row in cur.fetchall()]}
+            owners = [row["owner"] for row in cur.fetchall()]
+            return {"product_group": [], "sales_staff": owners, "owners": owners}
 
 
 def search_terms(keyword: str) -> dict[str, tuple[str, ...]]:
@@ -1746,7 +1743,7 @@ def _normalized_text_sql(column: str) -> str:
 
 
 def _followup_staff_scope(user: dict, alias: str = "d") -> tuple[str, list]:
-    if clean(user.get("role")) == "EDITOR":
+    if clean(user.get("role")) in {"ADMIN", "EDITOR"}:
         return "", []
 
     staff_code = clean(user.get("staff_code"))

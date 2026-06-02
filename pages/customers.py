@@ -2,7 +2,7 @@ import html
 
 import streamlit as st
 
-from auth_utils import current_user, require_login
+from auth_utils import can_manage_all, current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import fetch_customer_page, fetch_filter_options
@@ -20,7 +20,7 @@ def main() -> None:
     user = current_user() or {}
     render_page_header("ลูกค้า", "ค้นหาและดูข้อมูลลูกค้าจาก Neon แบบ server-side")
 
-    filters = render_filters()
+    filters = render_filters(user)
     page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customers_page_size")
     page = int(st.number_input("หน้า", min_value=1, value=int(st.session_state.get("customers_page", 1)), step=1))
     st.session_state.customers_page = page
@@ -39,15 +39,19 @@ def main() -> None:
     render_customer_table(rows)
 
 
-def render_filters() -> dict[str, str]:
+def render_filters(user: dict) -> dict[str, str]:
     try:
         options = fetch_filter_options()
     except Exception:
         options = {"owners": []}
     with st.form("customer_filters"):
-        col1, col2 = st.columns([1, 2])
-        staff = col1.selectbox("ผู้ดูแล", [ALL] + options.get("owners", []))
-        keyword = col2.text_input("ค้นหา", placeholder="ชื่อ / เบอร์ / รหัสไปรษณีย์ / เลขคำสั่งซื้อ")
+        if can_manage_all(user):
+            col1, col2 = st.columns([1, 2])
+            staff = col1.selectbox("ผู้ดูแล", [ALL] + options.get("owners", []))
+            keyword = col2.text_input("ค้นหา", placeholder="ชื่อ / เบอร์ / รหัสไปรษณีย์ / เลขคำสั่งซื้อ")
+        else:
+            staff = ALL
+            keyword = st.text_input("ค้นหา", placeholder="ชื่อ / เบอร์ / รหัสไปรษณีย์ / เลขคำสั่งซื้อ")
         submitted = st.form_submit_button("ค้นหา", use_container_width=True)
     if submitted:
         st.session_state.customers_page = 1
