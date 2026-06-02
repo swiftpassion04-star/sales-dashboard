@@ -233,11 +233,16 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         if is_editor:
             staff_choices = build_staff_choices(staff_options)
             if staff_choices:
-                labels = [label for label, _row in staff_choices]
-                selected_label = st.selectbox("ผู้ดูแล", labels, index=0, placeholder="เลือกผู้ดูแล", key="manual_owner_select")
-                selected_staff = dict(staff_choices[labels.index(selected_label)][1]) if selected_label in labels else {}
-                owner = display_staff_name(selected_staff)
-                staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code"))) or neon.owner_to_staff_code(owner)
+                labels = ["เลือกผู้ดูแล", *[label for label, _row in staff_choices]]
+                selected_label = st.selectbox("ผู้ดูแล", labels, index=0, key="manual_owner_select")
+                if selected_label == "เลือกผู้ดูแล":
+                    owner = ""
+                    staff_code = ""
+                else:
+                    selected_index = labels.index(selected_label) - 1
+                    selected_staff = dict(staff_choices[selected_index][1])
+                    owner = display_staff_name(selected_staff)
+                    staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code"))) or neon.owner_to_staff_code(owner)
             else:
                 owner = st.text_input("ผู้ดูแล", key="manual_owner_text")
                 staff_code = neon.owner_to_staff_code(owner)
@@ -312,11 +317,11 @@ def clear_manual_order_form_state() -> None:
         "manual_phone2",
         "manual_product_name",
         "manual_url",
-        "manual_owner_select",
         "manual_owner_text",
-        "manual_owner_disabled",
     ):
-        st.session_state.pop(key, None)
+        st.session_state[key] = ""
+    st.session_state["manual_owner_select"] = "เลือกผู้ดูแล"
+    st.session_state.pop("manual_owner_disabled", None)
 
 
 def build_staff_choices(rows: list[dict]) -> list[tuple[str, dict]]:
