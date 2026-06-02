@@ -380,6 +380,47 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def neon_table_exists(table_name: str) -> bool:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select exists (
+                  select 1
+                  from information_schema.tables
+                  where table_schema = 'public'
+                    and table_name = %s
+                ) as exists
+                """,
+                [clean(table_name)],
+            )
+            row = cur.fetchone()
+            return bool(row.get("exists")) if row else False
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def neon_column_exists(table_name: str, column_name: str) -> bool:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select exists (
+                  select 1
+                  from information_schema.columns
+                  where table_schema = 'public'
+                    and table_name = %s
+                    and column_name = %s
+                ) as exists
+                """,
+                [clean(table_name), clean(column_name)],
+            )
+            row = cur.fetchone()
+            return bool(row.get("exists")) if row else False
+
+
 def build_record_from_mapping(
     row: dict,
     mapping: dict[str, str],
@@ -699,6 +740,288 @@ def upsert_manual_order(payload: dict) -> dict:
                     record_id = clean(inserted.get("id")) if inserted else ""
             conn.commit()
             return {"action": action, "id": record_id, "match_count": match_count}
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
+    ensure_crm_data_imports_schema()
+    order_id = clean(payload.get("order_id"))
+    customer_name = clean(payload.get("customer_name"))
+    phone1 = normalize_phone(payload.get("phone1"))
+    phone2 = normalize_phone(payload.get("phone2"))
+    url = clean(payload.get("url"))
+    order_date = parse_date(payload.get("order_date")) or datetime.now(timezone.utc).date().isoformat()
+    owner = clean(payload.get("owner"))
+    staff_code = clean(payload.get("staff_code")) or owner_to_staff_code(owner)
+    uploaded_by = clean(payload.get("uploaded_by"))
+    updated_by = clean(payload.get("updated_by")) or uploaded_by
+    now = now_iso()
+
+    errors = []
+    if not order_id:
+        errors.append("order_id ว่าง")
+    if not customer_name:
+        errors.append("customer_name ว่าง")
+    if not phone1 and not phone2:
+        errors.append("phone1/phone2 ว่าง")
+    if not owner:
+        errors.append("owner ว่าง")
+    normalized_items = []
+    for item in items or []:
+        sku = clean(item.get("sku"))
+        product_name = clean(item.get("product_name"))
+        try:
+            qty = int(item.get("qty") or 0)
+        except (TypeError, ValueError):
+            qty = 0
+        if sku and product_name and qty > 0:
+            normalized_items.append({"sku": sku, "product_name": product_name, "qty": qty})
+    if not normalized_items:
+        errors.append("items ว่าง")
+    if errors:
+        raise ValueError("; ".join(errors))
+
+    has_quantity = neon_column_exists("crm_data_imports", "quantity")
+    has_orders = neon_table_exists("crm_orders")
+    has_order_items = neon_table_exists("crm_order_items")
+    phones = [phone for phone in (phone1, phone2) if phone]
+    actions = {"inserted": 0, "updated": 0}
+    record_ids: list[str] = []
+
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                crm_order_id = None
+                if has_orders:
+                    cur.execute(
+                        """
+                        select id
+                        from public.crm_orders
+                        where order_id = %s
+                          and coalesce(phone1, '') = %s
+                          and coalesce(phone2, '') = %s
+                        limit 1
+                        """,
+                        [order_id, phone1, phone2],
+                    )
+                    row = cur.fetchone()
+                    crm_order_id = row.get("id") if row else None
+                    if crm_order_id:
+                        cur.execute(
+                            """
+                            update public.crm_orders
+                            set customer_name = coalesce(nullif(%s, ''), customer_name),
+                                url = coalesce(nullif(%s, ''), url),
+                                owner = coalesce(nullif(%s, ''), owner),
+                                staff_code = coalesce(nullif(%s, ''), staff_code),
+                                updated_by = %s,
+                                updated_at = %s
+                            where id = %s
+                            """,
+                            [customer_name, url, owner, staff_code, updated_by, now, crm_order_id],
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            insert into public.crm_orders (
+                              order_id, customer_name, phone1, phone2, url, owner, staff_code,
+                              source_type, created_by, updated_by, created_at, updated_at
+                            )
+                            values (%s, %s, %s, %s, %s, %s, %s, 'manual', %s, %s, %s, %s)
+                            returning id
+                            """,
+                            [order_id, customer_name, phone1, phone2, url, owner, staff_code, uploaded_by, updated_by, now, now],
+                        )
+                        row = cur.fetchone()
+                        crm_order_id = row.get("id") if row else None
+
+                for item in normalized_items:
+                    raw_data = {
+                        "source": "manual_order",
+                        "order_id": order_id,
+                        "customer_name": customer_name,
+                        "phone1": phone1,
+                        "phone2": phone2,
+                        "product_name": item["product_name"],
+                        "sku": item["sku"],
+                        "qty": item["qty"],
+                        "url": url,
+                        "order_date": order_date,
+                        "owner": owner,
+                        "staff_code": staff_code,
+                        "uploaded_by": uploaded_by,
+                        "updated_by": updated_by,
+                    }
+                    cur.execute(
+                        """
+                        select id::text as id
+                        from public.crm_data_imports
+                        where import_status = 'valid'
+                          and order_id = %s
+                          and sku = %s
+                          and (phone1 = any(%s) or phone2 = any(%s))
+                        order by order_date desc nulls last, updated_at desc nulls last, uploaded_at desc, id desc
+                        limit 1
+                        """,
+                        [order_id, item["sku"], phones, phones],
+                    )
+                    row = cur.fetchone()
+                    target_id = clean(row.get("id")) if row else ""
+                    if target_id:
+                        set_parts = [
+                            "customer_name = coalesce(nullif(%s, ''), customer_name)",
+                            "phone1 = coalesce(nullif(%s, ''), phone1)",
+                            "phone2 = coalesce(nullif(%s, ''), phone2)",
+                            "product_name = coalesce(nullif(%s, ''), product_name)",
+                            "sku = coalesce(nullif(%s, ''), sku)",
+                            "url = coalesce(nullif(%s, ''), url)",
+                            "order_date = %s",
+                            "owner = coalesce(nullif(%s, ''), owner)",
+                            "staff_code = coalesce(nullif(%s, ''), staff_code)",
+                            "source_type = 'manual'",
+                            "updated_by = %s",
+                            "updated_at = %s",
+                            "raw_data = %s",
+                        ]
+                        values = [
+                            customer_name,
+                            phone1,
+                            phone2,
+                            item["product_name"],
+                            item["sku"],
+                            url,
+                            order_date,
+                            owner,
+                            staff_code,
+                            updated_by,
+                            now,
+                            Jsonb(raw_data),
+                        ]
+                        if has_quantity:
+                            set_parts.insert(-3, "quantity = %s")
+                            values.insert(-3, item["qty"])
+                        cur.execute(
+                            f"""
+                            update public.crm_data_imports
+                            set {', '.join(set_parts)}
+                            where id = %s
+                            returning id::text as id
+                            """,
+                            [*values, target_id],
+                        )
+                        updated = cur.fetchone()
+                        record_id = clean(updated.get("id")) if updated else target_id
+                        actions["updated"] += 1
+                    else:
+                        columns = [
+                            "import_batch_id",
+                            "source_file_name",
+                            "sheet_name",
+                            "row_number",
+                            "uploaded_by",
+                            "uploaded_at",
+                            "raw_data",
+                            "order_id",
+                            "url",
+                            "customer_name",
+                            "phone1",
+                            "phone2",
+                            "product_name",
+                            "sku",
+                            "order_date",
+                            "province",
+                            "city",
+                            "postal_code",
+                            "tracking_no",
+                            "carrier",
+                            "order_status",
+                            "total_amount",
+                            "owner",
+                            "staff_code",
+                            "source_type",
+                            "import_status",
+                            "validation_error",
+                            "updated_by",
+                            "created_at",
+                            "updated_at",
+                        ]
+                        values_map = {
+                            "import_batch_id": new_batch_id(),
+                            "source_file_name": "manual_order",
+                            "sheet_name": "manual_form",
+                            "row_number": 1,
+                            "uploaded_by": uploaded_by,
+                            "uploaded_at": now,
+                            "raw_data": raw_data,
+                            "order_id": order_id,
+                            "url": url,
+                            "customer_name": customer_name,
+                            "phone1": phone1,
+                            "phone2": phone2,
+                            "product_name": item["product_name"],
+                            "sku": item["sku"],
+                            "order_date": order_date,
+                            "province": "",
+                            "city": "",
+                            "postal_code": "",
+                            "tracking_no": "",
+                            "carrier": "",
+                            "order_status": "",
+                            "total_amount": None,
+                            "owner": owner,
+                            "staff_code": staff_code,
+                            "source_type": "manual",
+                            "import_status": "valid",
+                            "validation_error": "",
+                            "updated_by": updated_by,
+                            "created_at": now,
+                            "updated_at": now,
+                        }
+                        if has_quantity:
+                            columns.append("quantity")
+                            values_map["quantity"] = item["qty"]
+                        cur.execute(
+                            f"""
+                            insert into public.crm_data_imports ({', '.join(columns)})
+                            values ({', '.join(['%s'] * len(columns))})
+                            returning id::text as id
+                            """,
+                            [Jsonb(values_map[column]) if column == "raw_data" else values_map[column] for column in columns],
+                        )
+                        inserted = cur.fetchone()
+                        record_id = clean(inserted.get("id")) if inserted else ""
+                        actions["inserted"] += 1
+                    if record_id:
+                        record_ids.append(record_id)
+
+                    if has_order_items and crm_order_id:
+                        cur.execute(
+                            """
+                            insert into public.crm_order_items (
+                              crm_order_id, crm_data_import_id, order_id, sku, product_name, qty, created_at, updated_at
+                            )
+                            values (%s, %s, %s, %s, %s, %s, %s, %s)
+                            on conflict (crm_order_id, sku) do update
+                            set crm_data_import_id = excluded.crm_data_import_id,
+                                product_name = excluded.product_name,
+                                qty = excluded.qty,
+                                updated_at = excluded.updated_at
+                            """,
+                            [
+                                crm_order_id,
+                                int(record_id) if str(record_id).isdigit() else None,
+                                order_id,
+                                item["sku"],
+                                item["product_name"],
+                                item["qty"],
+                                now,
+                                now,
+                            ],
+                        )
+            conn.commit()
+            return {"actions": actions, "ids": record_ids, "item_count": len(normalized_items)}
         except Exception:
             conn.rollback()
             raise

@@ -14,6 +14,12 @@ NAV_GROUPS = [
         ],
     ),
     (
+        "ข้อมูล",
+        [
+            ("สินค้า", "pages/products.py"),
+        ],
+    ),
+    (
         "ระบบ",
         [
             ("Sync / System Status", "pages/system_status.py"),

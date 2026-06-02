@@ -11,6 +11,7 @@ from nav_utils import render_sidebar_nav
 
 BATCH_SIZE = 500
 PREVIEW_ROWS = 100
+PRODUCT_PLACEHOLDER = "เลือกสินค้า"
 
 CRM_FIELD_LABELS = {
     "order_date": "วันที่สั่งซื้อ",
@@ -215,6 +216,11 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
             staff_options = neon.fetch_owner_user_options(active_only=True)
         except Exception as exc:
             st.warning(f"โหลดรายชื่อพนักงานไม่สำเร็จ: {exc}")
+    try:
+        product_options = fetch_manual_product_options()
+    except Exception as exc:
+        product_options = []
+        st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
 
     with st.form("manual_order_form", clear_on_submit=False):
         col1, col2 = st.columns(2)
@@ -223,10 +229,19 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         phone_col1, phone_col2 = st.columns(2)
         phone1 = phone_col1.text_input("เบอร์โทร", key="manual_phone1")
         phone2 = phone_col2.text_input("เบอร์สำรอง", key="manual_phone2")
-        product_name = st.text_input("ชื่อสินค้า", key="manual_product_name")
         url = st.text_input("URL", key="manual_url")
         order_date = date.today().isoformat()
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
+
+        st.markdown("#### รายการสินค้า")
+        product_labels = [PRODUCT_PLACEHOLDER, *[manual_product_label(row) for row in product_options]]
+        if st.session_state.get("manual_product_select") not in product_labels:
+            st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
+        pc1, pc2, pc3 = st.columns([2.4, 0.7, 1.1])
+        selected_product_label = pc1.selectbox("สินค้า", product_labels, index=0, key="manual_product_select")
+        selected_product_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key="manual_product_qty")
+        add_product_submitted = pc3.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
+        delete_item_index = render_manual_order_items()
 
         owner = neon.clean(user.get("staff_name"))
         staff_code = neon.clean(user.get("staff_code"))
@@ -253,6 +268,20 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
 
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
+    if add_product_submitted:
+        product = manual_product_from_label(product_options, selected_product_label)
+        if not product:
+            st.error("กรุณาเลือกสินค้า")
+            return
+        add_manual_order_item(product, int(selected_product_qty or 1))
+        st.session_state.manual_product_select = PRODUCT_PLACEHOLDER
+        st.session_state.manual_product_qty = 1
+        st.rerun()
+
+    if delete_item_index is not None:
+        remove_manual_order_item(delete_item_index)
+        st.rerun()
+
     if not submitted:
         return
 
@@ -261,10 +290,13 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         errors.append("กรุณากรอกหมายเลขคำสั่งซื้อ")
     if not neon.clean(customer_name):
         errors.append("กรุณากรอกชื่อลูกค้า")
-    if not neon.normalize_phone(phone1):
-        errors.append("กรุณากรอกเบอร์โทร")
-    if not neon.clean(product_name):
-        errors.append("กรุณากรอกชื่อสินค้า")
+    if not neon.normalize_phone(phone1) and not neon.normalize_phone(phone2):
+        errors.append("กรุณากรอกเบอร์โทรหรือเบอร์สำรอง")
+    manual_items = st.session_state.get("manual_order_items", [])
+    if not manual_items:
+        errors.append("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ")
+    if any(int(item.get("qty") or 0) <= 0 for item in manual_items):
+        errors.append("จำนวนสินค้าต้องมากกว่า 0")
     if not owner:
         errors.append("กรุณาระบุผู้ดูแล")
     if errors:
@@ -272,29 +304,27 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         return
 
     try:
-        result = neon.upsert_manual_order(
+        result = neon.upsert_manual_order_items(
             {
                 "order_id": order_id,
                 "customer_name": customer_name,
                 "phone1": phone1,
                 "phone2": phone2,
-                "product_name": product_name,
                 "url": url,
                 "order_date": order_date,
                 "owner": owner,
                 "staff_code": staff_code,
                 "uploaded_by": neon.clean(user.get("email")),
                 "updated_by": neon.clean(user.get("email")),
-            }
+            },
+            manual_items,
         )
     except Exception as exc:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
-    action_text = "อัปเดตข้อมูลเดิม" if result.get("action") == "updated" else "สร้างประวัติคำสั่งซื้อใหม่"
-    match_count = int(result.get("match_count") or 0)
-    if match_count > 1:
-        action_text = f"{action_text} (matched {match_count} rows; updated latest row)"
+    actions = result.get("actions") or {}
+    action_text = f"สินค้า {result.get('item_count', 0)} รายการ (เพิ่มใหม่ {actions.get('inserted', 0)}, อัปเดต {actions.get('updated', 0)})"
     st.cache_data.clear()
     st.session_state.manual_order_success_message = f"บันทึกสำเร็จ: {action_text}"
     st.session_state.manual_order_clear_requested = True
@@ -321,7 +351,78 @@ def clear_manual_order_form_state() -> None:
     ):
         st.session_state[key] = ""
     st.session_state["manual_owner_select"] = "เลือกผู้ดูแล"
+    st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
+    st.session_state["manual_product_qty"] = 1
+    st.session_state["manual_order_items"] = []
     st.session_state.pop("manual_owner_disabled", None)
+
+
+def fetch_manual_product_options() -> list[dict]:
+    rows = neon.fetch_product_options()
+    options = []
+    for row in rows:
+        sku = neon.clean(row.get("sku"))
+        product_name = neon.clean(row.get("product_name"))
+        if not sku or not product_name or not bool(row.get("is_active")):
+            continue
+        options.append({"sku": sku, "product_name": product_name, "product_group": neon.clean(row.get("product_group"))})
+    return options
+
+
+def manual_product_label(row: dict) -> str:
+    return f"{neon.clean(row.get('sku'))} - {neon.clean(row.get('product_name'))}"
+
+
+def manual_product_from_label(options: list[dict], label: str) -> dict:
+    if label == PRODUCT_PLACEHOLDER:
+        return {}
+    for row in options:
+        if manual_product_label(row) == label:
+            return row
+    return {}
+
+
+def add_manual_order_item(product: dict, qty: int) -> None:
+    items = list(st.session_state.get("manual_order_items", []))
+    sku = neon.clean(product.get("sku"))
+    product_name = neon.clean(product.get("product_name"))
+    qty = max(1, int(qty or 1))
+    for item in items:
+        if neon.clean(item.get("sku")) == sku:
+            item["qty"] = int(item.get("qty") or 0) + qty
+            st.session_state["manual_order_items"] = items
+            return
+    items.append({"sku": sku, "product_name": product_name, "qty": qty})
+    st.session_state["manual_order_items"] = items
+
+
+def remove_manual_order_item(index: int) -> None:
+    items = list(st.session_state.get("manual_order_items", []))
+    if 0 <= index < len(items):
+        items.pop(index)
+    st.session_state["manual_order_items"] = items
+
+
+def render_manual_order_items() -> int | None:
+    items = st.session_state.setdefault("manual_order_items", [])
+    if not items:
+        st.info("ยังไม่มีรายการสินค้าในคำสั่งซื้อนี้")
+        return None
+    st.markdown("##### สินค้าที่เลือก")
+    header = st.columns([0.8, 2.5, 0.6, 0.6])
+    header[0].markdown("**SKU**")
+    header[1].markdown("**สินค้า**")
+    header[2].markdown("**จำนวน**")
+    header[3].markdown("**ลบ**")
+    delete_index = None
+    for index, item in enumerate(items):
+        cols = st.columns([0.8, 2.5, 0.6, 0.6])
+        cols[0].write(neon.clean(item.get("sku")) or "-")
+        cols[1].write(neon.clean(item.get("product_name")) or "-")
+        cols[2].write(int(item.get("qty") or 0))
+        if cols[3].form_submit_button("ลบ", key=f"manual_item_delete_{index}", use_container_width=True):
+            delete_index = index
+    return delete_index
 
 
 def build_staff_choices(rows: list[dict]) -> list[tuple[str, dict]]:
