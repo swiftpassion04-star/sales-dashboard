@@ -1251,9 +1251,15 @@ def apply_owner_assignments(cur, records: list[dict]) -> None:
                 break
 
 
-def fetch_customer_page(filters: dict[str, str], page_size: int, page: int, user: dict | None = None) -> tuple[list[dict], int]:
+def fetch_customer_page(
+    filters: dict[str, str],
+    page_size: int,
+    page: int,
+    user: dict | None = None,
+    enforce_user_scope: bool = True,
+) -> tuple[list[dict], int]:
     ensure_crm_data_imports_schema()
-    where, params = build_customer_where(filters, user)
+    where, params = build_customer_where(filters, user, enforce_user_scope=enforce_user_scope)
     limit = int(page_size)
     offset = (max(int(page), 1) - 1) * limit
     select_cols = customer_select_columns()
@@ -1391,13 +1397,18 @@ def fetch_dashboard_kpis(user: dict | None = None) -> dict:
             }
 
 
-def build_customer_where(filters: dict[str, str], user: dict | None = None) -> tuple[str, list]:
+def build_customer_where(
+    filters: dict[str, str],
+    user: dict | None = None,
+    enforce_user_scope: bool = True,
+) -> tuple[str, list]:
     clauses = ["d.import_status = 'valid'"]
     params: list = []
-    scope_clause, scope_params = _followup_staff_scope(user or {}, "d")
-    if scope_clause:
-        clauses.append(scope_clause)
-        params.extend(scope_params)
+    if enforce_user_scope:
+        scope_clause, scope_params = _followup_staff_scope(user or {}, "d")
+        if scope_clause:
+            clauses.append(scope_clause)
+            params.extend(scope_params)
     staff = clean(filters.get("staff"))
     keyword = clean(filters.get("keyword"))
     if staff and staff != "ทั้งหมด":
@@ -1493,6 +1504,47 @@ def assign_owner_to_phones(phones: tuple[str, ...], owner: str, updated_by: str)
                     """,
                     [(phone, owner, clean(updated_by)) for phone in clean_phones],
                 )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return updated
+
+
+def assign_owner_to_order_record(record_id: str, order_id: str, owner: str, updated_by: str) -> int:
+    record_id = clean(record_id)
+    order_id = clean(order_id)
+    owner = clean(owner)
+    staff_code = owner_to_staff_code(owner)
+    if not record_id or not owner:
+        return 0
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                if order_id:
+                    cur.execute(
+                        """
+                        update public.crm_data_imports
+                        set owner = %s,
+                            staff_code = %s,
+                            updated_at = now()
+                        where order_id = %s
+                        """,
+                        [owner, staff_code, order_id],
+                    )
+                else:
+                    cur.execute(
+                        """
+                        update public.crm_data_imports
+                        set owner = %s,
+                            staff_code = %s,
+                            updated_at = now()
+                        where id = %s
+                        """,
+                        [owner, staff_code, record_id],
+                    )
+                updated = int(cur.rowcount or 0)
             conn.commit()
         except Exception:
             conn.rollback()
