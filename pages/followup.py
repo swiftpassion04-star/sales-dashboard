@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 import streamlit as st
 
-from auth_utils import ROLE_EDITOR, ROLE_TELESELL_ALIASES, current_user, require_login
+from auth_utils import ROLE_EDITOR, ROLE_STAFF_ALIASES, ROLE_TELESELL_ALIASES, current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import fetch_followup_filter_options, fetch_followup_page, upsert_lead_followup
@@ -41,7 +41,8 @@ def main() -> None:
     require_login()
     user = current_user() or {}
     role = clean(user.get("role"))
-    if role != ROLE_EDITOR and role not in ROLE_TELESELL_ALIASES:
+    allowed_scoped_roles = set(ROLE_TELESELL_ALIASES) | set(ROLE_STAFF_ALIASES) | {"USER"}
+    if role != ROLE_EDITOR and role not in allowed_scoped_roles:
         st.warning("หน้านี้ใช้ได้เฉพาะ EDITOR และพนักงานที่ดูแลลูกค้า")
         st.stop()
 

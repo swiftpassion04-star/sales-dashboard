@@ -1741,17 +1741,41 @@ def upsert_lead_followup(payload: dict) -> None:
             raise
 
 
+def _normalized_text_sql(column: str) -> str:
+    return f"regexp_replace(trim(coalesce({column}, '')), '\\s+', ' ', 'g')"
+
+
+def _followup_staff_scope(user: dict, alias: str = "d") -> tuple[str, list]:
+    if clean(user.get("role")) == "EDITOR":
+        return "", []
+
+    staff_code = clean(user.get("staff_code"))
+    staff_name = clean(user.get("staff_name"))
+    clauses: list[str] = []
+    params: list = []
+
+    if staff_code:
+        clauses.append(f"nullif(trim(coalesce({alias}.staff_code, '')), '') = %s")
+        params.append(staff_code)
+    if staff_name:
+        clauses.append(
+            f"(nullif(trim(coalesce({alias}.staff_code, '')), '') is null "
+            f"and {_normalized_text_sql(f'{alias}.owner')} = {_normalized_text_sql('%s')})"
+        )
+        params.append(staff_name)
+
+    if not clauses:
+        return "1 = 0", []
+    return "(" + " or ".join(clauses) + ")", params
+
+
 def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list]:
     clauses = ["d.import_status = 'valid'"]
     params: list = []
-    role = clean(user.get("role"))
-    staff_code = clean(user.get("staff_code"))
-    if role in {"พนักงาน", "TELESELL"}:
-        clauses.append("d.staff_code = %s")
-        params.append(staff_code)
-    elif role not in {"EDITOR"}:
-        clauses.append("1 = 0")
-
+    scope_clause, scope_params = _followup_staff_scope(user, "d")
+    if scope_clause:
+        clauses.append(scope_clause)
+        params.extend(scope_params)
     phone = normalize_phone(filters.get("phone"))
     if phone:
         like_phone = f"%{phone}%"
@@ -1798,26 +1822,23 @@ def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list
 
 def fetch_followup_filter_options(user: dict) -> dict[str, list[str]]:
     ensure_crm_data_imports_schema()
-    role = clean(user.get("role"))
-    staff_code = clean(user.get("staff_code"))
-    clauses = ["import_status = 'valid'"]
+    clauses = ["d.import_status = 'valid'"]
     params: list = []
-    if role in {"พนักงาน", "TELESELL"}:
-        clauses.append("staff_code = %s")
-        params.append(staff_code)
-    elif role != "EDITOR":
-        return {"owners": [], "products": []}
+    scope_clause, scope_params = _followup_staff_scope(user, "d")
+    if scope_clause:
+        clauses.append(scope_clause)
+        params.extend(scope_params)
     where = "where " + " and ".join(clauses)
     with neon_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                select distinct owner
-                from public.crm_data_imports
+                select distinct d.owner
+                from public.crm_data_imports d
                 {where}
-                  and owner is not null
-                  and owner <> ''
-                order by owner
+                  and d.owner is not null
+                  and d.owner <> ''
+                order by d.owner
                 limit 500
                 """,
                 params,
@@ -1825,10 +1846,10 @@ def fetch_followup_filter_options(user: dict) -> dict[str, list[str]]:
             owners = [row["owner"] for row in cur.fetchall()]
             cur.execute(
                 f"""
-                select distinct concat_ws(' ', nullif(sku, ''), nullif(product_name, '')) as product
-                from public.crm_data_imports
+                select distinct concat_ws(' ', nullif(d.sku, ''), nullif(d.product_name, '')) as product
+                from public.crm_data_imports d
                 {where}
-                  and (sku is not null or product_name is not null)
+                  and (d.sku is not null or d.product_name is not null)
                 order by product
                 limit 1000
                 """,
