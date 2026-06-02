@@ -207,6 +207,8 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
     success_message = st.session_state.pop("manual_order_success_message", "")
     if success_message:
         st.success(success_message)
+    if st.session_state.pop("manual_order_clear_requested", False):
+        clear_manual_order_form_state()
     staff_options = []
     if is_editor:
         try:
@@ -289,8 +291,8 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
     if match_count > 1:
         action_text = f"{action_text} (matched {match_count} rows; updated latest row)"
     st.cache_data.clear()
-    clear_manual_order_form_state()
     st.session_state.manual_order_success_message = f"บันทึกสำเร็จ: {action_text}"
+    st.session_state.manual_order_clear_requested = True
     st.rerun()
 
 
