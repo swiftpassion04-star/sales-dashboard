@@ -23,16 +23,20 @@ create table if not exists public.crm_data_imports (
   order_status text,
   total_amount numeric,
   owner text,
+  source_type text,
   import_status text not null default 'valid',
   validation_error text,
   dedupe_key text,
+  updated_by text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 alter table public.crm_data_imports
   add column if not exists order_id text,
-  add column if not exists url text;
+  add column if not exists url text,
+  add column if not exists source_type text,
+  add column if not exists updated_by text;
 
 create index if not exists idx_crm_data_imports_phone1
   on public.crm_data_imports (phone1);

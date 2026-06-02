@@ -53,7 +53,9 @@ create table if not exists public.crm_data_imports (
 
 alter table public.crm_data_imports
   add column if not exists order_id text,
-  add column if not exists url text;
+  add column if not exists url text,
+  add column if not exists source_type text,
+  add column if not exists updated_by text;
 
 create index if not exists idx_crm_data_imports_phone1
   on public.crm_data_imports (phone1);
@@ -275,8 +277,10 @@ CRM_COLUMNS = [
     "total_amount",
     "owner",
     "staff_code",
+    "source_type",
     "import_status",
     "validation_error",
+    "updated_by",
     "created_at",
     "updated_at",
 ]
@@ -504,6 +508,7 @@ def upsert_manual_order(payload: dict) -> dict:
     owner = clean(payload.get("owner"))
     staff_code = clean(payload.get("staff_code")) or owner_to_staff_code(owner)
     uploaded_by = clean(payload.get("uploaded_by"))
+    updated_by = clean(payload.get("updated_by")) or uploaded_by
     now = now_iso()
     raw_data = {
         "source": "manual_order",
@@ -517,6 +522,7 @@ def upsert_manual_order(payload: dict) -> dict:
         "owner": owner,
         "staff_code": staff_code,
         "uploaded_by": uploaded_by,
+        "updated_by": updated_by,
     }
     errors = []
     if not order_id:
@@ -533,6 +539,7 @@ def upsert_manual_order(payload: dict) -> dict:
         raise ValueError("; ".join(errors))
 
     update_columns = [
+        "order_id",
         "customer_name",
         "phone1",
         "phone2",
@@ -541,13 +548,14 @@ def upsert_manual_order(payload: dict) -> dict:
         "order_date",
         "owner",
         "staff_code",
-        "uploaded_by",
-        "raw_data",
+        "source_type",
+        "updated_by",
         "import_status",
         "validation_error",
         "updated_at",
     ]
     update_values = [
+        order_id,
         customer_name,
         phone1,
         phone2,
@@ -556,8 +564,8 @@ def upsert_manual_order(payload: dict) -> dict:
         order_date,
         owner,
         staff_code,
-        uploaded_by,
-        raw_data,
+        "manual",
+        updated_by,
         "valid",
         "",
         now,
@@ -566,31 +574,27 @@ def upsert_manual_order(payload: dict) -> dict:
         try:
             with conn.cursor() as cur:
                 target_id = ""
-                if order_id:
-                    cur.execute(
-                        """
-                        select id::text as id
-                        from public.crm_data_imports
-                        where import_status = 'valid'
-                          and order_id = %s
-                        order by order_date desc nulls last, uploaded_at desc, id desc
-                        limit 1
-                        """,
-                        [order_id],
-                    )
-                    row = cur.fetchone()
-                    target_id = clean(row.get("id")) if row else ""
-
-                if not target_id and (phone1 or phone2):
+                match_count = 0
+                if phone1 or phone2:
                     phones = [phone for phone in (phone1, phone2) if phone]
                     cur.execute(
                         """
+                        select count(*) as match_count
+                        from public.crm_data_imports
+                        where import_status = 'valid'
+                          and (phone1 = any(%s) or phone2 = any(%s))
+                        """,
+                        [phones, phones],
+                    )
+                    row = cur.fetchone()
+                    match_count = int(row.get("match_count") or 0) if row else 0
+                    cur.execute(
+                        """
                         select id::text as id
                         from public.crm_data_imports
                         where import_status = 'valid'
-                          and nullif(order_id, '') is null
                           and (phone1 = any(%s) or phone2 = any(%s))
-                        order by order_date desc nulls last, uploaded_at desc, id desc
+                        order by order_date desc nulls last, updated_at desc nulls last, uploaded_at desc, id desc
                         limit 1
                         """,
                         [phones, phones],
@@ -602,7 +606,7 @@ def upsert_manual_order(payload: dict) -> dict:
                     set_sql = ", ".join(
                         [
                             f"{column} = coalesce(nullif(%s, ''), {column})"
-                            if column not in {"raw_data", "import_status", "validation_error", "updated_at", "order_date"}
+                            if column not in {"import_status", "validation_error", "updated_at", "order_date", "source_type", "updated_by"}
                             else f"{column} = %s"
                             for column in update_columns
                         ]
@@ -610,11 +614,10 @@ def upsert_manual_order(payload: dict) -> dict:
                     cur.execute(
                         f"""
                         update public.crm_data_imports
-                        set order_id = coalesce(nullif(%s, ''), order_id),
-                            {set_sql}
+                        set {set_sql}
                         where id = %s
                         """,
-                        [order_id, *[Jsonb(value) if column == "raw_data" else value for column, value in zip(update_columns, update_values)], target_id],
+                        [*update_values, target_id],
                     )
                     action = "updated"
                     record_id = target_id
@@ -644,13 +647,15 @@ def upsert_manual_order(payload: dict) -> dict:
                         "total_amount",
                         "owner",
                         "staff_code",
+                        "source_type",
                         "import_status",
                         "validation_error",
+                        "updated_by",
                         "created_at",
                         "updated_at",
                     ]
                     values = {
-                        "import_batch_id": f"manual-{new_batch_id()}",
+                        "import_batch_id": new_batch_id(),
                         "source_file_name": "manual_order",
                         "sheet_name": "manual_form",
                         "row_number": 1,
@@ -674,8 +679,10 @@ def upsert_manual_order(payload: dict) -> dict:
                         "total_amount": None,
                         "owner": owner,
                         "staff_code": staff_code,
+                        "source_type": "manual",
                         "import_status": "valid",
                         "validation_error": "",
+                        "updated_by": updated_by,
                         "created_at": now,
                         "updated_at": now,
                     }
@@ -691,7 +698,7 @@ def upsert_manual_order(payload: dict) -> dict:
                     action = "inserted"
                     record_id = clean(inserted.get("id")) if inserted else ""
             conn.commit()
-            return {"action": action, "id": record_id}
+            return {"action": action, "id": record_id, "match_count": match_count}
         except Exception:
             conn.rollback()
             raise

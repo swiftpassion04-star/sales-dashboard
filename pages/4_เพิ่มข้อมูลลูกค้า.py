@@ -277,6 +277,7 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
                 "owner": owner,
                 "staff_code": staff_code,
                 "uploaded_by": neon.clean(user.get("email")),
+                "updated_by": neon.clean(user.get("email")),
             }
         )
     except Exception as exc:
@@ -284,6 +285,9 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         return
 
     action_text = "อัปเดตข้อมูลเดิม" if result.get("action") == "updated" else "สร้างประวัติคำสั่งซื้อใหม่"
+    match_count = int(result.get("match_count") or 0)
+    if match_count > 1:
+        action_text = f"{action_text} (matched {match_count} rows; updated latest row)"
     st.cache_data.clear()
     clear_manual_order_form_state()
     st.session_state.manual_order_success_message = f"บันทึกสำเร็จ: {action_text}"
