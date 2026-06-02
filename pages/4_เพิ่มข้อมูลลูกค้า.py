@@ -204,6 +204,9 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         '<div class="crm-manual-meta">พนักงานเพิ่มคำสั่งซื้อได้ทีละรายการ ส่วนการนำเข้า Excel ใช้ได้เฉพาะ EDITOR</div>',
         unsafe_allow_html=True,
     )
+    success_message = st.session_state.pop("manual_order_success_message", "")
+    if success_message:
+        st.success(success_message)
     staff_options = []
     if is_editor:
         try:
@@ -213,13 +216,13 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
 
     with st.form("manual_order_form", clear_on_submit=False):
         col1, col2 = st.columns(2)
-        order_id = col1.text_input("หมายเลขคำสั่งซื้อ")
-        customer_name = col2.text_input("ชื่อลูกค้า")
+        order_id = col1.text_input("หมายเลขคำสั่งซื้อ", key="manual_order_id")
+        customer_name = col2.text_input("ชื่อลูกค้า", key="manual_customer_name")
         phone_col1, phone_col2 = st.columns(2)
-        phone1 = phone_col1.text_input("เบอร์โทร")
-        phone2 = phone_col2.text_input("เบอร์สำรอง")
-        product_name = st.text_input("ชื่อสินค้า")
-        url = st.text_input("URL")
+        phone1 = phone_col1.text_input("เบอร์โทร", key="manual_phone1")
+        phone2 = phone_col2.text_input("เบอร์สำรอง", key="manual_phone2")
+        product_name = st.text_input("ชื่อสินค้า", key="manual_product_name")
+        url = st.text_input("URL", key="manual_url")
         order_date = date.today().isoformat()
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
 
@@ -229,17 +232,17 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
             staff_choices = build_staff_choices(staff_options)
             if staff_choices:
                 labels = [label for label, _row in staff_choices]
-                selected_label = st.selectbox("ผู้ดูแล", labels, index=0, placeholder="เลือกผู้ดูแล")
+                selected_label = st.selectbox("ผู้ดูแล", labels, index=0, placeholder="เลือกผู้ดูแล", key="manual_owner_select")
                 selected_staff = dict(staff_choices[labels.index(selected_label)][1]) if selected_label in labels else {}
                 owner = display_staff_name(selected_staff)
                 staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code"))) or neon.owner_to_staff_code(owner)
             else:
-                owner = st.text_input("ผู้ดูแล")
+                owner = st.text_input("ผู้ดูแล", key="manual_owner_text")
                 staff_code = neon.owner_to_staff_code(owner)
         else:
             staff_code = normalize_staff_code(staff_code)
             owner = strip_duplicate_staff_suffix(owner or staff_code, staff_code)
-            st.text_input("ผู้ดูแล", value=owner or "-", disabled=True)
+            st.text_input("ผู้ดูแล", value=owner or "-", disabled=True, key="manual_owner_disabled")
 
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
@@ -282,7 +285,9 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
 
     action_text = "อัปเดตข้อมูลเดิม" if result.get("action") == "updated" else "สร้างประวัติคำสั่งซื้อใหม่"
     st.cache_data.clear()
-    st.success(f"บันทึกสำเร็จ: {action_text}")
+    clear_manual_order_form_state()
+    st.session_state.manual_order_success_message = f"บันทึกสำเร็จ: {action_text}"
+    st.rerun()
 
 
 def staff_label(row: dict) -> str:
@@ -291,6 +296,21 @@ def staff_label(row: dict) -> str:
     if code and name.endswith(f"({code})"):
         return name
     return f"{name} ({code})" if code and code != name else name
+
+
+def clear_manual_order_form_state() -> None:
+    for key in (
+        "manual_order_id",
+        "manual_customer_name",
+        "manual_phone1",
+        "manual_phone2",
+        "manual_product_name",
+        "manual_url",
+        "manual_owner_select",
+        "manual_owner_text",
+        "manual_owner_disabled",
+    ):
+        st.session_state.pop(key, None)
 
 
 def build_staff_choices(rows: list[dict]) -> list[tuple[str, dict]]:
