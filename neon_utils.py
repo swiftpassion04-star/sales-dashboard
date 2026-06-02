@@ -1751,18 +1751,18 @@ def _followup_staff_scope(user: dict, alias: str = "d") -> tuple[str, list]:
 
     staff_code = clean(user.get("staff_code"))
     staff_name = clean(user.get("staff_name"))
+    owner_alias = clean(user.get("owner_alias"))
     clauses: list[str] = []
     params: list = []
 
     if staff_code:
         clauses.append(f"nullif(trim(coalesce({alias}.staff_code, '')), '') = %s")
         params.append(staff_code)
-    if staff_name:
-        clauses.append(
-            f"(nullif(trim(coalesce({alias}.staff_code, '')), '') is null "
-            f"and {_normalized_text_sql(f'{alias}.owner')} = {_normalized_text_sql('%s')})"
-        )
-        params.append(staff_name)
+    owner_matches = [value for value in [staff_name, owner_alias] if value]
+    if owner_matches:
+        placeholders = ", ".join([_normalized_text_sql("%s")] * len(owner_matches))
+        clauses.append(f"{_normalized_text_sql(f'{alias}.owner')} in ({placeholders})")
+        params.extend(owner_matches)
 
     if not clauses:
         return "1 = 0", []
@@ -2108,9 +2108,10 @@ def fetch_user_role_from_neon(email: str) -> dict | None:
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
         with conn.cursor() as cur:
+            owner_alias_expr = "owner_alias" if table_has_column(cur, "crm_user_roles", "owner_alias") else "null::text as owner_alias"
             cur.execute(
-                """
-                select email, role, staff_code, staff_name, is_active
+                f"""
+                select email, role, staff_code, staff_name, {owner_alias_expr}, is_active
                 from public.crm_user_roles
                 where email = %s
                   and is_active = true
@@ -2119,6 +2120,170 @@ def fetch_user_role_from_neon(email: str) -> dict | None:
                 [normalized_email],
             )
             return cur.fetchone()
+
+
+def table_has_column(cur, table_name: str, column_name: str) -> bool:
+    cur.execute(
+        """
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = %s
+          and column_name = %s
+        limit 1
+        """,
+        [table_name, column_name],
+    )
+    return cur.fetchone() is not None
+
+
+def fetch_user_role_record(email: str) -> dict | None:
+    normalized_email = clean(email).lower()
+    if not normalized_email:
+        return None
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            owner_alias_expr = "owner_alias" if table_has_column(cur, "crm_user_roles", "owner_alias") else "null::text as owner_alias"
+            cur.execute(
+                f"""
+                select email, role, staff_code, staff_name, {owner_alias_expr}, is_active, created_at, updated_at
+                from public.crm_user_roles
+                where email = %s
+                limit 1
+                """,
+                [normalized_email],
+            )
+            return cur.fetchone()
+
+
+def fetch_user_roles() -> list[dict]:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            owner_alias_expr = "owner_alias" if table_has_column(cur, "crm_user_roles", "owner_alias") else "null::text as owner_alias"
+            cur.execute(
+                f"""
+                select email, role, staff_code, staff_name, {owner_alias_expr}, is_active, created_at, updated_at
+                from public.crm_user_roles
+                order by is_active desc, email asc
+                """
+            )
+            return cur.fetchall()
+
+
+def fetch_crm_owner_options(limit: int = 1000) -> list[str]:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select distinct owner
+                from public.crm_data_imports
+                where import_status = 'valid'
+                  and owner is not null
+                  and owner <> ''
+                order by owner
+                limit %s
+                """,
+                [int(limit)],
+            )
+            return [row["owner"] for row in cur.fetchall() if clean(row.get("owner"))]
+
+
+def upsert_user_role(payload: dict) -> None:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                has_owner_alias = table_has_column(cur, "crm_user_roles", "owner_alias")
+                columns = ["email", "role", "staff_code", "staff_name", "is_active", "updated_at"]
+                if has_owner_alias:
+                    columns.insert(4, "owner_alias")
+                values = [payload.get(column) for column in columns]
+                update_fields = [column for column in columns if column != "email"]
+                cur.execute(
+                    f"""
+                    insert into public.crm_user_roles ({', '.join(columns)})
+                    values ({', '.join(['%s'] * len(columns))})
+                    on conflict (email) do update
+                    set {', '.join([f'{field} = excluded.{field}' for field in update_fields])}
+                    """,
+                    values,
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def set_user_role_active(email: str, is_active: bool, updated_at: str) -> None:
+    normalized_email = clean(email).lower()
+    if not normalized_email:
+        return
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update public.crm_user_roles
+                    set is_active = %s,
+                        updated_at = %s
+                    where email = %s
+                    """,
+                    [bool(is_active), updated_at, normalized_email],
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def test_user_role_visibility(email: str, limit: int = 10) -> dict:
+    user = fetch_user_role_record(email)
+    if not user:
+        return {"user": None, "total": 0, "samples": []}
+    ensure_crm_data_imports_schema()
+    where_clause = "where d.import_status = 'valid'"
+    params: list = []
+    scope_clause, scope_params = _followup_staff_scope(user, "d")
+    if scope_clause:
+        where_clause += f" and {scope_clause}"
+        params.extend(scope_params)
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select count(*) as total
+                from public.crm_data_imports d
+                {where_clause}
+                """,
+                params,
+            )
+            total = int(cur.fetchone()["total"] or 0)
+            cur.execute(
+                f"""
+                select
+                  d.customer_name,
+                  d.phone1,
+                  d.phone2,
+                  d.order_id,
+                  d.sku,
+                  d.product_name,
+                  d.owner,
+                  d.staff_code,
+                  d.source_type,
+                  d.updated_at
+                from public.crm_data_imports d
+                {where_clause}
+                order by d.order_date desc nulls last, d.uploaded_at desc, d.id desc
+                limit %s
+                """,
+                params + [int(limit)],
+            )
+            samples = cur.fetchall()
+    return {"user": user, "total": total, "samples": samples}
 
 
 def fetch_staff_options(active_only: bool = False) -> list[dict]:

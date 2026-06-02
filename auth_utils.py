@@ -522,7 +522,7 @@ def restore_browser_session() -> str:
 
 
 def can_manage_all(user: dict | None) -> bool:
-    return bool(user and user.get("role") == ROLE_EDITOR)
+    return bool(user and user.get("role") in {"ADMIN", ROLE_EDITOR})
 
 
 def can_view_system_page(user: dict | None) -> bool:
