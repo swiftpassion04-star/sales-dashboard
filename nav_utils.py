@@ -3,6 +3,9 @@ import streamlit as st
 from crm_theme import inject_saas_theme, render_page_header
 
 
+PRODUCTS_PAGE = "pages/products.py"
+
+
 NAV_GROUPS = [
     ("ภาพรวม", [("Dashboard", "pages/dashboard.py")]),
     (
@@ -16,7 +19,7 @@ NAV_GROUPS = [
     (
         "ข้อมูล",
         [
-            ("สินค้า", "pages/products.py"),
+            ("สินค้า", PRODUCTS_PAGE),
         ],
     ),
     (
