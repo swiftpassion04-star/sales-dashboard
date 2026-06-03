@@ -235,6 +235,9 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
 
         st.markdown("#### รายการสินค้า")
         product_labels = [PRODUCT_PLACEHOLDER, *[manual_product_label(row) for row in product_options]]
+        if st.session_state.pop("manual_product_reset_requested", False):
+            st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
+            st.session_state["manual_product_qty"] = 1
         if st.session_state.get("manual_product_select") not in product_labels:
             st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
         pc1, pc2, pc3 = st.columns([2.4, 0.7, 1.1])
@@ -274,8 +277,7 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
             st.error("กรุณาเลือกสินค้า")
             return
         add_manual_order_item(product, int(selected_product_qty or 1))
-        st.session_state.manual_product_select = PRODUCT_PLACEHOLDER
-        st.session_state.manual_product_qty = 1
+        st.session_state["manual_product_reset_requested"] = True
         st.rerun()
 
     if delete_item_index is not None:
@@ -388,7 +390,7 @@ def add_manual_order_item(product: dict, qty: int) -> None:
     product_name = neon.clean(product.get("product_name"))
     qty = max(1, int(qty or 1))
     for item in items:
-        if neon.clean(item.get("sku")) == sku:
+        if neon.clean(item.get("sku")) == sku and neon.clean(item.get("product_name")) == product_name:
             item["qty"] = int(item.get("qty") or 0) + qty
             st.session_state["manual_order_items"] = items
             return
