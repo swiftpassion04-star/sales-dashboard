@@ -32,7 +32,7 @@ def main() -> None:
     with c2:
         st.page_link("pages/followup.py", label="เปิดหน้าติดตามลูกค้า")
     with c3:
-        st.page_link("pages/import_excel.py", label="เปิดหน้า Import Excel")
+        st.page_link("pages/import_excel.py", label="เปิดหน้าเพิ่มคำสั่งซื้อ")
 
 
 main()

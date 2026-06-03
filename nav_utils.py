@@ -13,7 +13,7 @@ NAV_GROUPS = [
         [
             ("ลูกค้า", "pages/customers.py"),
             ("ติดตามลูกค้า", "pages/followup.py"),
-            ("Import Excel", "pages/import_excel.py"),
+            ("เพิ่มคำสั่งซื้อ", "pages/import_excel.py"),
         ],
     ),
     (
