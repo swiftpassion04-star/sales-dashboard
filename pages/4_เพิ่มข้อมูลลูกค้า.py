@@ -98,15 +98,15 @@ def inject_css() -> None:
         """
 <style>
 :root {
-  --crm-bg:#fff8f1;
+  --crm-bg:#FFF8F0;
   --crm-panel:#ffffff;
-  --crm-border:#fed7aa;
-  --crm-border-strong:#fb923c;
-  --crm-text:#111827;
-  --crm-muted:#64748b;
-  --crm-accent:#f97316;
-  --crm-accent-dark:#ea580c;
-  --crm-shadow:0 18px 44px rgba(124,45,18,.08);
+  --crm-border:#F3E4D2;
+  --crm-border-strong:#FDBA74;
+  --crm-text:#1F2937;
+  --crm-muted:#6B7280;
+  --crm-accent:#F97316;
+  --crm-accent-dark:#EA580C;
+  --crm-shadow:0 2px 8px rgba(31,41,55,.04);
 }
 .stApp { background:var(--crm-bg); color:var(--crm-text); }
 .block-container { max-width:1180px; padding-top:2.4rem; padding-bottom:3rem; }
@@ -120,9 +120,9 @@ h2, h3, p, label, span, div[data-testid="stMarkdownContainer"] { color:var(--crm
 [data-testid="stCaptionContainer"] { color:var(--crm-muted) !important; }
 [data-testid="stForm"],
 [data-testid="stExpander"] {
-  background:linear-gradient(180deg,#ffffff 0%,#fffaf5 100%) !important;
+  background:#ffffff !important;
   border:1px solid var(--crm-border) !important;
-  border-radius:12px !important;
+  border-radius:16px !important;
   box-shadow:var(--crm-shadow);
 }
 .stTextInput label, .stTextArea label, .stSelectbox label, .stNumberInput label, .stFileUploader label, .stCheckbox label {
@@ -137,7 +137,7 @@ input {
   color:var(--crm-text) !important;
   -webkit-text-fill-color:var(--crm-text) !important;
   border:1px solid var(--crm-border-strong) !important;
-  border-radius:10px !important;
+  border-radius:12px !important;
 }
 div[data-baseweb="input"] > div:focus-within,
 div[data-baseweb="select"] > div:focus-within,
@@ -153,14 +153,14 @@ div.stFormSubmitButton > button {
   background:var(--crm-accent) !important;
   color:#ffffff !important;
   border:1px solid var(--crm-accent-dark) !important;
-  border-radius:10px !important;
+  border-radius:12px !important;
   font-weight:800 !important;
 }
 [data-testid="stAlert"] {
   border-radius:10px !important;
-  color:#111827 !important;
+  color:#1F2937 !important;
 }
-[data-testid="stAlert"] * { color:#111827 !important; }
+[data-testid="stAlert"] * { color:#1F2937 !important; }
 [data-testid="stExpander"] details,
 [data-testid="stExpander"] details summary,
 [data-testid="stExpander"] details summary *,
@@ -183,7 +183,7 @@ div[data-baseweb="textarea"] {
 .crm-manual-card {
   background:#ffffff;
   border:1px solid var(--crm-border);
-  border-radius:14px;
+  border-radius:18px;
   padding:18px;
   box-shadow:var(--crm-shadow);
   margin-bottom:22px;

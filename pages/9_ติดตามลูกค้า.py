@@ -39,14 +39,14 @@ def inject_css() -> None:
     st.markdown(
         """
 <style>
-.stApp { background:#fff8f1; color:#111827; }
+.stApp { background:#FFF8F0; color:#1F2937; }
 .block-container { max-width:1280px; padding-top:2.2rem; }
-h1 { color:#111827 !important; border-left:6px solid #f97316; padding-left:14px; }
+h1 { color:#1F2937 !important; border-left:6px solid #F97316; padding-left:14px; }
 [data-testid="stForm"], [data-testid="stExpander"] {
   background:#ffffff !important;
-  border:1px solid #fed7aa !important;
-  border-radius:14px !important;
-  box-shadow:0 16px 36px rgba(124,45,18,.07);
+  border:1px solid #F3E4D2 !important;
+  border-radius:18px !important;
+  box-shadow:0 2px 8px rgba(31,41,55,.04);
 }
 [data-testid="stExpander"] details,
 [data-testid="stExpander"] details summary,
@@ -61,31 +61,31 @@ div[data-baseweb="textarea"],
 textarea,
 input {
   background:#ffffff !important;
-  color:#111827 !important;
-  -webkit-text-fill-color:#111827 !important;
+  color:#1F2937 !important;
+  -webkit-text-fill-color:#1F2937 !important;
 }
 [data-testid="stExpander"] details summary {
-  border:1px solid #fed7aa !important;
-  border-radius:12px !important;
+  border:1px solid #F3E4D2 !important;
+  border-radius:14px !important;
 }
 label { color:#7c2d12 !important; font-weight:750 !important; }
 div[data-baseweb="input"] > div,
 div[data-baseweb="select"] > div,
 textarea {
   background:#ffffff !important;
-  color:#111827 !important;
-  -webkit-text-fill-color:#111827 !important;
-  border:1px solid #fb923c !important;
-  border-radius:10px !important;
+  color:#1F2937 !important;
+  -webkit-text-fill-color:#1F2937 !important;
+  border:1px solid #FDBA74 !important;
+  border-radius:12px !important;
 }
 .stButton > button, button[kind="formSubmit"] {
-  min-height:40px !important;
-  border-radius:10px !important;
-  border:1px solid #f97316 !important;
+  min-height:42px !important;
+  border-radius:12px !important;
+  border:1px solid #F97316 !important;
   font-weight:800 !important;
 }
 button[kind="formSubmit"], .stButton > button[kind="primary"] {
-  background:#f97316 !important;
+  background:#F97316 !important;
   color:#ffffff !important;
 }
 .crm-chip {
@@ -103,17 +103,17 @@ button[kind="formSubmit"], .stButton > button[kind="primary"] {
 .crm-priority-high { background:#fef3c7; color:#92400e; }
 .crm-priority-urgent { background:#fee2e2; color:#b91c1c; }
 .crm-row-title { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-a.crm-url { color:#2563eb !important; font-weight:800; text-decoration:underline; }
+a.crm-url { color:#F97316 !important; font-weight:800; text-decoration:underline; }
 .crm-table-head {
   display:grid;
   grid-template-columns:1.05fr 1.5fr 1.05fr 1.35fr .85fr 1.05fr 1.1fr .95fr .85fr;
   gap:8px;
   padding:12px 14px;
   margin-top:18px;
-  background:#fff1df;
-  border:1px solid #fed7aa;
-  border-bottom:2px solid #fb923c;
-  border-radius:12px 12px 0 0;
+  background:#FFF2E2;
+  border:1px solid #F3E4D2;
+  border-bottom:2px solid #FDBA74;
+  border-radius:16px 16px 0 0;
   color:#7c2d12;
   font-weight:900;
 }
@@ -126,12 +126,12 @@ a.crm-url { color:#2563eb !important; font-weight:800; text-decoration:underline
   min-height:38px;
   display:flex;
   align-items:center;
-  color:#111827;
+  color:#1F2937;
   font-weight:650;
   word-break:break-word;
 }
 .crm-cell-muted { color:#6b7280; }
-.crm-link-cell a { color:#2563eb !important; font-weight:800; text-decoration:underline; }
+.crm-link-cell a { color:#F97316 !important; font-weight:800; text-decoration:underline; }
 </style>
 """,
         unsafe_allow_html=True,

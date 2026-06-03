@@ -22,18 +22,18 @@ def inject_css() -> None:
         """
 <style>
 :root {
-  --crm-bg:#fff8f1;
-  --crm-border:#fed7aa;
-  --crm-border-strong:#fb923c;
-  --crm-text:#111827;
-  --crm-accent:#f97316;
-  --crm-accent-dark:#ea580c;
-  --crm-shadow:0 18px 44px rgba(124,45,18,.08);
+  --crm-bg:#FFF8F0;
+  --crm-border:#F3E4D2;
+  --crm-border-strong:#FDBA74;
+  --crm-text:#1F2937;
+  --crm-accent:#F97316;
+  --crm-accent-dark:#EA580C;
+  --crm-shadow:0 2px 8px rgba(31,41,55,.04);
 }
 .stApp { background:var(--crm-bg); color:var(--crm-text); }
 .block-container { max-width:1180px; padding-top:2.4rem; padding-bottom:3rem; }
 section[data-testid="stSidebar"] {
-  background:linear-gradient(180deg,#ffffff 0%,#fff7ed 100%) !important;
+  background:#FFF3E8 !important;
   border-right:1px solid var(--crm-border) !important;
 }
 section[data-testid="stSidebar"] * { color:var(--crm-text) !important; }
@@ -44,9 +44,9 @@ h1 {
   letter-spacing:0;
 }
 [data-testid="stForm"] {
-  background:linear-gradient(180deg,#ffffff 0%,#fffaf5 100%) !important;
+  background:#ffffff !important;
   border:1px solid var(--crm-border) !important;
-  border-radius:14px !important;
+  border-radius:18px !important;
   padding:22px !important;
   box-shadow:var(--crm-shadow);
 }
@@ -58,7 +58,7 @@ input {
   color:var(--crm-text) !important;
   -webkit-text-fill-color:var(--crm-text) !important;
   border:1px solid var(--crm-border-strong) !important;
-  border-radius:10px !important;
+  border-radius:12px !important;
 }
 .stButton > button,
 button[kind="formSubmit"] {
@@ -70,19 +70,19 @@ button[kind="formSubmit"] {
   font-weight:800 !important;
 }
 button[kind="formSubmit"] {
-  background:linear-gradient(90deg,#f97316 0%,#ea580c 100%) !important;
+  background:var(--crm-accent) !important;
   color:#ffffff !important;
 }
 [data-testid="stDataFrame"] {
   background:#ffffff !important;
   border:1px solid var(--crm-border) !important;
-  border-radius:12px !important;
+  border-radius:16px !important;
   box-shadow:var(--crm-shadow);
 }
 [data-testid="stExpander"] {
   background:#ffffff !important;
   border:1px solid var(--crm-border) !important;
-  border-radius:14px !important;
+  border-radius:16px !important;
   box-shadow:var(--crm-shadow);
   overflow:hidden;
 }
@@ -108,7 +108,7 @@ button[kind="formSubmit"] {
 }
 [data-testid="stFileUploader"] section,
 [data-testid="stFileUploaderDropzone"] {
-  background:#fffaf5 !important;
+  background:#FFFDF9 !important;
   border:1px dashed #fdba74 !important;
   border-radius:12px !important;
   color:var(--crm-text) !important;
@@ -126,11 +126,11 @@ button[kind="formSubmit"] {
 }
 .stButton > button[kind="primary"],
 [data-testid="stFormSubmitButton"] button {
-  background:linear-gradient(90deg,#f97316 0%,#ea580c 100%) !important;
+  background:var(--crm-accent) !important;
   color:#ffffff !important;
   border:1px solid var(--crm-accent-dark) !important;
 }
-[data-testid="stAlert"] * { color:#111827 !important; }
+[data-testid="stAlert"] * { color:#1F2937 !important; }
 </style>
 """,
         unsafe_allow_html=True,
