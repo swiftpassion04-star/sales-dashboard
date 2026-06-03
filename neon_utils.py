@@ -168,7 +168,7 @@ create table if not exists public.crm_product_options (
   updated_by text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (product_group, product_name)
+  unique (sku, product_group, product_name)
 );
 
 create index if not exists idx_crm_product_options_active_sort
@@ -2116,19 +2116,45 @@ def upsert_product_options(records: list[dict]) -> None:
     with neon_connection() as conn:
         try:
             with conn.cursor() as cur:
-                cur.executemany(
-                    f"""
-                    insert into public.crm_product_options ({', '.join(columns)})
-                    values ({', '.join(['%s'] * len(columns))})
-                    on conflict (product_group, product_name) do update
-                    set sku = excluded.sku,
-                        sort_order = excluded.sort_order,
-                        is_active = excluded.is_active,
-                        updated_by = excluded.updated_by,
-                        updated_at = excluded.updated_at
-                    """,
-                    [tuple(record.get(column) for column in columns) for record in records],
-                )
+                for record in records:
+                    cur.execute(
+                        """
+                        select id
+                        from public.crm_product_options
+                        where coalesce(sku, '') = coalesce(%s, '')
+                          and product_group = %s
+                          and product_name = %s
+                        limit 1
+                        """,
+                        [record.get("sku"), record.get("product_group"), record.get("product_name")],
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        cur.execute(
+                            """
+                            update public.crm_product_options
+                            set sort_order = %s,
+                                is_active = %s,
+                                updated_by = %s,
+                                updated_at = %s
+                            where id = %s
+                            """,
+                            [
+                                record.get("sort_order"),
+                                record.get("is_active"),
+                                record.get("updated_by"),
+                                record.get("updated_at"),
+                                existing["id"],
+                            ],
+                        )
+                    else:
+                        cur.execute(
+                            f"""
+                            insert into public.crm_product_options ({', '.join(columns)})
+                            values ({', '.join(['%s'] * len(columns))})
+                            """,
+                            tuple(record.get(column) for column in columns),
+                        )
             conn.commit()
         except Exception:
             conn.rollback()

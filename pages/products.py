@@ -98,7 +98,7 @@ def render_product_import(auth_user: dict, existing_rows: list[dict]) -> None:
                 neon.insert_product_options(import_rows)
             except Exception as exc:
                 st.error(f"นำเข้าไม่สำเร็จ: {exc}")
-                st.warning("ถ้าเป็นกรณี SKU ใหม่แต่ชื่อสินค้า/กลุ่มสินค้าเดิม อาจติด unique constraint เดิมของตารางสินค้า")
+                st.warning("ถ้าเป็นกรณี SKU ใหม่แต่ชื่อสินค้า/กลุ่มสินค้าเดิม ให้รัน migration unique rule ใหม่ใน Neon ก่อน")
                 return
             st.cache_data.clear()
             st.success(f"นำเข้าสินค้าใหม่ {len(import_rows):,} รายการแล้ว")
@@ -120,11 +120,6 @@ def build_product_import_preview(uploaded, existing_rows: list[dict], auth_user:
         product_key(row.get("sku"), row.get("product_name"), row.get("product_group"))
         for row in existing_rows
     }
-    existing_group_name = {
-        (clean(row.get("product_group")).casefold(), clean(row.get("product_name")).casefold()): normalize_sku(row.get("sku"))
-        for row in existing_rows
-    }
-
     seen_in_file: set[tuple[str, str, str]] = set()
     preview_rows: list[dict] = []
     import_rows: list[dict] = []
@@ -136,8 +131,6 @@ def build_product_import_preview(uploaded, existing_rows: list[dict], auth_user:
         product_group = clean(row.get("product_group"))
         row_no = int(row.get("_excel_row_no") or index + 1)
         key = product_key(sku, product_name, product_group)
-        group_name_key = (product_group.casefold(), product_name.casefold())
-
         status = "ใหม่"
         reason = ""
         if not sku or not product_name or not product_group:
@@ -148,10 +141,6 @@ def build_product_import_preview(uploaded, existing_rows: list[dict], auth_user:
             status = "ซ้ำ"
             reason = "SKU + ชื่อสินค้า + กลุ่มสินค้าตรงกันทั้งหมด"
             summary["duplicate"] += 1
-        elif group_name_key in existing_group_name and existing_group_name[group_name_key] != sku:
-            status = "ข้อมูลไม่ครบ"
-            reason = "ชื่อสินค้า+กลุ่มสินค้านี้มีอยู่แล้ว แต่ SKU ต่างกัน; schema เดิมยังไม่รองรับ"
-            summary["invalid"] += 1
         else:
             summary["new"] += 1
             import_rows.append(
