@@ -7,27 +7,27 @@ PRODUCTS_PAGE = "pages/products.py"
 
 
 NAV_GROUPS = [
-    ("ภาพรวม", [("Dashboard", "pages/dashboard.py")]),
+    ("ภาพรวม", [("📊Dashboard", "pages/dashboard.py")]),
     (
         "ลูกค้า",
         [
             ("🔍ค้นหาลูกค้า", "pages/customers.py"),
-            ("📌ติดตามลูกค้า", "pages/followup.py"),
-            ("✅เพิ่มคำสั่งซื้อ", "pages/import_excel.py"),
+            ("🔔ติดตามลูกค้า", "pages/followup.py"),
+            ("🛒เพิ่มคำสั่งซื้อ", "pages/import_excel.py"),
         ],
     ),
     (
         "ข้อมูล",
         [
-            ("สินค้า", PRODUCTS_PAGE),
+            ("📦สินค้า", PRODUCTS_PAGE),
         ],
     ),
     (
         "ระบบ",
         [
-            ("Sync / System Status", "pages/system_status.py"),
-            ("User / Role", "pages/users.py"),
-            ("Settings", "pages/settings.py"),
+            ("🔄Sync / System Status", "pages/system_status.py"),
+            ("👥User / Role", "pages/users.py"),
+            ("⚙️Settings", "pages/settings.py"),
         ],
     ),
 ]
