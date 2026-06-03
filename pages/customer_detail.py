@@ -86,9 +86,9 @@ def fetch_customer_followup(customer: dict) -> dict:
     phone2 = normalize_phone(customer.get("phone2"))
     clauses = ["customer_key = %s"]
     params = [f"customer_id:{customer_id}"]
-    if customer_id:
+    if customer_id and customer_id.isdigit():
         clauses.append("crm_data_import_id = %s")
-        params.append(customer_id)
+        params.append(int(customer_id))
     if phone1:
         clauses.append("(phone1 = %s or phone2 = %s)")
         params.extend([phone1, phone1])
@@ -109,7 +109,6 @@ def fetch_customer_followup(customer: dict) -> dict:
                   phone2,
                   product_name,
                   sku,
-                  url,
                   staff_code,
                   owner,
                   coalesce(lead_status, 'new') as lead_status,
