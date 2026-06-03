@@ -1,3 +1,4 @@
+from datetime import datetime
 import html
 
 import streamlit as st
@@ -5,7 +6,15 @@ import streamlit as st
 from auth_utils import ROLE_EDITOR, current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
-from neon_utils import assign_owner_to_order_record, fetch_customer_page, fetch_filter_options, fetch_owner_user_options
+from neon_utils import (
+    assign_owner_to_order_record,
+    fetch_customer_page,
+    fetch_filter_options,
+    fetch_orders_by_phones,
+    fetch_owner_user_options,
+    normalize_phone,
+    upsert_lead_followup,
+)
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -62,59 +71,97 @@ def render_customer_table(rows: list[dict], user: dict) -> None:
             owner_options = unique_names(fetch_owner_user_options(active_only=True))
         except Exception:
             owner_options = []
-    st.markdown(
-        """
-<div class="crm-table">
-  <div class="crm-table-header" style="grid-template-columns:1.4fr 1fr 1.4fr 1fr 1fr .8fr;">
-    <div class="crm-table-cell">ชื่อลูกค้า</div>
-    <div class="crm-table-cell">เบอร์โทร</div>
-    <div class="crm-table-cell">สินค้า</div>
-    <div class="crm-table-cell">ผู้ดูแล</div>
-    <div class="crm-table-cell">อัปเดต</div>
-    <div class="crm-table-cell">URL</div>
-  </div>
-""",
-        unsafe_allow_html=True,
-    )
+    selected_id = clean(st.session_state.get("customers_selected_id"))
+    st.markdown('<div class="crm-table-header-soft">', unsafe_allow_html=True)
+    header_cols = st.columns([0.75, 1.35, 1, 1.35, 1, 1, 0.8])
+    for col, label in zip(header_cols, ["ประวัติ", "ชื่อลูกค้า", "เบอร์โทร", "สินค้า", "ผู้ดูแล", "อัปเดต", "URL"]):
+        col.markdown(f"**{label}**")
+    st.markdown("</div>", unsafe_allow_html=True)
     for row in rows:
+        record_id = clean(row.get("id"))
         url = clean(row.get("product_url"))
-        url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
-        st.markdown(
-            f"""
-<div class="crm-table-row" style="grid-template-columns:1.4fr 1fr 1.4fr 1fr 1fr .8fr;">
-  <div class="crm-table-cell">{html.escape(clean(row.get("customer")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("product_name")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("sales_staff")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("updated_at"))[:10] or "-")}</div>
-  <div class="crm-table-cell">{url_html}</div>
-</div>
-""",
-            unsafe_allow_html=True,
+        cols = st.columns([0.75, 1.35, 1, 1.35, 1, 1, 0.8])
+        cols[0].button(
+            "ดูประวัติ",
+            key=f"open_customer_history_{record_id}",
+            use_container_width=False,
+            on_click=select_customer_row,
+            args=(record_id,),
         )
-        if can_assign_owner:
-            render_owner_assignment(row, owner_options, user)
+        cols[1].write(clean(row.get("customer")) or "-")
+        cols[2].write(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")
+        cols[3].write(clean(row.get("product_name")) or "-")
+        cols[4].write(clean(row.get("sales_staff")) or "-")
+        cols[5].write(clean(row.get("updated_at"))[:10] or "-")
+        if url:
+            cols[6].markdown(f"[เปิดลิงก์]({url})")
+        else:
+            cols[6].write("-")
+        if selected_id == record_id:
+            render_customer_detail(row, owner_options, user, can_assign_owner)
+
+
+def select_customer_row(next_id: str) -> None:
+    current_id = clean(st.session_state.get("customers_selected_id"))
+    st.session_state.customers_selected_id = "" if current_id == next_id else next_id
+
+
+def render_customer_detail(row: dict, owner_options: list[str], user: dict, can_assign_owner: bool) -> None:
+    st.markdown('<div class="crm-detail-card">', unsafe_allow_html=True)
+    top_left, top_right = st.columns([1.4, 1])
+    with top_left:
+        st.markdown(f"### {html.escape(clean(row.get('customer')) or '-')}")
+        st.caption(f"เบอร์โทร: {clean(row.get('phone1')) or '-'} / เบอร์สำรอง: {clean(row.get('phone2')) or '-'}")
+    with top_right:
+        render_customer_actions(row, owner_options, user, can_assign_owner)
+
+    info_cols = st.columns(3)
+    info_cols[0].metric("สินค้า", clean(row.get("product_name")) or "-")
+    info_cols[1].metric("SKU", clean(row.get("sku")) or "-")
+    info_cols[2].metric("ผู้ดูแล", clean(row.get("sales_staff")) or "-")
+
+    history_rows = unique_order_history(row)
+    st.markdown("#### ประวัติสั่งซื้อเก่า")
+    if not history_rows:
+        st.info("ยังไม่มีเลขออเดอร์สำหรับแสดงประวัติสั่งซื้อเก่า")
+    else:
+        render_order_history(history_rows)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_owner_assignment(row: dict, owner_options: list[str], user: dict) -> None:
+def render_customer_actions(row: dict, owner_options: list[str], user: dict, can_assign_owner: bool) -> None:
     current_owner = clean(row.get("sales_staff"))
     options = list(owner_options)
     if current_owner and current_owner not in options:
         options.insert(0, current_owner)
-    if not options:
-        st.warning("ยังไม่มีรายชื่อผู้ดูแลให้เลือก")
-        return
 
     record_id = clean(row.get("id"))
     order_id = clean(row.get("order_id"))
-    form_key = f"assign_owner_{record_id}"
+    form_key = f"customer_actions_{record_id}"
     with st.form(form_key):
-        col1, col2 = st.columns([3, 1])
-        default_index = options.index(current_owner) if current_owner in options else 0
-        selected_owner = col1.selectbox("มอบหมายผู้ดูแล", options, index=default_index, key=f"{form_key}_owner")
-        submitted = col2.form_submit_button("บันทึก", use_container_width=True)
-    if submitted:
+        if can_assign_owner and options:
+            col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
+        else:
+            col1, col2 = st.columns([1, 1])
+            col3 = col4 = None
+        marker = col1.selectbox("ติดตาม", ["1", "2", "3", "RESET"], key=f"{form_key}_marker")
+        follow_submitted = col2.form_submit_button("บันทึกติดตาม", use_container_width=True)
+        owner_submitted = False
+        selected_owner = current_owner
+        if can_assign_owner and options and col3 is not None and col4 is not None:
+            default_index = options.index(current_owner) if current_owner in options else 0
+            selected_owner = col3.selectbox("มอบหมายผู้ดูแล", options, index=default_index, key=f"{form_key}_owner")
+            owner_submitted = col4.form_submit_button("บันทึกผู้ดูแล", use_container_width=True)
+
+    if follow_submitted:
+        try:
+            payload = build_follow_marker_payload(row, marker, clean(user.get("email")))
+            upsert_lead_followup(payload)
+            st.success("อัปเดตสถานะติดตามแล้ว")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"อัปเดตสถานะติดตามไม่สำเร็จ: {exc}")
+    if owner_submitted:
         try:
             updated = assign_owner_to_order_record(record_id, order_id, selected_owner, clean(user.get("email")))
             st.success(f"อัปเดตผู้ดูแลแล้ว {updated:,} แถว")
@@ -130,6 +177,99 @@ def unique_names(rows: list[dict]) -> list[str]:
         if name and name not in names:
             names.append(name)
     return names
+
+
+def build_follow_marker_payload(row: dict, marker: str, updated_by: str) -> dict:
+    phone1 = clean(row.get("phone1"))
+    phone2 = clean(row.get("phone2"))
+    phone_key = customer_phone_key(row)
+    followup_status = "none" if marker == "RESET" else marker
+    note = "" if marker == "RESET" else f"ติดตามรอบที่ {marker}"
+    return {
+        "customer_key": phone_key or clean(row.get("id")),
+        "crm_data_import_id": clean(row.get("id")) or None,
+        "order_id": clean(row.get("order_id")),
+        "customer_id": clean(row.get("customer_id")) or clean(row.get("id")),
+        "customer_name": clean(row.get("customer")),
+        "phone_key": phone_key,
+        "phone1": phone1,
+        "phone2": phone2,
+        "product_group": "",
+        "product_name": clean(row.get("product_name")),
+        "sku": clean(row.get("sku")),
+        "staff_code": clean(row.get("staff_code")),
+        "owner": clean(row.get("sales_staff")),
+        "lead_status": "new",
+        "followup_status": followup_status,
+        "next_followup_date": None,
+        "followup_note": note,
+        "follow_up_status": followup_status,
+        "follow_up_date": None,
+        "follow_up_note": note,
+        "priority": "normal",
+        "updated_by": updated_by,
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+def customer_phone_key(row: dict) -> str:
+    phones = [normalize_phone(row.get("phone1")), normalize_phone(row.get("phone2"))]
+    phones = [phone for phone in phones if phone]
+    if not phones:
+        return clean(row.get("id"))
+    return min(phones)
+
+
+def unique_order_history(row: dict) -> list[dict]:
+    phones = tuple(phone for phone in (clean(row.get("phone1")), clean(row.get("phone2"))) if phone)
+    if not phones:
+        return []
+    orders = fetch_orders_by_phones(phones, limit=500)
+    seen: set[str] = set()
+    history: list[dict] = []
+    for order in orders:
+        order_id = clean(order.get("order_id"))
+        if not order_id or order_id in seen:
+            continue
+        seen.add(order_id)
+        history.append(order)
+    return history
+
+
+def render_order_history(rows: list[dict]) -> None:
+    st.markdown(
+        """
+<div class="crm-table">
+  <div class="crm-table-header" style="grid-template-columns:1fr 1fr 1.4fr 1fr 1fr 1fr .8fr;">
+    <div class="crm-table-cell">เลขออเดอร์</div>
+    <div class="crm-table-cell">วันที่</div>
+    <div class="crm-table-cell">สินค้า</div>
+    <div class="crm-table-cell">ยอดขาย</div>
+    <div class="crm-table-cell">ขนส่ง</div>
+    <div class="crm-table-cell">เลขพัสดุ</div>
+    <div class="crm-table-cell">URL</div>
+  </div>
+""",
+        unsafe_allow_html=True,
+    )
+    for order in rows:
+        url = clean(order.get("channel_url"))
+        url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
+        st.markdown(
+            f"""
+<div class="crm-table-row" style="grid-template-columns:1fr 1fr 1.4fr 1fr 1fr 1fr .8fr;">
+  <div class="crm-table-cell">{html.escape(clean(order.get("order_id")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(clean(order.get("date_text")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(clean(order.get("product_name")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(clean(order.get("total_sales")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(clean(order.get("shipping")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(clean(order.get("tracking_no")) or "-")}</div>
+  <div class="crm-table-cell">{url_html}</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def clean(value) -> str:
