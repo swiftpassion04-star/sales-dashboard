@@ -74,7 +74,7 @@ def render_customer_table(rows: list[dict], user: dict) -> None:
     selected_id = clean(st.session_state.get("customers_selected_id"))
     st.markdown('<div class="crm-table-header-soft">', unsafe_allow_html=True)
     header_cols = st.columns([0.75, 1.35, 1, 1.35, 1, 1, 0.8])
-    for col, label in zip(header_cols, ["ประวัติ", "ชื่อลูกค้า", "เบอร์โทร", "สินค้า", "ผู้ดูแล", "อัปเดต", "URL"]):
+    for col, label in zip(header_cols, ["ประวัติ", "ชื่อลูกค้า", "เบอร์โทร", "สินค้า", "ผู้ดูแล", "ติดตาม", "URL"]):
         col.markdown(f"**{label}**")
     st.markdown("</div>", unsafe_allow_html=True)
     for row in rows:
@@ -92,7 +92,7 @@ def render_customer_table(rows: list[dict], user: dict) -> None:
         cols[2].write(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")
         cols[3].write(clean(row.get("product_name")) or "-")
         cols[4].write(clean(row.get("sales_staff")) or "-")
-        cols[5].write(clean(row.get("updated_at"))[:10] or "-")
+        cols[5].write(follow_marker_display(row.get("followup_status")))
         if url:
             cols[6].markdown(f"[เปิดลิงก์]({url})")
         else:
@@ -144,7 +144,10 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
         else:
             col1, col2 = st.columns([1, 1])
             col3 = col4 = None
-        marker = col1.selectbox("ติดตาม", ["1", "2", "3", "RESET"], key=f"{form_key}_marker")
+        marker_options = ["0", "1", "2", "3", "RESET"]
+        current_marker = follow_marker_display(row.get("followup_status"))
+        marker_index = marker_options.index(current_marker) if current_marker in marker_options else 0
+        marker = col1.selectbox("ติดตาม", marker_options, index=marker_index, key=f"{form_key}_marker")
         follow_submitted = col2.form_submit_button("บันทึกติดตาม", use_container_width=True)
         owner_submitted = False
         selected_owner = current_owner
@@ -183,8 +186,13 @@ def build_follow_marker_payload(row: dict, marker: str, updated_by: str) -> dict
     phone1 = clean(row.get("phone1"))
     phone2 = clean(row.get("phone2"))
     phone_key = customer_phone_key(row)
-    followup_status = "none" if marker == "RESET" else marker
-    note = "" if marker == "RESET" else f"ติดตามรอบที่ {marker}"
+    followup_status = clean(marker) or "0"
+    if followup_status == "0":
+        note = ""
+    elif followup_status == "RESET":
+        note = "RESET"
+    else:
+        note = f"ติดตามรอบที่ {followup_status}"
     return {
         "customer_key": phone_key or clean(row.get("id")),
         "crm_data_import_id": clean(row.get("id")) or None,
@@ -210,6 +218,13 @@ def build_follow_marker_payload(row: dict, marker: str, updated_by: str) -> dict
         "updated_by": updated_by,
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
+
+
+def follow_marker_display(value: object) -> str:
+    marker = clean(value)
+    if not marker or marker.lower() == "none":
+        return "0"
+    return marker
 
 
 def customer_phone_key(row: dict) -> str:

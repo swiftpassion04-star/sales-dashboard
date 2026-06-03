@@ -1310,8 +1310,25 @@ def fetch_customer_page(
                     ) as rn
                   {source_sql}
                 )
-                select {select_cols}
+                select
+                  {select_cols},
+                  coalesce(latest_followup.followup_status, '0') as followup_status
                 from ranked
+                left join lateral (
+                  select coalesce(l.followup_status, l.follow_up_status) as followup_status
+                  from public.crm_lead_followups l
+                  where l.crm_data_import_id = ranked.id
+                     or (
+                       nullif(l.phone1, '') is not null
+                       and (l.phone1 = ranked.phone1 or l.phone1 = ranked.phone2)
+                     )
+                     or (
+                       nullif(l.phone2, '') is not null
+                       and (l.phone2 = ranked.phone1 or l.phone2 = ranked.phone2)
+                     )
+                  order by l.updated_at desc nulls last, l.created_at desc nulls last
+                  limit 1
+                ) latest_followup on true
                 where rn = 1
                 order by order_date desc nulls last, uploaded_at desc, id desc
                 limit %s offset %s
