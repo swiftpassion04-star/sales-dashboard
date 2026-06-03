@@ -2135,6 +2135,36 @@ def upsert_product_options(records: list[dict]) -> None:
             raise
 
 
+def insert_product_options(records: list[dict]) -> None:
+    if not records:
+        return
+    ensure_crm_data_imports_schema()
+    columns = [
+        "sku",
+        "product_group",
+        "product_name",
+        "sort_order",
+        "is_active",
+        "created_by",
+        "updated_by",
+        "updated_at",
+    ]
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    f"""
+                    insert into public.crm_product_options ({', '.join(columns)})
+                    values ({', '.join(['%s'] * len(columns))})
+                    """,
+                    [tuple(record.get(column) for column in columns) for record in records],
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def update_product_option(option_id: str, payload: dict) -> None:
     ensure_crm_data_imports_schema()
     fields = ["sku", "product_group", "product_name", "sort_order", "is_active", "updated_by", "updated_at"]

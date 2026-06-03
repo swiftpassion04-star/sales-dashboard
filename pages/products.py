@@ -24,6 +24,7 @@ def main() -> None:
 
     if is_editor:
         render_create_product_form(auth_user)
+        render_product_import(auth_user, rows)
     else:
         st.info("บัญชีนี้ดูรายการสินค้าได้ แต่เพิ่ม/แก้ไข/ปิดใช้งานได้เฉพาะ EDITOR")
 
@@ -59,6 +60,128 @@ def render_create_product_form(auth_user: dict) -> None:
     st.cache_data.clear()
     st.success("เพิ่มสินค้าแล้ว")
     st.rerun()
+
+
+def render_product_import(auth_user: dict, existing_rows: list[dict]) -> None:
+    st.markdown('<div class="crm-section-title">นำเข้าสินค้าจาก Excel</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.caption("รองรับไฟล์ .xlsx โดยใช้คอลัมน์ A=SKU, B=ชื่อสินค้า, C=กลุ่มสินค้า")
+        uploaded = st.file_uploader(
+            "อัปโหลดไฟล์สินค้า .xlsx",
+            type=["xlsx"],
+            key="product_master_import_file",
+        )
+        if uploaded is None:
+            st.info("อัปโหลดไฟล์เพื่อดู Preview ก่อนนำเข้า")
+            return
+
+        try:
+            preview_rows, import_rows, summary = build_product_import_preview(uploaded, existing_rows, auth_user)
+        except Exception as exc:
+            st.error(f"อ่านไฟล์ไม่สำเร็จ: {exc}")
+            return
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("ใหม่", f"{summary['new']:,}")
+        c2.metric("ซ้ำ", f"{summary['duplicate']:,}")
+        c3.metric("ข้อมูลไม่ครบ", f"{summary['invalid']:,}")
+
+        st.dataframe(
+            pd.DataFrame(preview_rows),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+        disabled = summary["new"] <= 0
+        if st.button("ยืนยันนำเข้าสินค้า", type="primary", use_container_width=True, disabled=disabled):
+            try:
+                neon.insert_product_options(import_rows)
+            except Exception as exc:
+                st.error(f"นำเข้าไม่สำเร็จ: {exc}")
+                st.warning("ถ้าเป็นกรณี SKU ใหม่แต่ชื่อสินค้า/กลุ่มสินค้าเดิม อาจติด unique constraint เดิมของตารางสินค้า")
+                return
+            st.cache_data.clear()
+            st.success(f"นำเข้าสินค้าใหม่ {len(import_rows):,} รายการแล้ว")
+            st.rerun()
+
+
+def build_product_import_preview(uploaded, existing_rows: list[dict], auth_user: dict) -> tuple[list[dict], list[dict], dict]:
+    frame = pd.read_excel(uploaded, sheet_name=0, dtype=str, header=None)
+    if frame.shape[1] < 3:
+        raise ValueError("ไฟล์ต้องมีอย่างน้อย 3 คอลัมน์: SKU / ชื่อสินค้า / กลุ่มสินค้า")
+
+    data = frame.iloc[:, :3].copy()
+    data.columns = ["sku", "product_name", "product_group"]
+    data["_excel_row_no"] = data.index + 1
+    if not data.empty and is_product_header_row(data.iloc[0]):
+        data = data.iloc[1:].reset_index(drop=True)
+
+    existing_exact = {
+        product_key(row.get("sku"), row.get("product_name"), row.get("product_group"))
+        for row in existing_rows
+    }
+    existing_group_name = {
+        (clean(row.get("product_group")).casefold(), clean(row.get("product_name")).casefold()): normalize_sku(row.get("sku"))
+        for row in existing_rows
+    }
+
+    seen_in_file: set[tuple[str, str, str]] = set()
+    preview_rows: list[dict] = []
+    import_rows: list[dict] = []
+    summary = {"new": 0, "duplicate": 0, "invalid": 0}
+
+    for index, row in data.iterrows():
+        sku = normalize_sku(row.get("sku"))
+        product_name = clean(row.get("product_name"))
+        product_group = clean(row.get("product_group"))
+        row_no = int(row.get("_excel_row_no") or index + 1)
+        key = product_key(sku, product_name, product_group)
+        group_name_key = (product_group.casefold(), product_name.casefold())
+
+        status = "ใหม่"
+        reason = ""
+        if not sku or not product_name or not product_group:
+            status = "ข้อมูลไม่ครบ"
+            reason = "ต้องมี SKU, ชื่อสินค้า, กลุ่มสินค้า"
+            summary["invalid"] += 1
+        elif key in existing_exact or key in seen_in_file:
+            status = "ซ้ำ"
+            reason = "SKU + ชื่อสินค้า + กลุ่มสินค้าตรงกันทั้งหมด"
+            summary["duplicate"] += 1
+        elif group_name_key in existing_group_name and existing_group_name[group_name_key] != sku:
+            status = "ข้อมูลไม่ครบ"
+            reason = "ชื่อสินค้า+กลุ่มสินค้านี้มีอยู่แล้ว แต่ SKU ต่างกัน; schema เดิมยังไม่รองรับ"
+            summary["invalid"] += 1
+        else:
+            summary["new"] += 1
+            import_rows.append(
+                {
+                    "sku": sku,
+                    "product_group": product_group,
+                    "product_name": product_name,
+                    "sort_order": sku_sort_value(sku),
+                    "is_active": True,
+                    "created_by": clean(auth_user.get("email")),
+                    "updated_by": clean(auth_user.get("email")),
+                    "updated_at": now_iso(),
+                }
+            )
+
+        if sku and product_name and product_group:
+            seen_in_file.add(key)
+
+        preview_rows.append(
+            {
+                "แถว": row_no,
+                "SKU": sku or "-",
+                "ชื่อสินค้า": product_name or "-",
+                "กลุ่มสินค้า": product_group or "-",
+                "สถานะ": status,
+                "หมายเหตุ": reason or "-",
+            }
+        )
+
+    return preview_rows, import_rows, summary
 
 
 def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> None:
@@ -176,6 +299,19 @@ def normalize_sku(value) -> str:
 def sku_sort_value(value) -> int:
     text = normalize_sku(value)
     return int(text) if text.isdigit() else 999999
+
+
+def product_key(sku, product_name, product_group) -> tuple[str, str, str]:
+    return (
+        normalize_sku(sku).casefold(),
+        clean(product_name).casefold(),
+        clean(product_group).casefold(),
+    )
+
+
+def is_product_header_row(row) -> bool:
+    values = [clean(row.get(column)).casefold() for column in ["sku", "product_name", "product_group"]]
+    return values == ["sku", "ชื่อสินค้า", "กลุ่มสินค้า"]
 
 
 def now_iso() -> str:
