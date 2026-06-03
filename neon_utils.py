@@ -745,6 +745,39 @@ def upsert_manual_order(payload: dict) -> dict:
             raise
 
 
+def fetch_existing_owner_rows_by_phones(phone1, phone2, limit: int = 20) -> list[dict]:
+    phones = [phone for phone in (normalize_phone(phone1), normalize_phone(phone2)) if phone]
+    if not phones:
+        return []
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  id::text as id,
+                  order_id,
+                  customer_name,
+                  phone1,
+                  phone2,
+                  owner,
+                  staff_code,
+                  updated_at
+                from public.crm_data_imports
+                where import_status = 'valid'
+                  and (phone1 = any(%s) or phone2 = any(%s))
+                  and (
+                    nullif(trim(coalesce(owner, '')), '') is not null
+                    or nullif(trim(coalesce(staff_code, '')), '') is not null
+                  )
+                order by updated_at desc nulls last, uploaded_at desc nulls last, id desc
+                limit %s
+                """,
+                [phones, phones, int(limit)],
+            )
+            return cur.fetchall()
+
+
 def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     ensure_crm_data_imports_schema()
     order_id = clean(payload.get("order_id"))
@@ -755,6 +788,7 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     order_date = parse_date(payload.get("order_date")) or datetime.now(timezone.utc).date().isoformat()
     owner = clean(payload.get("owner"))
     staff_code = clean(payload.get("staff_code")) or owner_to_staff_code(owner)
+    force_owner_update = bool(payload.get("force_owner_update"))
     uploaded_by = clean(payload.get("uploaded_by"))
     updated_by = clean(payload.get("updated_by")) or uploaded_by
     now = now_iso()
@@ -793,6 +827,20 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     with neon_connection() as conn:
         try:
             with conn.cursor() as cur:
+                if force_owner_update and phones and owner:
+                    cur.execute(
+                        """
+                        update public.crm_data_imports
+                        set owner = %s,
+                            staff_code = %s,
+                            updated_by = %s,
+                            updated_at = %s
+                        where import_status = 'valid'
+                          and (phone1 = any(%s) or phone2 = any(%s))
+                        """,
+                        [owner, staff_code, updated_by, now, phones, phones],
+                    )
+
                 crm_order_id = None
                 if has_orders:
                     cur.execute(

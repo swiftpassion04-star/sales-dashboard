@@ -305,6 +305,13 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         st.error(" / ".join(errors))
         return
 
+    if not is_editor:
+        owner_conflict = find_manual_order_owner_conflict(phone1, phone2, user, owner, staff_code)
+        if owner_conflict:
+            conflict_owner = neon.clean(owner_conflict.get("owner")) or neon.clean(owner_conflict.get("staff_code")) or "-"
+            st.error(f"มีผู้ดูแลแล้ว: {conflict_owner}")
+            return
+
     try:
         result = neon.upsert_manual_order_items(
             {
@@ -316,6 +323,7 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
                 "order_date": order_date,
                 "owner": owner,
                 "staff_code": staff_code,
+                "force_owner_update": bool(is_editor),
                 "uploaded_by": neon.clean(user.get("email")),
                 "updated_by": neon.clean(user.get("email")),
             },
@@ -339,6 +347,37 @@ def staff_label(row: dict) -> str:
     if code and name.endswith(f"({code})"):
         return name
     return f"{name} ({code})" if code and code != name else name
+
+
+def find_manual_order_owner_conflict(phone1: str, phone2: str, user: dict, owner: str, staff_code: str) -> dict:
+    rows = neon.fetch_existing_owner_rows_by_phones(phone1, phone2)
+    if not rows:
+        return {}
+
+    allowed_codes = {
+        normalize_staff_code(neon.clean(value)).casefold()
+        for value in [staff_code, user.get("staff_code")]
+        if normalize_staff_code(neon.clean(value))
+    }
+    allowed_names = {
+        normalize_compare_text(value)
+        for value in [owner, user.get("staff_name"), user.get("owner_alias")]
+        if normalize_compare_text(value)
+    }
+
+    for row in rows:
+        existing_code = normalize_staff_code(neon.clean(row.get("staff_code"))).casefold()
+        existing_owner = normalize_compare_text(row.get("owner"))
+        if existing_code and existing_code in allowed_codes:
+            continue
+        if existing_owner and existing_owner in allowed_names:
+            continue
+        return dict(row)
+    return {}
+
+
+def normalize_compare_text(value) -> str:
+    return " ".join(neon.clean(value).split()).casefold()
 
 
 def clear_manual_order_form_state() -> None:
