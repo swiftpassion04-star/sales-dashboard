@@ -370,6 +370,24 @@ a.crm-link:hover {
   color:var(--crm-primary-hover) !important;
   text-decoration:underline;
 }
+a.crm-outline-link {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:34px;
+  padding:6px 12px;
+  border:1px solid var(--crm-primary);
+  border-radius:12px;
+  color:var(--crm-primary) !important;
+  background:#FFFFFF;
+  text-decoration:none !important;
+  font-weight:800;
+}
+a.crm-outline-link:hover {
+  background:var(--crm-soft);
+  color:var(--crm-primary-hover) !important;
+  border-color:var(--crm-primary-hover);
+}
 .crm-detail-card {
   background:var(--crm-surface);
   border:1px solid var(--crm-border);

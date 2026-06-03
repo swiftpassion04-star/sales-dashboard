@@ -117,7 +117,8 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
     st.markdown(
         """
 <div class="crm-table">
-  <div class="crm-table-header" style="grid-template-columns:1fr 1.35fr 1fr .8fr 1.2fr 1fr 1fr .9fr .8fr;">
+  <div class="crm-table-header" style="grid-template-columns:.85fr 1fr 1.35fr 1fr .8fr 1.2fr 1fr 1fr .9fr .8fr;">
+    <div class="crm-table-cell">ติดตาม</div>
     <div class="crm-table-cell">วันนัด</div>
     <div class="crm-table-cell">ชื่อลูกค้า</div>
     <div class="crm-table-cell">เบอร์โทร</div>
@@ -136,9 +137,11 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
         key = row_key(row)
         url = clean(row.get("url"))
         url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
+        detail_url = customer_detail_url(row)
         st.markdown(
             f"""
-<div class="crm-table-row" style="grid-template-columns:1fr 1.35fr 1fr .8fr 1.2fr 1fr 1fr .9fr .8fr;">
+<div class="crm-table-row" style="grid-template-columns:.85fr 1fr 1.35fr 1fr .8fr 1.2fr 1fr 1fr .9fr .8fr;">
+  <div class="crm-table-cell"><a class="crm-link crm-outline-link" href="{html.escape(detail_url, quote=True)}" target="_blank">ติดตาม</a></div>
   <div class="crm-table-cell">{html.escape(clean(row.get("next_followup_date")) or "ว่าง")}</div>
   <div class="crm-table-cell">{html.escape(clean(row.get("customer_name")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")}</div>
@@ -152,17 +155,6 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
 """,
             unsafe_allow_html=True,
         )
-        is_selected = selected_id == key
-        toggle_label = f"{'ปิด' if is_selected else 'เปิด'}รายละเอียด: {clean(row.get('customer_name')) or key}"
-        st.button(
-            toggle_label,
-            key=f"open_followup_detail_{key}",
-            use_container_width=True,
-            on_click=select_followup_row,
-            args=(key,),
-        )
-        if is_selected:
-            render_detail(row, user)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -273,6 +265,11 @@ def priority_label(value: str) -> str:
 
 def row_key(row: dict) -> str:
     return clean(row.get("crm_data_import_id")) or clean(row.get("customer_key")) or clean(row.get("order_id")) or clean(row.get("phone1")) or clean(row.get("phone2"))
+
+
+def customer_detail_url(row: dict) -> str:
+    customer_id = clean(row.get("customer_id")) or clean(row.get("crm_data_import_id")) or row_key(row)
+    return f"customer_detail?customer_id={html.escape(customer_id, quote=True)}"
 
 
 def parse_date(value):
