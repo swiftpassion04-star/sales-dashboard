@@ -35,11 +35,21 @@ def get_secret(*names: str) -> str:
 
 
 def supabase_url() -> str:
-    return get_secret("CRM_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
+    return get_secret(
+        "AUTH_SUPABASE_URL",
+        "SUPABASE_AUTH_URL",
+        "CRM_SUPABASE_URL",
+        "SUPABASE_URL",
+    ).rstrip("/")
 
 
 def supabase_anon_key() -> str:
-    return get_secret("CRM_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY")
+    return get_secret(
+        "AUTH_SUPABASE_ANON_KEY",
+        "SUPABASE_AUTH_ANON_KEY",
+        "CRM_SUPABASE_ANON_KEY",
+        "SUPABASE_ANON_KEY",
+    )
 
 
 def inject_auth_css() -> None:
