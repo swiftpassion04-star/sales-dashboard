@@ -231,7 +231,7 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         phone2 = phone_col2.text_input("เบอร์สำรอง", key="manual_phone2")
         url = st.text_input("URL", key="manual_url")
         address = st.text_area("ที่อยู่", key="manual_address", height=90)
-        sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL"], key="manual_sale_type")
+        sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW"], key="manual_sale_type")
         order_date = date.today().isoformat()
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
 
@@ -280,7 +280,8 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         if not product:
             st.error("กรุณาเลือกสินค้า")
             return
-        add_manual_order_item(product, int(selected_product_qty or 1), float(selected_product_amount or 0))
+        item_amount = 0.0 if sale_type == "FOLLOW" else float(selected_product_amount or 0)
+        add_manual_order_item(product, int(selected_product_qty or 1), item_amount)
         st.session_state["manual_product_reset_requested"] = True
         st.rerun()
 

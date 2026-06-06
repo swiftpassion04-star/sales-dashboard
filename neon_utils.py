@@ -817,12 +817,13 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
         except (TypeError, ValueError):
             qty = 0
         if sku and product_name and qty > 0:
+            amount = 0 if sale_type == "FOLLOW" else to_number(item.get("amount"))
             normalized_items.append(
                 {
                     "sku": sku,
                     "product_name": product_name,
                     "qty": qty,
-                    "amount": to_number(item.get("amount")),
+                    "amount": amount,
                 }
             )
     if not normalized_items:
@@ -1524,6 +1525,7 @@ def fetch_sales_report_owner_options(user: dict | None = None) -> list[str]:
                   and owner is not null
                   and owner <> ''
                   and amount is not null
+                  and coalesce(nullif(sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL')
                 order by owner
                 """
             )
@@ -1536,6 +1538,7 @@ def _sales_report_where(user: dict | None, owner_filter: str) -> tuple[list[str]
         "d.created_at >= %s",
         "d.created_at < %s",
         "d.amount is not null",
+        "coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL')",
     ]
     params: list = []
     if _can_view_all_sales(user):
