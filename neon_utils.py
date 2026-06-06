@@ -2,8 +2,9 @@ import hashlib
 import json
 import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +17,9 @@ except ImportError:  # pragma: no cover - shown in the UI when dependency is mis
     psycopg = None
     dict_row = None
     Jsonb = None
+
+
+BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 
 
 CRM_DATA_IMPORTS_DDL = """
@@ -785,6 +789,8 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     phone1 = normalize_phone(payload.get("phone1"))
     phone2 = normalize_phone(payload.get("phone2"))
     url = clean(payload.get("url"))
+    address = clean(payload.get("address"))
+    sale_type = clean(payload.get("sale_type")) or "NEW_ORDER"
     order_date = parse_date(payload.get("order_date")) or datetime.now(timezone.utc).date().isoformat()
     owner = clean(payload.get("owner"))
     staff_code = clean(payload.get("staff_code")) or owner_to_staff_code(owner)
@@ -811,13 +817,23 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
         except (TypeError, ValueError):
             qty = 0
         if sku and product_name and qty > 0:
-            normalized_items.append({"sku": sku, "product_name": product_name, "qty": qty})
+            normalized_items.append(
+                {
+                    "sku": sku,
+                    "product_name": product_name,
+                    "qty": qty,
+                    "amount": to_number(item.get("amount")),
+                }
+            )
     if not normalized_items:
         errors.append("items ว่าง")
     if errors:
         raise ValueError("; ".join(errors))
 
     has_quantity = neon_column_exists("crm_data_imports", "quantity")
+    has_amount = neon_column_exists("crm_data_imports", "amount")
+    has_sale_type = neon_column_exists("crm_data_imports", "sale_type")
+    has_address = neon_column_exists("crm_data_imports", "address")
     has_orders = neon_table_exists("crm_orders")
     has_order_items = neon_table_exists("crm_order_items")
     phones = [phone for phone in (phone1, phone2) if phone]
@@ -895,7 +911,10 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
                         "product_name": item["product_name"],
                         "sku": item["sku"],
                         "qty": item["qty"],
+                        "amount": item.get("amount"),
                         "url": url,
+                        "address": address,
+                        "sale_type": sale_type,
                         "order_date": order_date,
                         "owner": owner,
                         "staff_code": staff_code,
@@ -950,6 +969,15 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
                         if has_quantity:
                             set_parts.insert(-3, "quantity = %s")
                             values.insert(-3, item["qty"])
+                        if has_amount:
+                            set_parts.insert(-3, "amount = coalesce(%s, amount)")
+                            values.insert(-3, item.get("amount"))
+                        if has_sale_type:
+                            set_parts.insert(-3, "sale_type = coalesce(nullif(%s, ''), sale_type)")
+                            values.insert(-3, sale_type)
+                        if has_address:
+                            set_parts.insert(-3, "address = coalesce(nullif(%s, ''), address)")
+                            values.insert(-3, address)
                         cur.execute(
                             f"""
                             update public.crm_data_imports
@@ -1030,6 +1058,15 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
                         if has_quantity:
                             columns.append("quantity")
                             values_map["quantity"] = item["qty"]
+                        if has_amount:
+                            columns.append("amount")
+                            values_map["amount"] = item.get("amount")
+                        if has_sale_type:
+                            columns.append("sale_type")
+                            values_map["sale_type"] = sale_type
+                        if has_address:
+                            columns.append("address")
+                            values_map["address"] = address
                         cur.execute(
                             f"""
                             insert into public.crm_data_imports ({', '.join(columns)})
@@ -1392,7 +1429,7 @@ def fetch_dashboard_kpis(user: dict | None = None) -> dict:
     params: list = []
     role = clean((user or {}).get("role"))
     staff_code = clean((user or {}).get("staff_code"))
-    if role not in {"EDITOR"}:
+    if role not in {"ADMIN", "EDITOR"}:
         if staff_code:
             where.append("d.staff_code = %s")
             params.append(staff_code)
@@ -1460,6 +1497,139 @@ def fetch_dashboard_kpis(user: dict | None = None) -> dict:
                 "won": int(row.get("won") or 0),
                 "latest_update": clean(row.get("latest_update")),
             }
+
+
+def crm_sales_report_ready() -> bool:
+    return all(
+        neon_column_exists("crm_data_imports", column)
+        for column in ("sale_type", "amount", "address")
+    )
+
+
+def _can_view_all_sales(user: dict | None) -> bool:
+    return clean((user or {}).get("role")) in {"ADMIN", "EDITOR"}
+
+
+def fetch_sales_report_owner_options(user: dict | None = None) -> list[str]:
+    ensure_crm_data_imports_schema()
+    if not crm_sales_report_ready() or not _can_view_all_sales(user):
+        return []
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select distinct owner
+                from public.crm_data_imports
+                where import_status = 'valid'
+                  and owner is not null
+                  and owner <> ''
+                  and amount is not null
+                order by owner
+                """
+            )
+            return [row["owner"] for row in cur.fetchall() if clean(row.get("owner"))]
+
+
+def _sales_report_where(user: dict | None, owner_filter: str) -> tuple[list[str], list]:
+    clauses = [
+        "d.import_status = 'valid'",
+        "d.created_at >= %s",
+        "d.created_at < %s",
+        "d.amount is not null",
+    ]
+    params: list = []
+    if _can_view_all_sales(user):
+        owner = clean(owner_filter)
+        if owner and owner != "ทั้งหมด":
+            clauses.append("d.owner = %s")
+            params.append(owner)
+    else:
+        staff_code = clean((user or {}).get("staff_code"))
+        if staff_code:
+            clauses.append("d.staff_code = %s")
+            params.append(staff_code)
+        else:
+            clauses.append("1 = 0")
+    return clauses, params
+
+
+def fetch_sales_report(
+    user: dict | None,
+    start_date: date,
+    end_date: date,
+    owner_filter: str = "ทั้งหมด",
+) -> dict:
+    ensure_crm_data_imports_schema()
+    if not crm_sales_report_ready():
+        return {"ready": False, "summary": {}, "daily": []}
+
+    start_ts = datetime.combine(start_date, datetime.min.time(), tzinfo=BANGKOK_TZ).astimezone(timezone.utc)
+    end_ts = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=BANGKOK_TZ).astimezone(timezone.utc)
+    clauses, extra_params = _sales_report_where(user, owner_filter)
+    params = [start_ts, end_ts, *extra_params]
+    where_sql = "where " + " and ".join(clauses)
+
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                with base as (
+                  select
+                    coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') as sale_type,
+                    coalesce(d.amount, 0) as amount,
+                    coalesce(nullif(d.order_id, ''), d.id::text) as order_key
+                  from public.crm_data_imports d
+                  {where_sql}
+                )
+                select
+                  sale_type,
+                  coalesce(sum(amount), 0) as sales_amount,
+                  count(distinct order_key) as order_count
+                from base
+                group by sale_type
+                """,
+                params,
+            )
+            summary_rows = cur.fetchall()
+
+            cur.execute(
+                f"""
+                select
+                  (d.created_at at time zone 'Asia/Bangkok')::date as sales_date,
+                  coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') as sale_type,
+                  coalesce(sum(d.amount), 0) as sales_amount
+                from public.crm_data_imports d
+                {where_sql}
+                group by (d.created_at at time zone 'Asia/Bangkok')::date, coalesce(nullif(d.sale_type, ''), 'NEW_ORDER')
+                order by (d.created_at at time zone 'Asia/Bangkok')::date asc
+                """,
+                params,
+            )
+            daily_rows = cur.fetchall()
+
+    summary = {
+        "NEW_ORDER": {"sales_amount": 0.0, "order_count": 0, "aov": 0.0},
+        "UPSELL": {"sales_amount": 0.0, "order_count": 0, "aov": 0.0},
+    }
+    for row in summary_rows:
+        key = clean(row.get("sale_type")) or "NEW_ORDER"
+        if key not in summary:
+            summary[key] = {"sales_amount": 0.0, "order_count": 0, "aov": 0.0}
+        amount = float(row.get("sales_amount") or 0)
+        count = int(row.get("order_count") or 0)
+        summary[key] = {
+            "sales_amount": amount,
+            "order_count": count,
+            "aov": amount / count if count else 0.0,
+        }
+    total_amount = sum(value["sales_amount"] for value in summary.values())
+    total_count = sum(value["order_count"] for value in summary.values())
+    summary["TOTAL"] = {
+        "sales_amount": total_amount,
+        "order_count": total_count,
+        "aov": total_amount / total_count if total_count else 0.0,
+    }
+    return {"ready": True, "summary": summary, "daily": daily_rows}
 
 
 def build_customer_where(

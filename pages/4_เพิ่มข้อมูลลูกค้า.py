@@ -230,6 +230,8 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         phone1 = phone_col1.text_input("เบอร์โทร", key="manual_phone1")
         phone2 = phone_col2.text_input("เบอร์สำรอง", key="manual_phone2")
         url = st.text_input("URL", key="manual_url")
+        address = st.text_area("ที่อยู่", key="manual_address", height=90)
+        sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL"], key="manual_sale_type")
         order_date = date.today().isoformat()
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
 
@@ -238,12 +240,14 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         if st.session_state.pop("manual_product_reset_requested", False):
             st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
             st.session_state["manual_product_qty"] = 1
+            st.session_state["manual_product_amount"] = 0.0
         if st.session_state.get("manual_product_select") not in product_labels:
             st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
-        pc1, pc2, pc3 = st.columns([2.4, 0.7, 1.1])
+        pc1, pc2, pc3, pc4 = st.columns([2.2, 0.6, 0.8, 1.1])
         selected_product_label = pc1.selectbox("สินค้า", product_labels, index=0, key="manual_product_select")
         selected_product_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key="manual_product_qty")
-        add_product_submitted = pc3.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
+        selected_product_amount = pc3.number_input("ราคา", min_value=0.0, value=0.0, step=1.0, key="manual_product_amount")
+        add_product_submitted = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
         delete_item_index = render_manual_order_items()
 
         owner = neon.clean(user.get("staff_name"))
@@ -276,7 +280,7 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         if not product:
             st.error("กรุณาเลือกสินค้า")
             return
-        add_manual_order_item(product, int(selected_product_qty or 1))
+        add_manual_order_item(product, int(selected_product_qty or 1), float(selected_product_amount or 0))
         st.session_state["manual_product_reset_requested"] = True
         st.rerun()
 
@@ -320,6 +324,8 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
                 "phone1": phone1,
                 "phone2": phone2,
                 "url": url,
+                "address": address,
+                "sale_type": sale_type,
                 "order_date": order_date,
                 "owner": owner,
                 "staff_code": staff_code,
@@ -388,12 +394,15 @@ def clear_manual_order_form_state() -> None:
         "manual_phone2",
         "manual_product_name",
         "manual_url",
+        "manual_address",
         "manual_owner_text",
     ):
         st.session_state[key] = ""
     st.session_state["manual_owner_select"] = "เลือกผู้ดูแล"
     st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
     st.session_state["manual_product_qty"] = 1
+    st.session_state["manual_product_amount"] = 0.0
+    st.session_state["manual_sale_type"] = "NEW_ORDER"
     st.session_state["manual_order_items"] = []
     st.session_state.pop("manual_owner_disabled", None)
 
@@ -423,17 +432,19 @@ def manual_product_from_label(options: list[dict], label: str) -> dict:
     return {}
 
 
-def add_manual_order_item(product: dict, qty: int) -> None:
+def add_manual_order_item(product: dict, qty: int, amount: float) -> None:
     items = list(st.session_state.get("manual_order_items", []))
     sku = neon.clean(product.get("sku"))
     product_name = neon.clean(product.get("product_name"))
     qty = max(1, int(qty or 1))
+    amount = max(0.0, float(amount or 0))
     for item in items:
         if neon.clean(item.get("sku")) == sku and neon.clean(item.get("product_name")) == product_name:
             item["qty"] = int(item.get("qty") or 0) + qty
+            item["amount"] = float(item.get("amount") or 0) + amount
             st.session_state["manual_order_items"] = items
             return
-    items.append({"sku": sku, "product_name": product_name, "qty": qty})
+    items.append({"sku": sku, "product_name": product_name, "qty": qty, "amount": amount})
     st.session_state["manual_order_items"] = items
 
 
@@ -450,18 +461,20 @@ def render_manual_order_items() -> int | None:
         st.info("ยังไม่มีรายการสินค้าในคำสั่งซื้อนี้")
         return None
     st.markdown("##### สินค้าที่เลือก")
-    header = st.columns([0.8, 2.5, 0.6, 0.6])
+    header = st.columns([0.8, 2.3, 0.6, 0.8, 0.6])
     header[0].markdown("**SKU**")
     header[1].markdown("**สินค้า**")
     header[2].markdown("**จำนวน**")
-    header[3].markdown("**ลบ**")
+    header[3].markdown("**ราคา**")
+    header[4].markdown("**ลบ**")
     delete_index = None
     for index, item in enumerate(items):
-        cols = st.columns([0.8, 2.5, 0.6, 0.6])
+        cols = st.columns([0.8, 2.3, 0.6, 0.8, 0.6])
         cols[0].write(neon.clean(item.get("sku")) or "-")
         cols[1].write(neon.clean(item.get("product_name")) or "-")
         cols[2].write(int(item.get("qty") or 0))
-        if cols[3].form_submit_button("ลบ", key=f"manual_item_delete_{index}", use_container_width=True):
+        cols[3].write(f"{float(item.get('amount') or 0):,.2f}")
+        if cols[4].form_submit_button("ลบ", key=f"manual_item_delete_{index}", use_container_width=True):
             delete_index = index
     return delete_index
 
