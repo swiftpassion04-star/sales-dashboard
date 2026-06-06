@@ -8,6 +8,7 @@ from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
     assign_owner_to_order_record,
+    assign_url_to_phones,
     fetch_customer_page,
     fetch_filter_options,
     fetch_orders_by_phones,
@@ -131,6 +132,7 @@ def render_customer_detail(row: dict, owner_options: list[str], user: dict, can_
 
 def render_customer_actions(row: dict, owner_options: list[str], user: dict, can_assign_owner: bool) -> None:
     current_owner = clean(row.get("sales_staff"))
+    current_url = clean(row.get("product_url"))
     options = list(owner_options)
     if current_owner and current_owner not in options:
         options.insert(0, current_owner)
@@ -155,6 +157,12 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
             default_index = options.index(current_owner) if current_owner in options else 0
             selected_owner = col3.selectbox("มอบหมายผู้ดูแล", options, index=default_index, key=f"{form_key}_owner")
             owner_submitted = col4.form_submit_button("บันทึกผู้ดูแล", use_container_width=True)
+        url_submitted = False
+        new_url = current_url
+        if can_assign_owner:
+            url_cols = st.columns([3, 1])
+            new_url = url_cols[0].text_input("อัพเดต URL", value=current_url, key=f"{form_key}_url")
+            url_submitted = url_cols[1].form_submit_button("บันทึก URL", use_container_width=True)
 
     if follow_submitted:
         try:
@@ -171,6 +179,17 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
             st.rerun()
         except Exception as exc:
             st.error(f"อัปเดตผู้ดูแลไม่สำเร็จ: {exc}")
+    if url_submitted:
+        try:
+            if not clean(new_url):
+                st.error("กรุณากรอก URL ก่อนบันทึก")
+                return
+            phones = tuple(phone for phone in (clean(row.get("phone1")), clean(row.get("phone2"))) if phone)
+            updated = assign_url_to_phones(phones, new_url, clean(user.get("email")))
+            st.success(f"อัปเดต URL แล้ว {updated:,} แถว")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"อัปเดต URL ไม่สำเร็จ: {exc}")
 
 
 def unique_names(rows: list[dict]) -> list[str]:

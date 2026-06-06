@@ -1746,6 +1746,34 @@ def assign_owner_to_phones(phones: tuple[str, ...], owner: str, updated_by: str)
     return updated
 
 
+def assign_url_to_phones(phones: tuple[str, ...], url: str, updated_by: str) -> int:
+    clean_phones = sorted({normalize_phone(phone) for phone in phones if normalize_phone(phone)})
+    url = clean(url)
+    if not clean_phones or not url:
+        return 0
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update public.crm_data_imports
+                    set url = %s,
+                        updated_by = %s,
+                        updated_at = now()
+                    where import_status = 'valid'
+                      and (phone1 = any(%s) or phone2 = any(%s))
+                    """,
+                    [url, clean(updated_by), clean_phones, clean_phones],
+                )
+                updated = int(cur.rowcount or 0)
+            conn.commit()
+            return updated
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def assign_owner_to_order_record(record_id: str, order_id: str, owner: str, updated_by: str) -> int:
     record_id = clean(record_id)
     order_id = clean(order_id)
