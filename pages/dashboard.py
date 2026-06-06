@@ -45,14 +45,18 @@ def render_sales_report(user: dict) -> None:
     range_col, owner_col = st.columns([1, 1])
     range_label = range_col.selectbox(
         "ช่วงเวลา",
-        ["วันนี้", "เมื่อวาน", "7 วัน", "30 วัน", "เดือนนี้", "กำหนดเอง"],
+        ["วันนี้", "เลือกวันเดียว", "เลือกช่วงวันที่", "เมื่อวาน", "7 วัน", "30 วัน", "เดือนนี้"],
         key="dashboard_sales_range",
     )
     start_date, end_date = resolve_sales_range(range_label)
-    if range_label == "กำหนดเอง":
+    if range_label == "เลือกวันเดียว":
+        selected_date = st.date_input("เลือกวันที่", value=date.today(), key="dashboard_sales_single_date")
+        start_date = selected_date
+        end_date = selected_date
+    elif range_label == "เลือกช่วงวันที่":
         custom_cols = st.columns(2)
-        start_date = custom_cols[0].date_input("ตั้งแต่วันที่", value=start_date, key="dashboard_sales_start")
-        end_date = custom_cols[1].date_input("ถึงวันที่", value=end_date, key="dashboard_sales_end")
+        start_date = custom_cols[0].date_input("ตั้งแต่วันที่", value=date.today(), key="dashboard_sales_start")
+        end_date = custom_cols[1].date_input("ถึงวันที่", value=date.today(), key="dashboard_sales_end")
         if start_date > end_date:
             st.warning("วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด")
             return
@@ -121,8 +125,6 @@ def resolve_sales_range(label: str) -> tuple[date, date]:
         return today - timedelta(days=29), today
     if label == "เดือนนี้":
         return today.replace(day=1), today
-    if label == "กำหนดเอง":
-        return today - timedelta(days=6), today
     return today, today
 
 
