@@ -6,10 +6,17 @@ import streamlit as st
 from auth_utils import ROLE_EDITOR, ROLE_STAFF_ALIASES, ROLE_TELESELL_ALIASES, current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
-from neon_utils import fetch_followup_filter_options, fetch_followup_page, upsert_lead_followup
+from neon_utils import (
+    fetch_followup_filter_options,
+    fetch_followup_page,
+    fetch_product_options,
+    upsert_lead_followup,
+    upsert_manual_order_items,
+)
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+PRODUCT_PLACEHOLDER = "เลือกสินค้า"
 ALL = "ทั้งหมด"
 LEAD_STATUS_OPTIONS = {
     "new": "ลูกค้าใหม่",
@@ -288,6 +295,271 @@ def clean(value) -> str:
 
 def normalize_phone(value) -> str:
     return "".join(ch for ch in clean(value) if ch.isdigit())
+
+
+def render_followup_table(rows: list[dict], user: dict) -> None:
+    header = st.columns([0.8, 1.05, 1.0, 1.25, 1.0, 0.75, 1.2, 1.0, 1.0, 0.9, 0.8])
+    labels = ["ติดตาม", "เพิ่มคำสั่งซื้อ", "วันนัด", "ชื่อลูกค้า", "เบอร์โทร", "SKU", "สินค้า", "สถานะลูกค้า", "สถานะติดตาม", "ความสำคัญ", "URL"]
+    for col, label in zip(header, labels):
+        col.markdown(f"**{label}**")
+
+    for row in rows:
+        key = row_key(row)
+        url = clean(row.get("url"))
+        cols = st.columns([0.8, 1.05, 1.0, 1.25, 1.0, 0.75, 1.2, 1.0, 1.0, 0.9, 0.8])
+        if cols[0].button("ติดตาม", key=f"followup_popup_{key}", use_container_width=True):
+            st.session_state.followup_modal_type = "followup"
+            st.session_state.followup_modal_row = dict(row)
+            st.rerun()
+        if cols[1].button("เพิ่มคำสั่งซื้อ", key=f"order_popup_{key}", use_container_width=True):
+            st.session_state.followup_modal_type = "order"
+            st.session_state.followup_modal_row = dict(row)
+            st.rerun()
+        cols[2].write(clean(row.get("next_followup_date")) or "ว่าง")
+        cols[3].write(clean(row.get("customer_name")) or "-")
+        cols[4].write(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")
+        cols[5].write(clean(row.get("sku")) or "-")
+        cols[6].write(clean(row.get("product_name")) or "-")
+        cols[7].markdown(badge(lead_label(clean(row.get("lead_status")) or "new"), "blue"), unsafe_allow_html=True)
+        cols[8].markdown(badge(followup_label(clean(row.get("followup_status")) or "none"), "gray"), unsafe_allow_html=True)
+        cols[9].markdown(priority_badge(clean(row.get("priority")) or "normal"), unsafe_allow_html=True)
+        if url:
+            cols[10].markdown(f"[เปิดลิงก์]({url})")
+        else:
+            cols[10].write("-")
+
+    modal_row = st.session_state.get("followup_modal_row")
+    modal_type = clean(st.session_state.get("followup_modal_type"))
+    if modal_row and modal_type == "followup":
+        render_followup_dialog(dict(modal_row), user)
+    elif modal_row and modal_type == "order":
+        render_order_dialog(dict(modal_row), user)
+
+
+@st.dialog("ติดตามลูกค้า", width="large")
+def render_followup_dialog(row: dict, user: dict) -> None:
+    render_popup_customer_summary(row)
+    render_detail(row, user)
+
+
+@st.dialog("เพิ่มคำสั่งซื้อ", width="large")
+def render_order_dialog(row: dict, user: dict) -> None:
+    key = row_key(row)
+    prefix = f"followup_order_{key}"
+    owner = clean(row.get("owner"))
+    staff_code = clean(row.get("staff_code"))
+    if not owner:
+        st.error("รายการนี้ยังไม่มีผู้ดูแล จึงยังเพิ่มคำสั่งซื้อจาก popup นี้ไม่ได้")
+        return
+    prepare_popup_order_state(prefix, row)
+    success_key = f"{prefix}_success"
+    if st.session_state.pop(success_key, ""):
+        st.success("บันทึกคำสั่งซื้อสำเร็จ")
+
+    try:
+        product_options = fetch_popup_product_options()
+    except Exception as exc:
+        product_options = []
+        st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
+
+    with st.form(f"{prefix}_form", clear_on_submit=False):
+        c1, c2 = st.columns(2)
+        order_id = c1.text_input("หมายเลขคำสั่งซื้อ", key=f"{prefix}_order_id")
+        customer_name = c2.text_input("ชื่อลูกค้า", key=f"{prefix}_customer_name")
+        p1, p2 = st.columns(2)
+        phone1 = p1.text_input("เบอร์โทร", key=f"{prefix}_phone1")
+        phone2 = p2.text_input("เบอร์สำรอง", key=f"{prefix}_phone2")
+        url = st.text_input("URL", key=f"{prefix}_url")
+        address = st.text_area("ที่อยู่", key=f"{prefix}_address", height=90)
+        sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW"], key=f"{prefix}_sale_type")
+        st.text_input("ผู้ดูแล", value=owner, disabled=True, key=f"{prefix}_owner_locked")
+        st.caption(f"วันที่สร้างคำสั่งซื้อ: {date.today().isoformat()}")
+
+        st.markdown("#### รายการสินค้า")
+        product_labels = [PRODUCT_PLACEHOLDER, *[popup_product_label(item) for item in product_options]]
+        if st.session_state.pop(f"{prefix}_product_reset", False):
+            st.session_state[f"{prefix}_product_select"] = PRODUCT_PLACEHOLDER
+            st.session_state[f"{prefix}_product_qty"] = 1
+            st.session_state[f"{prefix}_product_amount"] = 0.0
+        if st.session_state.get(f"{prefix}_product_select") not in product_labels:
+            st.session_state[f"{prefix}_product_select"] = PRODUCT_PLACEHOLDER
+        pc1, pc2, pc3, pc4 = st.columns([2.2, 0.7, 0.8, 1.1])
+        selected_label = pc1.selectbox("สินค้า", product_labels, key=f"{prefix}_product_select")
+        selected_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key=f"{prefix}_product_qty")
+        selected_amount = pc3.number_input("ราคา", min_value=0.0, value=0.0, step=1.0, key=f"{prefix}_product_amount")
+        add_item = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
+        delete_index = render_popup_order_items(prefix)
+        submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
+
+    if add_item:
+        product = popup_product_from_label(product_options, selected_label)
+        if not product:
+            st.error("กรุณาเลือกสินค้า")
+            return
+        amount = 0.0 if sale_type == "FOLLOW" else float(selected_amount or 0)
+        add_popup_order_item(prefix, product, int(selected_qty or 1), amount)
+        st.session_state[f"{prefix}_product_reset"] = True
+        st.rerun()
+    if delete_index is not None:
+        remove_popup_order_item(prefix, delete_index)
+        st.rerun()
+    if not submitted:
+        return
+
+    items = st.session_state.get(f"{prefix}_items", [])
+    errors = []
+    if not clean(order_id):
+        errors.append("กรุณากรอกหมายเลขคำสั่งซื้อ")
+    if not clean(customer_name):
+        errors.append("กรุณากรอกชื่อลูกค้า")
+    if not normalize_phone(phone1) and not normalize_phone(phone2):
+        errors.append("กรุณากรอกเบอร์โทรหรือเบอร์สำรอง")
+    if not items:
+        errors.append("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ")
+    if errors:
+        st.error(" / ".join(errors))
+        return
+
+    try:
+        result = upsert_manual_order_items(
+            {
+                "order_id": order_id,
+                "customer_name": customer_name,
+                "phone1": phone1,
+                "phone2": phone2,
+                "url": url,
+                "address": address,
+                "sale_type": sale_type,
+                "order_date": date.today().isoformat(),
+                "owner": owner,
+                "staff_code": staff_code,
+                "force_owner_update": False,
+                "uploaded_by": clean(user.get("email")),
+                "updated_by": clean(user.get("email")),
+            },
+            items,
+        )
+    except Exception as exc:
+        st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
+        return
+
+    st.cache_data.clear()
+    clear_popup_order_state(prefix, row)
+    actions = result.get("actions") or {}
+    st.session_state[success_key] = f"สินค้า {result.get('item_count', 0)} รายการ (เพิ่มใหม่ {actions.get('inserted', 0)}, อัปเดต {actions.get('updated', 0)})"
+    st.rerun()
+
+
+def render_popup_customer_summary(row: dict) -> None:
+    phone = clean(row.get("phone1")) or clean(row.get("phone2")) or "-"
+    url = clean(row.get("url"))
+    url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
+    st.markdown(
+        f"""
+<div class="crm-card">
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;">
+    <div><div class="crm-muted">ชื่อลูกค้า</div><b>{html.escape(clean(row.get("customer_name")) or "-")}</b></div>
+    <div><div class="crm-muted">เบอร์โทร</div><b>{html.escape(phone)}</b></div>
+    <div><div class="crm-muted">URL</div><b>{url_html}</b></div>
+    <div><div class="crm-muted">สินค้า</div><b>{html.escape(clean(row.get("product_name")) or "-")}</b></div>
+    <div><div class="crm-muted">SKU</div><b>{html.escape(clean(row.get("sku")) or "-")}</b></div>
+    <div><div class="crm-muted">ผู้ดูแล</div><b>{html.escape(clean(row.get("owner")) or "-")}</b></div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def prepare_popup_order_state(prefix: str, row: dict) -> None:
+    if st.session_state.get(f"{prefix}_ready"):
+        return
+    st.session_state[f"{prefix}_order_id"] = ""
+    st.session_state[f"{prefix}_customer_name"] = clean(row.get("customer_name"))
+    st.session_state[f"{prefix}_phone1"] = clean(row.get("phone1"))
+    st.session_state[f"{prefix}_phone2"] = clean(row.get("phone2"))
+    st.session_state[f"{prefix}_url"] = clean(row.get("url"))
+    st.session_state[f"{prefix}_address"] = clean(row.get("address"))
+    st.session_state[f"{prefix}_sale_type"] = "NEW_ORDER"
+    st.session_state[f"{prefix}_product_select"] = PRODUCT_PLACEHOLDER
+    st.session_state[f"{prefix}_product_qty"] = 1
+    st.session_state[f"{prefix}_product_amount"] = 0.0
+    st.session_state[f"{prefix}_items"] = []
+    st.session_state[f"{prefix}_ready"] = True
+
+
+def clear_popup_order_state(prefix: str, row: dict) -> None:
+    for key in list(st.session_state.keys()):
+        if key.startswith(prefix):
+            del st.session_state[key]
+    prepare_popup_order_state(prefix, row)
+
+
+def fetch_popup_product_options() -> list[dict]:
+    return [
+        {
+            "sku": clean(row.get("sku")),
+            "product_name": clean(row.get("product_name")),
+        }
+        for row in fetch_product_options()
+        if clean(row.get("sku")) and clean(row.get("product_name")) and bool(row.get("is_active"))
+    ]
+
+
+def popup_product_label(row: dict) -> str:
+    return f"{clean(row.get('sku'))} - {clean(row.get('product_name'))}"
+
+
+def popup_product_from_label(options: list[dict], label: str) -> dict:
+    if label == PRODUCT_PLACEHOLDER:
+        return {}
+    for row in options:
+        if popup_product_label(row) == label:
+            return row
+    return {}
+
+
+def add_popup_order_item(prefix: str, product: dict, qty: int, amount: float) -> None:
+    items = list(st.session_state.get(f"{prefix}_items", []))
+    sku = clean(product.get("sku"))
+    product_name = clean(product.get("product_name"))
+    qty = max(1, int(qty or 1))
+    amount = max(0.0, float(amount or 0))
+    for item in items:
+        if clean(item.get("sku")) == sku and clean(item.get("product_name")) == product_name:
+            item["qty"] = int(item.get("qty") or 0) + qty
+            item["amount"] = float(item.get("amount") or 0) + amount
+            st.session_state[f"{prefix}_items"] = items
+            return
+    items.append({"sku": sku, "product_name": product_name, "qty": qty, "amount": amount})
+    st.session_state[f"{prefix}_items"] = items
+
+
+def remove_popup_order_item(prefix: str, index: int) -> None:
+    items = list(st.session_state.get(f"{prefix}_items", []))
+    if 0 <= index < len(items):
+        items.pop(index)
+    st.session_state[f"{prefix}_items"] = items
+
+
+def render_popup_order_items(prefix: str) -> int | None:
+    items = st.session_state.setdefault(f"{prefix}_items", [])
+    if not items:
+        st.info("ยังไม่มีรายการสินค้าในคำสั่งซื้อนี้")
+        return None
+    header = st.columns([0.8, 2.2, 0.6, 0.8, 0.6])
+    for col, label in zip(header, ["SKU", "สินค้า", "จำนวน", "ราคา", "ลบ"]):
+        col.markdown(f"**{label}**")
+    delete_index = None
+    for index, item in enumerate(items):
+        cols = st.columns([0.8, 2.2, 0.6, 0.8, 0.6])
+        cols[0].write(clean(item.get("sku")) or "-")
+        cols[1].write(clean(item.get("product_name")) or "-")
+        cols[2].write(int(item.get("qty") or 0))
+        cols[3].write(f"{float(item.get('amount') or 0):,.2f}")
+        if cols[4].form_submit_button("ลบ", key=f"{prefix}_delete_{index}", use_container_width=True):
+            delete_index = index
+    return delete_index
 
 
 main()
