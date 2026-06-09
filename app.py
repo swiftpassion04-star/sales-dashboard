@@ -28,7 +28,7 @@ def main() -> None:
     st.markdown('<div class="crm-section-title">Quick Access</div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.page_link("pages/customers.py", label="เปิดหน้าลูกค้า")
+        st.page_link("pages/customers.py", label="เปิดหน้าค้นหาลูกค้า")
     with c2:
         st.page_link("pages/followup.py", label="เปิดหน้าติดตามลูกค้า")
     with c3:

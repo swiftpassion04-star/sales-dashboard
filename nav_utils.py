@@ -6,6 +6,8 @@ from crm_theme import inject_saas_theme, render_page_header
 PRODUCTS_PAGE = "pages/products.py"
 
 
+# Canonical CRM routes. Legacy Thai-named pages remain in the repo for
+# compatibility, but the sidebar must only point to these English route files.
 NAV_GROUPS = [
     ("ภาพรวม", [("📊Dashboard", "pages/dashboard.py")]),
     (
