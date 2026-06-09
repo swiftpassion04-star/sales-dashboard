@@ -1424,6 +1424,67 @@ def fetch_customer_page(
             return cur.fetchall(), total
 
 
+def fetch_customer_export_rows(
+    filters: dict[str, str],
+    user: dict | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[dict]:
+    ensure_crm_data_imports_schema()
+    where, params = build_customer_where(filters, user, enforce_user_scope=False)
+    clauses = [where.replace("where ", "", 1)]
+    if start_date and end_date:
+        start_ts = datetime.combine(start_date, datetime.min.time(), tzinfo=BANGKOK_TZ).astimezone(timezone.utc)
+        end_ts = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=BANGKOK_TZ).astimezone(timezone.utc)
+        clauses.append("d.created_at >= %s")
+        clauses.append("d.created_at < %s")
+        params.extend([start_ts, end_ts])
+    where_sql = "where " + " and ".join(clauses)
+
+    has_quantity = neon_column_exists("crm_data_imports", "quantity")
+    has_amount = neon_column_exists("crm_data_imports", "amount")
+    has_address = neon_column_exists("crm_data_imports", "address")
+    quantity_expr = "d.quantity" if has_quantity else "null::numeric as quantity"
+    amount_expr = "d.amount" if has_amount else "null::numeric as amount"
+    address_expr = "d.address" if has_address else "null::text as address"
+
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select
+                  d.id::text as id,
+                  d.order_date,
+                  d.order_id,
+                  d.sku,
+                  d.product_name,
+                  {quantity_expr},
+                  d.total_amount,
+                  {amount_expr},
+                  d.carrier,
+                  d.tracking_no,
+                  d.url,
+                  d.customer_name,
+                  d.phone1,
+                  d.phone2,
+                  {address_expr},
+                  d.city,
+                  d.province,
+                  d.postal_code,
+                  d.owner,
+                  d.order_status,
+                  d.raw_data,
+                  d.created_at,
+                  d.updated_at
+                from public.crm_data_imports d
+                {where_sql}
+                order by d.created_at desc nulls last, d.order_date desc nulls last, d.id desc
+                """,
+                params,
+            )
+            return cur.fetchall()
+
+
 def fetch_dashboard_kpis(user: dict | None = None) -> dict:
     ensure_crm_data_imports_schema()
     where = ["d.import_status = 'valid'"]
