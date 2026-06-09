@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 import streamlit as st
 
-from auth_utils import ROLE_EDITOR, ROLE_STAFF_ALIASES, ROLE_TELESELL_ALIASES, current_user, require_login
+from auth_utils import current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
@@ -13,6 +13,7 @@ from neon_utils import (
     upsert_lead_followup,
     upsert_manual_order_items,
 )
+from permissions import can_view_followup, can_view_followup_owner_filter
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -48,9 +49,7 @@ def main() -> None:
     inject_followup_dialog_css()
     require_login()
     user = current_user() or {}
-    role = clean(user.get("role"))
-    allowed_scoped_roles = set(ROLE_TELESELL_ALIASES) | set(ROLE_STAFF_ALIASES) | {"USER"}
-    if role != ROLE_EDITOR and role not in allowed_scoped_roles:
+    if not can_view_followup(user):
         st.warning("หน้านี้ใช้ได้เฉพาะ EDITOR และพนักงานที่ดูแลลูกค้า")
         st.stop()
 
@@ -133,7 +132,7 @@ def render_filters(user: dict) -> dict[str, str]:
         c4, c5 = st.columns(2)
         product = c4.selectbox("สินค้า / SKU", [ALL] + options.get("products", []))
         owner = ALL
-        if clean(user.get("role")) == ROLE_EDITOR:
+        if can_view_followup_owner_filter(user):
             owner = c5.selectbox("ผู้ดูแล", [ALL] + options.get("owners", []))
         keyword = st.text_input("ค้นหา", placeholder="เบอร์โทร / ชื่อลูกค้า / เลขคำสั่งซื้อ")
         submitted = st.form_submit_button("ค้นหา", use_container_width=True)

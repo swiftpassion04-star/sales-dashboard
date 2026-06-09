@@ -4,9 +4,10 @@ import pandas as pd
 import streamlit as st
 
 import neon_utils as neon
-from auth_utils import can_manage_all, require_login
+from auth_utils import require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
+from permissions import can_edit_products
 
 
 st.set_page_config(page_title="สินค้า", layout="wide")
@@ -15,7 +16,7 @@ st.set_page_config(page_title="สินค้า", layout="wide")
 def main() -> None:
     render_sidebar_nav()
     auth_user = require_login()
-    is_editor = can_manage_all(auth_user)
+    is_editor = can_edit_products(auth_user)
     render_page_header("สินค้า", "Product Master สำหรับเลือกสินค้าในคำสั่งซื้อ")
 
     rows = neon.fetch_product_options()

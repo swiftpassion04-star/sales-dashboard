@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
-from auth_utils import can_manage_all, current_user, require_login
+from auth_utils import current_user, require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
@@ -13,6 +13,7 @@ from neon_utils import (
     test_user_role_visibility,
     upsert_user_role,
 )
+from permissions import can_edit_users
 
 
 ROLE_OPTIONS = ["EDITOR", "ADMIN", "พนักงาน", "TELESELL", "STAFF", "USER", "ทั่วไป"]
@@ -26,7 +27,7 @@ def main() -> None:
     render_sidebar_nav()
     auth_user = require_login()
     user = current_user() or auth_user or {}
-    can_manage = can_manage_all(user)
+    can_manage = can_edit_users(user)
     render_page_header("User / Role", "จัดการสิทธิ์และ staff mapping จาก Neon")
 
     if not can_manage:

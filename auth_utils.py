@@ -5,6 +5,21 @@ import time
 
 import requests
 import streamlit as st
+from permissions import (
+    ROLE_EDITOR,
+    ROLE_STAFF,
+    ROLE_STAFF_ALIASES,
+    ROLE_STAFF_READONLY,
+    ROLE_TELESELL,
+    ROLE_TELESELL_ALIASES,
+    ROLE_VIEWER,
+    SYSTEM_VIEW_ROLES,
+    can_edit_customer_lead as permission_can_edit_customer_lead,
+    can_manage_all as permission_can_manage_all,
+    can_manage_system_page as permission_can_manage_system_page,
+    can_view_system_page as permission_can_view_system_page,
+    clean as permission_clean,
+)
 try:
     from streamlit_js_eval import streamlit_js_eval
 except ImportError:  # Local fallback until dependencies are installed.
@@ -14,14 +29,6 @@ except ImportError:  # Local fallback until dependencies are installed.
 AUTH_STORAGE_KEY = "crm_core_auth_session"
 TOKEN_REFRESH_GRACE_SECONDS = 90
 LOCAL_STORAGE_TTL_SECONDS = 8 * 60 * 60
-ROLE_EDITOR = "EDITOR"
-ROLE_STAFF = "พนักงาน"
-ROLE_VIEWER = "ทั่วไป"
-ROLE_TELESELL = ROLE_STAFF
-ROLE_STAFF_READONLY = ROLE_VIEWER
-ROLE_TELESELL_ALIASES = {ROLE_TELESELL, "TELESELL"}
-ROLE_STAFF_ALIASES = {ROLE_STAFF_READONLY, "STAFF"}
-SYSTEM_VIEW_ROLES = {ROLE_EDITOR}
 
 
 def get_secret(*names: str) -> str:
@@ -533,47 +540,20 @@ def restore_browser_session() -> str:
 
 
 def can_manage_all(user: dict | None) -> bool:
-    return bool(user and user.get("role") in {"ADMIN", ROLE_EDITOR})
+    return permission_can_manage_all(user)
 
 
 def can_view_system_page(user: dict | None) -> bool:
-    return bool(user and user.get("role") in SYSTEM_VIEW_ROLES)
+    return permission_can_view_system_page(user)
 
 
 def can_manage_system_page(user: dict | None) -> bool:
-    return can_manage_all(user)
+    return permission_can_manage_system_page(user)
 
 
 def _clean(value) -> str:
-    return str(value or "").strip()
+    return permission_clean(value)
 
 
 def can_edit_customer_lead(user: dict | None, customer) -> bool:
-    if not user:
-        return False
-    role = user.get("role")
-    if role == ROLE_EDITOR:
-        return True
-    if role not in ROLE_TELESELL_ALIASES:
-        return False
-
-    staff_code = _clean(user.get("staff_code"))
-    staff_name = _clean(user.get("staff_name"))
-    if not staff_code and not staff_name:
-        return False
-
-    customer_staff_code = ""
-    customer_owner = ""
-    for key in ("staff_code", "sales_staff", "owner"):
-        try:
-            value = customer.get(key)
-        except AttributeError:
-            value = ""
-        if key == "staff_code" and _clean(value):
-            customer_staff_code = _clean(value)
-        elif key != "staff_code" and _clean(value) and not customer_owner:
-            customer_owner = _clean(value)
-    return bool(
-        (staff_code and customer_staff_code and customer_staff_code == staff_code)
-        or (staff_name and customer_owner and customer_owner == staff_name)
-    )
+    return permission_can_edit_customer_lead(user, customer)

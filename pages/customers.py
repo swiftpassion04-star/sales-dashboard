@@ -5,7 +5,7 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-from auth_utils import ROLE_EDITOR, current_user, require_login
+from auth_utils import current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
@@ -19,6 +19,7 @@ from neon_utils import (
     normalize_phone,
     upsert_lead_followup,
 )
+from permissions import can_assign_customer_owner, can_export_customers
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -94,7 +95,7 @@ def render_filters(user: dict) -> dict[str, str]:
 
 
 def render_export_panel(filters: dict[str, str], user: dict) -> None:
-    if clean(user.get("role")) != ROLE_EDITOR:
+    if not can_export_customers(user):
         return
 
     st.markdown("#### ดาวน์โหลดข้อมูลลูกค้า (.xlsx)")
@@ -215,7 +216,7 @@ def customer_export_row(row: dict) -> dict:
 
 
 def render_customer_table(rows: list[dict], user: dict) -> None:
-    can_assign_owner = clean(user.get("role")) == ROLE_EDITOR
+    can_assign_owner = can_assign_customer_owner(user)
     owner_options = []
     if can_assign_owner:
         try:

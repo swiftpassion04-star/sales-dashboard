@@ -4,9 +4,10 @@ from pathlib import Path
 import streamlit as st
 
 import neon_utils as neon
-from auth_utils import ROLE_TELESELL_ALIASES, can_manage_all, current_user, require_login
+from auth_utils import current_user, require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
+from permissions import can_add_manual_order, can_import_excel
 
 
 st.set_page_config(page_title="Import Excel", layout="wide")
@@ -16,9 +17,8 @@ def main() -> None:
     render_sidebar_nav()
     auth_user = require_login()
     user = current_user() or auth_user
-    is_editor = can_manage_all(user)
-    is_telesell = neon.clean(user.get("role")) in ROLE_TELESELL_ALIASES
-    if not is_editor and not is_telesell:
+    is_editor = can_import_excel(user)
+    if not can_add_manual_order(user):
         st.warning("หน้านี้ใช้ได้เฉพาะ EDITOR และพนักงานที่มีสิทธิเพิ่มคำสั่งซื้อ")
         st.stop()
 
