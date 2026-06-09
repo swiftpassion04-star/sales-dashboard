@@ -216,20 +216,35 @@ def _auth_headers(key: str) -> dict[str, str]:
     }
 
 
+def _supabase_auth_request(method: str, url: str, **kwargs) -> requests.Response:
+    try:
+        return requests.request(method, url, timeout=20, **kwargs)
+    except requests.Timeout as exc:
+        raise RuntimeError("เชื่อมต่อ Supabase Auth timeout กรุณาลองใหม่อีกครั้ง") from exc
+    except requests.RequestException as exc:
+        raise RuntimeError("เชื่อมต่อ Supabase Auth ไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตหรือ Supabase project") from exc
+
+
+def _raise_auth_error(response: requests.Response, default_message: str) -> None:
+    if response.status_code == 402:
+        raise RuntimeError("Supabase Auth ถูกจำกัดการใช้งาน กรุณาตรวจ Supabase project หรือ billing")
+    if response.status_code >= 400:
+        raise RuntimeError(default_message)
+
+
 def login_with_password(email: str, password: str) -> dict:
     base_url = supabase_url()
     anon_key = supabase_anon_key()
     if not base_url or not anon_key:
         raise RuntimeError("ยังไม่ได้ตั้งค่า CRM_SUPABASE_URL หรือ CRM_SUPABASE_ANON_KEY")
 
-    response = requests.post(
+    response = _supabase_auth_request(
+        "POST",
         f"{base_url}/auth/v1/token?grant_type=password",
         headers=_auth_headers(anon_key),
         json={"email": email.strip().lower(), "password": password},
-        timeout=20,
     )
-    if response.status_code >= 400:
-        raise RuntimeError("อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือผู้ใช้ยังไม่ได้ถูกสร้างใน Supabase Auth")
+    _raise_auth_error(response, "อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือผู้ใช้ยังไม่ได้ถูกสร้างใน Supabase Auth")
     return response.json()
 
 
@@ -239,14 +254,13 @@ def refresh_auth_session(refresh_token: str) -> dict:
     if not base_url or not anon_key:
         raise RuntimeError("ยังไม่ได้ตั้งค่า CRM_SUPABASE_URL หรือ CRM_SUPABASE_ANON_KEY")
 
-    response = requests.post(
+    response = _supabase_auth_request(
+        "POST",
         f"{base_url}/auth/v1/token?grant_type=refresh_token",
         headers=_auth_headers(anon_key),
         json={"refresh_token": refresh_token},
-        timeout=20,
     )
-    if response.status_code >= 400:
-        raise RuntimeError("session หมดอายุ กรุณาเข้าสู่ระบบใหม่")
+    _raise_auth_error(response, "session หมดอายุ กรุณาเข้าสู่ระบบใหม่")
     return response.json()
 
 
@@ -256,17 +270,16 @@ def fetch_auth_user(access_token: str) -> dict:
     if not base_url or not anon_key:
         raise RuntimeError("ยังไม่ได้ตั้งค่า CRM_SUPABASE_URL หรือ CRM_SUPABASE_ANON_KEY")
 
-    response = requests.get(
+    response = _supabase_auth_request(
+        "GET",
         f"{base_url}/auth/v1/user",
         headers={
             "apikey": anon_key,
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         },
-        timeout=20,
     )
-    if response.status_code >= 400:
-        raise RuntimeError("session ไม่ถูกต้องหรือหมดอายุ")
+    _raise_auth_error(response, "session ไม่ถูกต้องหรือหมดอายุ")
     return response.json()
 
 
