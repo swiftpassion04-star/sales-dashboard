@@ -55,6 +55,7 @@ def main() -> None:
         st.stop()
 
     render_page_header("ติดตามลูกค้า", "จัดการ Lead และ Follow-up จาก Neon เท่านั้น")
+    render_followup_page_message()
     filters = render_filters(user)
     page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="followup_page_size_v2")
     page = int(st.number_input("หน้า", min_value=1, value=int(st.session_state.get("followup_page_v2", 1)), step=1))
@@ -138,6 +139,7 @@ def render_filters(user: dict) -> dict[str, str]:
         submitted = st.form_submit_button("ค้นหา", use_container_width=True)
     if submitted:
         st.session_state.followup_page_v2 = 1
+        close_followup_modal()
     return {
         "lead_status": lead_status,
         "followup_status": followup_status,
@@ -284,7 +286,8 @@ def render_detail(row: dict, user: dict) -> None:
         upsert_lead_followup(payload)
         st.session_state.setdefault("followup_drafts_v2", {}).pop(key, None)
         st.cache_data.clear()
-        st.success("บันทึก Follow-up แล้ว")
+        st.session_state.followup_page_success = "บันทึกสำเร็จแล้ว"
+        close_followup_modal()
         st.rerun()
 
 
@@ -386,6 +389,17 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
         render_order_dialog(dict(modal_row), user)
 
 
+def render_followup_page_message() -> None:
+    message = clean(st.session_state.pop("followup_page_success", ""))
+    if message:
+        st.success(message)
+
+
+def close_followup_modal() -> None:
+    st.session_state.pop("followup_modal_type", None)
+    st.session_state.pop("followup_modal_row", None)
+
+
 @st.dialog("ติดตามลูกค้า", width="large")
 def render_followup_dialog(row: dict, user: dict) -> None:
     render_popup_customer_summary(row)
@@ -402,9 +416,6 @@ def render_order_dialog(row: dict, user: dict) -> None:
         st.error("รายการนี้ยังไม่มีผู้ดูแล จึงยังเพิ่มคำสั่งซื้อจาก popup นี้ไม่ได้")
         return
     prepare_popup_order_state(prefix, row)
-    success_key = f"{prefix}_success"
-    if st.session_state.pop(success_key, ""):
-        st.success("บันทึกคำสั่งซื้อสำเร็จ")
 
     try:
         product_options = fetch_popup_product_options()
@@ -496,7 +507,12 @@ def render_order_dialog(row: dict, user: dict) -> None:
     st.cache_data.clear()
     clear_popup_order_state(prefix, row)
     actions = result.get("actions") or {}
-    st.session_state[success_key] = f"สินค้า {result.get('item_count', 0)} รายการ (เพิ่มใหม่ {actions.get('inserted', 0)}, อัปเดต {actions.get('updated', 0)})"
+    st.session_state.followup_page_success = (
+        "บันทึกสำเร็จแล้ว "
+        f"สินค้า {result.get('item_count', 0)} รายการ "
+        f"(เพิ่มใหม่ {actions.get('inserted', 0)}, อัปเดต {actions.get('updated', 0)})"
+    )
+    close_followup_modal()
     st.rerun()
 
 
