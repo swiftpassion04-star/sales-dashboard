@@ -45,6 +45,7 @@ st.set_page_config(page_title="Follow-up", layout="wide")
 
 def main() -> None:
     render_sidebar_nav()
+    inject_followup_dialog_css()
     require_login()
     user = current_user() or {}
     role = clean(user.get("role"))
@@ -67,6 +68,55 @@ def main() -> None:
         st.info("ไม่พบข้อมูลตามตัวกรอง")
         return
     render_followup_table(rows, user)
+
+
+def inject_followup_dialog_css() -> None:
+    st.markdown(
+        """
+<style>
+div[role="dialog"] {
+  background:#FFF8F0 !important;
+  border:8px solid #EA580C !important;
+  border-radius:24px !important;
+  color:#1F2937 !important;
+  box-shadow:0 18px 45px rgba(124,45,18,.28) !important;
+}
+div[role="dialog"] [data-testid="stDialogContent"],
+div[role="dialog"] [data-testid="stVerticalBlock"],
+div[role="dialog"] [data-testid="stForm"] {
+  background:#FFFFFF !important;
+  color:#1F2937 !important;
+}
+div[role="dialog"] h1,
+div[role="dialog"] h2,
+div[role="dialog"] h3,
+div[role="dialog"] p,
+div[role="dialog"] label,
+div[role="dialog"] span,
+div[role="dialog"] div {
+  color:#1F2937;
+}
+div[role="dialog"] [data-testid="stForm"] {
+  border:1px solid #FDBA74 !important;
+  border-radius:18px !important;
+  padding:16px !important;
+}
+div[role="dialog"] input,
+div[role="dialog"] textarea,
+div[role="dialog"] div[data-baseweb="select"] > div,
+div[role="dialog"] div[data-baseweb="input"] > div {
+  background:#FFFFFF !important;
+  color:#1F2937 !important;
+  -webkit-text-fill-color:#1F2937 !important;
+  border-color:#FDBA74 !important;
+}
+div[role="dialog"] button[aria-label="Close"] {
+  color:#EA580C !important;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 def render_filters(user: dict) -> dict[str, str]:
