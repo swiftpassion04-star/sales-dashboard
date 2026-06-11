@@ -94,23 +94,16 @@ def can_edit_customer_lead(user: dict | None, customer) -> bool:
         return False
 
     staff_code = clean(user.get("staff_code"))
-    staff_name = clean(user.get("staff_name"))
-    if not staff_code and not staff_name:
+    if not staff_code:
         return False
 
     customer_staff_code = ""
-    customer_owner = ""
-    for key in ("staff_code", "sales_staff", "owner"):
+    for key in ("staff_code",):
         try:
             value = customer.get(key)
         except AttributeError:
             value = ""
-        if key == "staff_code" and clean(value):
+        if clean(value):
             customer_staff_code = clean(value)
-        elif key != "staff_code" and clean(value) and not customer_owner:
-            customer_owner = clean(value)
 
-    return bool(
-        (staff_code and customer_staff_code and customer_staff_code == staff_code)
-        or (staff_name and customer_owner and customer_owner == staff_name)
-    )
+    return bool(customer_staff_code and customer_staff_code == staff_code)

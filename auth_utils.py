@@ -303,7 +303,7 @@ def fetch_user_role(email: str) -> dict:
         return default_role
     row["email"] = normalized_email
     row["role"] = row.get("role") or ROLE_VIEWER
-    row["staff_code"] = row.get("staff_code") or row.get("staff_name") or ""
+    row["staff_code"] = row.get("staff_code") or ""
     row["staff_name"] = row.get("staff_name") or ""
     return row
 
