@@ -220,7 +220,7 @@ def render_customer_table(rows: list[dict], user: dict) -> None:
     owner_options = []
     if can_assign_owner:
         try:
-            owner_options = unique_names(fetch_owner_user_options(active_only=True))
+            owner_options = owner_staff_options(fetch_owner_user_options(active_only=True))
         except Exception:
             owner_options = []
     selected_id = clean(st.session_state.get("customers_selected_id"))
@@ -291,7 +291,7 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
     current_url = clean(row.get("product_url"))
     options = list(owner_options)
     if current_owner and current_owner not in options:
-        options.insert(0, current_owner)
+        options.insert(0, OwnerOption(current_owner, clean(row.get("staff_code"))))
 
     record_id = clean(row.get("id"))
     order_id = clean(row.get("order_id"))
@@ -344,7 +344,13 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
             st.error("ไม่มีสิทธิ์มอบหมายผู้ดูแล")
             return
         try:
-            updated = assign_owner_to_order_record(record_id, order_id, selected_owner, clean(user.get("email")))
+            updated = assign_owner_to_order_record(
+                record_id,
+                order_id,
+                selected_owner,
+                clean(user.get("email")),
+                staff_code=owner_staff_code(selected_owner),
+            )
             st.success(f"อัปเดตผู้ดูแลแล้ว {updated:,} แถว")
             st.rerun()
         except Exception as exc:
@@ -373,13 +379,27 @@ def can_edit_customer_follow_action(row: dict, user: dict) -> bool:
     return bool(user_staff_code and row_staff_code and user_staff_code == row_staff_code)
 
 
-def unique_names(rows: list[dict]) -> list[str]:
+class OwnerOption(str):
+    def __new__(cls, name: str, staff_code: str):
+        obj = str.__new__(cls, name)
+        obj.staff_code = staff_code
+        return obj
+
+
+def owner_staff_options(rows: list[dict]) -> list[str]:
     names: list[str] = []
+    seen_codes: set[str] = set()
     for row in rows:
         name = clean(row.get("staff_name"))
-        if name and name not in names:
-            names.append(name)
+        staff_code = clean(row.get("staff_code"))
+        if name and staff_code and staff_code not in seen_codes:
+            names.append(OwnerOption(name, staff_code))
+            seen_codes.add(staff_code)
     return names
+
+
+def owner_staff_code(option: object) -> str:
+    return clean(getattr(option, "staff_code", ""))
 
 
 def build_follow_marker_payload(row: dict, marker: str, updated_by: str) -> dict:

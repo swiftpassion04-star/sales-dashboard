@@ -1818,13 +1818,22 @@ def assign_url_to_phones(phones: tuple[str, ...], url: str, updated_by: str) -> 
             raise
 
 
-def assign_owner_to_order_record(record_id: str, order_id: str, owner: str, updated_by: str, staff_code: str = "") -> int:
+def assign_owner_to_order_record(
+    record_id: str,
+    order_id: str,
+    owner: str,
+    updated_by: str,
+    staff_code: str = "",
+    allow_owner_only: bool = False,
+) -> int:
     record_id = clean(record_id)
     order_id = clean(order_id)
     owner = clean(owner)
     staff_code = clean(staff_code)
     if not record_id or not owner:
         return 0
+    if not staff_code and not allow_owner_only:
+        raise ValueError("staff_code is required when assigning an owner")
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
         try:
