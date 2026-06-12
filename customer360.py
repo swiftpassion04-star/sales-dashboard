@@ -778,6 +778,11 @@ def render_customer_detail(df: pd.DataFrame, auth_user: dict) -> None:
 def render_owner_assignment(customer: pd.Series, phones: tuple[str, ...], auth_user: dict) -> None:
     if not can_manage_all(auth_user):
         return
+    st.info(
+        "Legacy Customer 360 owner assignment is disabled. "
+        "Use the canonical Customers page so owner and staff_code update together."
+    )
+    return
     staff_options = load_staff_options()
     if not staff_options:
         st.info("ยังไม่มีรายชื่อพนักงานให้เลือก")

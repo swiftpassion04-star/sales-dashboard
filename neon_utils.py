@@ -1740,12 +1740,20 @@ def fetch_customer_by_id(customer_id: str) -> list[dict]:
             return cur.fetchall()
 
 
-def assign_owner_to_phones(phones: tuple[str, ...], owner: str, updated_by: str, staff_code: str = "") -> int:
+def assign_owner_to_phones(
+    phones: tuple[str, ...],
+    owner: str,
+    updated_by: str,
+    staff_code: str = "",
+    allow_owner_only: bool = False,
+) -> int:
     clean_phones = sorted({normalize_phone(phone) for phone in phones if normalize_phone(phone)})
     owner = clean(owner)
     staff_code = clean(staff_code)
     if not clean_phones or not owner:
         return 0
+    if not staff_code and not allow_owner_only:
+        raise ValueError("staff_code is required when assigning an owner")
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
         try:

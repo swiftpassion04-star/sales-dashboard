@@ -264,10 +264,10 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
                     selected_index = labels.index(selected_label) - 1
                     selected_staff = dict(staff_choices[selected_index][1])
                     owner = display_staff_name(selected_staff)
-                    staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code"))) or neon.owner_to_staff_code(owner)
+                    staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code")))
             else:
                 owner = st.text_input("ผู้ดูแล", key="manual_owner_text")
-                staff_code = neon.owner_to_staff_code(owner)
+                staff_code = ""
         else:
             staff_code = normalize_staff_code(staff_code)
             owner = strip_duplicate_staff_suffix(owner or staff_code, staff_code)
