@@ -218,11 +218,13 @@ def customer_export_row(row: dict) -> dict:
 def render_customer_table(rows: list[dict], user: dict) -> None:
     can_assign_owner = can_assign_customer_owner(user)
     owner_options = []
+    owner_name_to_staff_code = {}
     if can_assign_owner:
         try:
-            owner_options = owner_staff_options(fetch_owner_user_options(active_only=True))
+            owner_options, owner_name_to_staff_code = owner_staff_choices(fetch_owner_user_options(active_only=True))
         except Exception:
             owner_options = []
+            owner_name_to_staff_code = {}
     selected_id = clean(st.session_state.get("customers_selected_id"))
     st.markdown('<div class="crm-table-header-soft">', unsafe_allow_html=True)
     header_cols = st.columns([0.75, 1.35, 1, 1.35, 1, 1, 0.8])
@@ -250,7 +252,7 @@ def render_customer_table(rows: list[dict], user: dict) -> None:
         else:
             cols[6].write("-")
         if selected_id == record_id:
-            render_customer_detail(row, owner_options, user, can_assign_owner)
+            render_customer_detail(row, owner_options, owner_name_to_staff_code, user, can_assign_owner)
 
 
 def select_customer_row(next_id: str) -> None:
@@ -258,14 +260,20 @@ def select_customer_row(next_id: str) -> None:
     st.session_state.customers_selected_id = "" if current_id == next_id else next_id
 
 
-def render_customer_detail(row: dict, owner_options: list[str], user: dict, can_assign_owner: bool) -> None:
+def render_customer_detail(
+    row: dict,
+    owner_options: list[str],
+    owner_name_to_staff_code: dict[str, str],
+    user: dict,
+    can_assign_owner: bool,
+) -> None:
     st.markdown('<div class="crm-detail-card">', unsafe_allow_html=True)
     top_left, top_right = st.columns([1.4, 1])
     with top_left:
         st.markdown(f"### {html.escape(clean(row.get('customer')) or '-')}")
         st.caption(f"เบอร์โทร: {clean(row.get('phone1')) or '-'} / เบอร์สำรอง: {clean(row.get('phone2')) or '-'}")
     with top_right:
-        render_customer_actions(row, owner_options, user, can_assign_owner)
+        render_customer_actions(row, owner_options, owner_name_to_staff_code, user, can_assign_owner)
 
     info_cols = st.columns(3)
     info_cols[0].metric("สินค้า", clean(row.get("product_name")) or "-")
@@ -281,7 +289,13 @@ def render_customer_detail(row: dict, owner_options: list[str], user: dict, can_
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_customer_actions(row: dict, owner_options: list[str], user: dict, can_assign_owner: bool) -> None:
+def render_customer_actions(
+    row: dict,
+    owner_options: list[str],
+    owner_name_to_staff_code: dict[str, str],
+    user: dict,
+    can_assign_owner: bool,
+) -> None:
     can_edit_follow = can_edit_customer_follow_action(row, user)
     if not can_edit_follow and not can_assign_owner:
         st.caption("ไม่มีสิทธิ์แก้ไขรายการนี้")
@@ -290,8 +304,12 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
     current_owner = clean(row.get("sales_staff"))
     current_url = clean(row.get("product_url"))
     options = list(owner_options)
+    staff_code_by_owner_name = dict(owner_name_to_staff_code)
     if current_owner and current_owner not in options:
-        options.insert(0, OwnerOption(current_owner, clean(row.get("staff_code"))))
+        options.insert(0, current_owner)
+        current_staff_code = clean(row.get("staff_code"))
+        if current_staff_code:
+            staff_code_by_owner_name[current_owner] = current_staff_code
 
     record_id = clean(row.get("id"))
     order_id = clean(row.get("order_id"))
@@ -343,13 +361,17 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
         if not can_assign_owner:
             st.error("ไม่มีสิทธิ์มอบหมายผู้ดูแล")
             return
+        selected_staff_code = clean(staff_code_by_owner_name.get(selected_owner))
+        if not selected_staff_code:
+            st.error("ไม่พบ staff_code ของผู้ดูแลที่เลือก")
+            return
         try:
             updated = assign_owner_to_order_record(
                 record_id,
                 order_id,
                 selected_owner,
                 clean(user.get("email")),
-                staff_code=owner_staff_code(selected_owner),
+                staff_code=selected_staff_code,
             )
             st.success(f"อัปเดตผู้ดูแลแล้ว {updated:,} แถว")
             st.rerun()
@@ -379,27 +401,18 @@ def can_edit_customer_follow_action(row: dict, user: dict) -> bool:
     return bool(user_staff_code and row_staff_code and user_staff_code == row_staff_code)
 
 
-class OwnerOption(str):
-    def __new__(cls, name: str, staff_code: str):
-        obj = str.__new__(cls, name)
-        obj.staff_code = staff_code
-        return obj
-
-
-def owner_staff_options(rows: list[dict]) -> list[str]:
+def owner_staff_choices(rows: list[dict]) -> tuple[list[str], dict[str, str]]:
     names: list[str] = []
+    staff_code_by_name: dict[str, str] = {}
     seen_codes: set[str] = set()
     for row in rows:
         name = clean(row.get("staff_name"))
         staff_code = clean(row.get("staff_code"))
         if name and staff_code and staff_code not in seen_codes:
-            names.append(OwnerOption(name, staff_code))
+            names.append(name)
+            staff_code_by_name[name] = staff_code
             seen_codes.add(staff_code)
-    return names
-
-
-def owner_staff_code(option: object) -> str:
-    return clean(getattr(option, "staff_code", ""))
+    return names, staff_code_by_name
 
 
 def build_follow_marker_payload(row: dict, marker: str, updated_by: str) -> dict:
