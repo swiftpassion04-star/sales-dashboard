@@ -8,8 +8,9 @@ from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
     clean,
-    fetch_customer_by_id,
-    fetch_orders_by_phones,
+    fetch_customer_360_base,
+    fetch_customer_360_orders,
+    fetch_customer_360_products,
     neon_connection,
     normalize_phone,
     upsert_lead_followup,
@@ -40,7 +41,7 @@ PRIORITY_OPTIONS = {
 }
 
 
-st.set_page_config(page_title="Customer Detail", layout="wide")
+st.set_page_config(page_title="Customer 360", layout="wide")
 
 
 def main() -> None:
@@ -49,26 +50,29 @@ def main() -> None:
     user = current_user() or {}
     customer_id = get_customer_id()
     if not customer_id:
-        render_page_header("รายละเอียดลูกค้า", "ไม่พบ customer_id ใน URL")
+        render_page_header("Customer 360", "ไม่พบ customer_id ใน URL")
         st.warning("กรุณาเปิดหน้านี้จากปุ่มติดตามหรือดูประวัติในระบบ CRM")
         return
 
     customer = load_customer(customer_id)
     if not customer:
-        render_page_header("รายละเอียดลูกค้า", f"ไม่พบข้อมูล customer_id: {customer_id}")
+        render_page_header("Customer 360", f"ไม่พบข้อมูล customer_id: {customer_id}")
         st.warning("ไม่พบข้อมูลลูกค้าใน Neon")
         return
 
     if not can_view_customer_detail(user, customer):
-        render_page_header("รายละเอียดลูกค้า", "ไม่มีสิทธิ์เข้าถึง")
+        render_page_header("Customer 360", "ไม่มีสิทธิ์เข้าถึง")
         st.error("ไม่มีสิทธิ์เข้าถึงข้อมูลนี้")
         return
 
     followup = fetch_customer_followup(customer)
-    render_page_header(clean(customer.get("customer")) or "รายละเอียดลูกค้า", "ข้อมูลลูกค้า, Follow-up และประวัติการสั่งซื้อ")
-    render_customer_summary(customer, followup)
-    render_followup_form(customer, followup, user)
-    render_order_history(customer)
+    orders = fetch_customer_360_orders(customer.get("phone1"), customer.get("phone2"), limit=20)
+    products = fetch_customer_360_products(customer.get("phone1"), customer.get("phone2"), limit=50)
+    render_page_header(
+        clean(customer.get("customer")) or "Customer 360",
+        "ข้อมูลลูกค้า, ออเดอร์ล่าสุด, Follow-up, ประวัติสั่งซื้อ และสินค้าที่เคยซื้อ",
+    )
+    render_customer_360(customer, followup, orders, products, user)
 
 
 def get_customer_id() -> str:
@@ -82,7 +86,7 @@ def get_customer_id() -> str:
 
 
 def load_customer(customer_id: str) -> dict:
-    rows = fetch_customer_by_id(customer_id)
+    rows = fetch_customer_360_base(customer_id)
     return dict(rows[0]) if rows else {}
 
 
@@ -143,14 +147,29 @@ def fetch_customer_followup(customer: dict) -> dict:
             return dict(row) if row else {}
 
 
-def render_customer_summary(customer: dict, followup: dict) -> None:
+def render_customer_360(
+    customer: dict,
+    followup: dict,
+    orders: list[dict],
+    products: list[dict],
+    user: dict,
+) -> None:
+    render_customer_profile(customer, followup)
+    render_latest_order(orders[0] if orders else {})
+    render_url_owner(customer)
+    render_followup_form(customer, followup, user)
+    render_customer_order_history(orders)
+    render_products_bought(products)
+
+
+def render_customer_profile(customer: dict, followup: dict) -> None:
     phone = clean(customer.get("phone1")) or clean(customer.get("phone2")) or "-"
     st.markdown(
         f"""
 <div class="crm-card">
   <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;">
     <div>
-      <div class="crm-muted">เบอร์โทร</div>
+      <div class="crm-muted">เบอร์โทรหลัก</div>
       <div style="font-size:20px;font-weight:800;">{html.escape(phone)}</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -163,10 +182,48 @@ def render_customer_summary(customer: dict, followup: dict) -> None:
 """,
         unsafe_allow_html=True,
     )
-    cols = st.columns(3)
-    cols[0].metric("สินค้า", clean(customer.get("product_name")) or "-")
-    cols[1].metric("SKU", clean(customer.get("sku")) or "-")
-    cols[2].metric("ผู้ดูแล", clean(customer.get("sales_staff")) or clean(customer.get("owner")) or "-")
+    cols = st.columns(4)
+    cols[0].metric("ลูกค้า", display_value(customer.get("customer")))
+    cols[1].metric("เบอร์สำรอง", display_value(customer.get("phone2")))
+    cols[2].metric("จังหวัด", display_value(customer.get("province")))
+    cols[3].metric("รหัสไปรษณีย์", display_value(customer.get("postcode")))
+
+
+def render_latest_order(order: dict) -> None:
+    st.markdown('<div class="crm-section-title">Latest Order</div>', unsafe_allow_html=True)
+    if not order:
+        st.info("ยังไม่มีประวัติคำสั่งซื้อจากเบอร์โทรนี้")
+        return
+    cols = st.columns(4)
+    cols[0].metric("เลขคำสั่งซื้อ", display_value(order.get("order_id")))
+    cols[1].metric("วันที่", display_value(order.get("date_text")))
+    cols[2].metric("ประเภทการขาย", display_value(order.get("sale_type")))
+    cols[3].metric("ยอดขาย", display_value(order.get("amount") or order.get("total_sales")))
+    cols = st.columns(4)
+    cols[0].metric("SKU", display_value(order.get("sku")))
+    cols[1].metric("สินค้า", display_value(order.get("product_name")))
+    cols[2].metric("ขนส่ง", display_value(order.get("shipping")))
+    cols[3].metric("เลขพัสดุ", display_value(order.get("tracking_no")))
+
+
+def render_url_owner(customer: dict) -> None:
+    st.markdown('<div class="crm-section-title">URL / Owner</div>', unsafe_allow_html=True)
+    url = clean(customer.get("product_url")) or clean(customer.get("channel_url"))
+    owner = clean(customer.get("sales_staff")) or clean(customer.get("owner"))
+    cols = st.columns([1, 2])
+    cols[0].metric("ผู้ดูแล", owner or "-")
+    if url:
+        cols[1].markdown(
+            f"""
+<div class="crm-card">
+  <div class="crm-muted">URL</div>
+  <a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    else:
+        cols[1].metric("URL", "-")
 
 
 def render_followup_form(customer: dict, followup: dict, user: dict) -> None:
@@ -232,17 +289,9 @@ def render_followup_form(customer: dict, followup: dict, user: dict) -> None:
     st.rerun()
 
 
-def render_order_history(customer: dict) -> None:
-    phones = tuple(
-        phone
-        for phone in (
-            normalize_phone(customer.get("phone1")),
-            normalize_phone(customer.get("phone2")),
-        )
-        if phone
-    )
-    orders = unique_orders(fetch_orders_by_phones(phones, limit=500))
-    st.markdown('<div class="crm-section-title">ประวัติสั่งซื้อเก่า</div>', unsafe_allow_html=True)
+def render_customer_order_history(orders: list[dict]) -> None:
+    orders = unique_orders(orders)[:20]
+    st.markdown('<div class="crm-section-title">Order History ล่าสุด 20 รายการ</div>', unsafe_allow_html=True)
     if not orders:
         st.info("ยังไม่มีเลขออเดอร์สำหรับแสดงประวัติสั่งซื้อเก่า")
         return
@@ -267,13 +316,45 @@ def render_order_history(customer: dict) -> None:
         st.markdown(
             f"""
 <div class="crm-table-row" style="grid-template-columns:1fr 1fr 1.4fr 1fr 1fr 1fr .8fr;">
-  <div class="crm-table-cell">{html.escape(clean(order.get("order_id")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(order.get("date_text")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(order.get("product_name")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(order.get("total_sales")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(order.get("shipping")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(order.get("tracking_no")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(display_value(order.get("order_id")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(order.get("date_text")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(order.get("product_name")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(order.get("amount") or order.get("total_sales")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(order.get("shipping")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(order.get("tracking_no")))}</div>
   <div class="crm-table-cell">{url_html}</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_products_bought(products: list[dict]) -> None:
+    st.markdown('<div class="crm-section-title">Products Bought</div>', unsafe_allow_html=True)
+    if not products:
+        st.info("ยังไม่มีรายการสินค้าที่เคยซื้อ")
+        return
+    st.markdown(
+        """
+<div class="crm-table">
+  <div class="crm-table-header" style="grid-template-columns:1fr 2fr 1fr 1fr;">
+    <div class="crm-table-cell">SKU</div>
+    <div class="crm-table-cell">สินค้า</div>
+    <div class="crm-table-cell">จำนวนครั้ง</div>
+    <div class="crm-table-cell">ซื้อล่าสุด</div>
+  </div>
+""",
+        unsafe_allow_html=True,
+    )
+    for product in products:
+        st.markdown(
+            f"""
+<div class="crm-table-row" style="grid-template-columns:1fr 2fr 1fr 1fr;">
+  <div class="crm-table-cell">{html.escape(display_value(product.get("sku")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(product.get("product_name")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(product.get("purchase_count")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(product.get("latest_order_date")))}</div>
 </div>
 """,
             unsafe_allow_html=True,
@@ -286,9 +367,10 @@ def unique_orders(orders: list[dict]) -> list[dict]:
     result = []
     for order in orders:
         order_id = clean(order.get("order_id"))
-        if not order_id or order_id in seen:
+        dedupe_key = order_id or clean(order.get("source_key"))
+        if not dedupe_key or dedupe_key in seen:
             continue
-        seen.add(order_id)
+        seen.add(dedupe_key)
         result.append(order)
     return result
 
@@ -322,6 +404,10 @@ def parse_date(value):
         return date.fromisoformat(text[:10])
     except ValueError:
         return None
+
+
+def display_value(value) -> str:
+    return clean(value) or "-"
 
 
 main()

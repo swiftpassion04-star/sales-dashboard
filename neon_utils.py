@@ -1740,6 +1740,102 @@ def fetch_customer_by_id(customer_id: str) -> list[dict]:
             return cur.fetchall()
 
 
+def fetch_customer_360_base(customer_id: str) -> list[dict]:
+    customer_id = clean(customer_id)
+    if not customer_id:
+        return []
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  """ + customer_select_columns() + """
+                from public.crm_data_imports
+                where id = %s
+                limit 1
+                """,
+                [customer_id],
+            )
+            return cur.fetchall()
+
+
+def fetch_customer_360_orders(phone1: str, phone2: str, limit: int = 20) -> list[dict]:
+    clean_phones = sorted(
+        {normalize_phone(phone) for phone in (phone1, phone2) if normalize_phone(phone)}
+    )
+    if not clean_phones:
+        return []
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  id::text as source_key,
+                  order_id,
+                  order_date::text as date_text,
+                  order_date,
+                  customer_name as customer,
+                  phone1,
+                  phone2,
+                  sku,
+                  product_name,
+                  owner as care_staff,
+                  staff_code,
+                  total_amount as total_sales,
+                  amount,
+                  sale_type,
+                  carrier as shipping,
+                  tracking_no,
+                  order_status,
+                  url as channel_url,
+                  province,
+                  city,
+                  postal_code as postcode,
+                  updated_at
+                from public.crm_data_imports
+                where import_status = 'valid'
+                  and (phone1 = any(%s) or phone2 = any(%s))
+                order by order_date desc nulls last, uploaded_at desc nulls last, id desc
+                limit %s
+                """,
+                [clean_phones, clean_phones, int(limit)],
+            )
+            return cur.fetchall()
+
+
+def fetch_customer_360_products(phone1: str, phone2: str, limit: int = 50) -> list[dict]:
+    clean_phones = sorted(
+        {normalize_phone(phone) for phone in (phone1, phone2) if normalize_phone(phone)}
+    )
+    if not clean_phones:
+        return []
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  coalesce(nullif(trim(sku), ''), '-') as sku,
+                  coalesce(nullif(trim(product_name), ''), '-') as product_name,
+                  count(*)::int as purchase_count,
+                  max(order_date)::text as latest_order_date,
+                  max(updated_at)::text as latest_updated_at
+                from public.crm_data_imports
+                where import_status = 'valid'
+                  and (phone1 = any(%s) or phone2 = any(%s))
+                group by
+                  coalesce(nullif(trim(sku), ''), '-'),
+                  coalesce(nullif(trim(product_name), ''), '-')
+                order by purchase_count desc, latest_order_date desc nulls last
+                limit %s
+                """,
+                [clean_phones, clean_phones, int(limit)],
+            )
+            return cur.fetchall()
+
+
 def assign_owner_to_phones(
     phones: tuple[str, ...],
     owner: str,
