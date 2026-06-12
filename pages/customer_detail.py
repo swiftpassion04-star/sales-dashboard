@@ -14,6 +14,7 @@ from neon_utils import (
     normalize_phone,
     upsert_lead_followup,
 )
+from permissions import can_manage_all
 
 
 LEAD_STATUS_OPTIONS = {
@@ -58,6 +59,11 @@ def main() -> None:
         st.warning("ไม่พบข้อมูลลูกค้าใน Neon")
         return
 
+    if not can_view_customer_detail(user, customer):
+        render_page_header("รายละเอียดลูกค้า", "ไม่มีสิทธิ์เข้าถึง")
+        st.error("ไม่มีสิทธิ์เข้าถึงข้อมูลนี้")
+        return
+
     followup = fetch_customer_followup(customer)
     render_page_header(clean(customer.get("customer")) or "รายละเอียดลูกค้า", "ข้อมูลลูกค้า, Follow-up และประวัติการสั่งซื้อ")
     render_customer_summary(customer, followup)
@@ -78,6 +84,14 @@ def get_customer_id() -> str:
 def load_customer(customer_id: str) -> dict:
     rows = fetch_customer_by_id(customer_id)
     return dict(rows[0]) if rows else {}
+
+
+def can_view_customer_detail(user: dict, customer: dict) -> bool:
+    if can_manage_all(user):
+        return True
+    user_staff_code = clean(user.get("staff_code"))
+    customer_staff_code = clean(customer.get("staff_code"))
+    return bool(user_staff_code and customer_staff_code and user_staff_code == customer_staff_code)
 
 
 def fetch_customer_followup(customer: dict) -> dict:

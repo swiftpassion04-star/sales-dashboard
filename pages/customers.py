@@ -19,7 +19,7 @@ from neon_utils import (
     normalize_phone,
     upsert_lead_followup,
 )
-from permissions import can_assign_customer_owner, can_export_customers
+from permissions import can_assign_customer_owner, can_export_customers, can_manage_all
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -282,6 +282,11 @@ def render_customer_detail(row: dict, owner_options: list[str], user: dict, can_
 
 
 def render_customer_actions(row: dict, owner_options: list[str], user: dict, can_assign_owner: bool) -> None:
+    can_edit_follow = can_edit_customer_follow_action(row, user)
+    if not can_edit_follow and not can_assign_owner:
+        st.caption("ไม่มีสิทธิ์แก้ไขรายการนี้")
+        return
+
     current_owner = clean(row.get("sales_staff"))
     current_url = clean(row.get("product_url"))
     options = list(owner_options)
@@ -292,16 +297,24 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
     order_id = clean(row.get("order_id"))
     form_key = f"customer_actions_{record_id}"
     with st.form(form_key):
-        if can_assign_owner and options:
+        follow_submitted = False
+        if can_edit_follow and can_assign_owner and options:
             col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
-        else:
+        elif can_edit_follow:
             col1, col2 = st.columns([1, 1])
             col3 = col4 = None
+        elif can_assign_owner and options:
+            col3, col4 = st.columns([2, 1])
+            col1 = col2 = None
+        else:
+            col1 = col2 = col3 = col4 = None
         marker_options = ["0", "1", "2", "3", "RESET"]
         current_marker = follow_marker_display(row.get("followup_status"))
         marker_index = marker_options.index(current_marker) if current_marker in marker_options else 0
-        marker = col1.selectbox("ติดตาม", marker_options, index=marker_index, key=f"{form_key}_marker")
-        follow_submitted = col2.form_submit_button("บันทึกติดตาม", use_container_width=True)
+        marker = current_marker
+        if can_edit_follow and col1 is not None and col2 is not None:
+            marker = col1.selectbox("ติดตาม", marker_options, index=marker_index, key=f"{form_key}_marker")
+            follow_submitted = col2.form_submit_button("บันทึกติดตาม", use_container_width=True)
         owner_submitted = False
         selected_owner = current_owner
         if can_assign_owner and options and col3 is not None and col4 is not None:
@@ -316,6 +329,9 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
             url_submitted = url_cols[1].form_submit_button("บันทึก URL", use_container_width=True)
 
     if follow_submitted:
+        if not can_edit_customer_follow_action(row, user):
+            st.error("ไม่มีสิทธิ์แก้ไขรายการนี้")
+            return
         try:
             payload = build_follow_marker_payload(row, marker, clean(user.get("email")))
             upsert_lead_followup(payload)
@@ -324,6 +340,9 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
         except Exception as exc:
             st.error(f"อัปเดตสถานะติดตามไม่สำเร็จ: {exc}")
     if owner_submitted:
+        if not can_assign_owner:
+            st.error("ไม่มีสิทธิ์มอบหมายผู้ดูแล")
+            return
         try:
             updated = assign_owner_to_order_record(record_id, order_id, selected_owner, clean(user.get("email")))
             st.success(f"อัปเดตผู้ดูแลแล้ว {updated:,} แถว")
@@ -331,6 +350,9 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
         except Exception as exc:
             st.error(f"อัปเดตผู้ดูแลไม่สำเร็จ: {exc}")
     if url_submitted:
+        if not can_assign_owner:
+            st.error("ไม่มีสิทธิ์อัปเดต URL")
+            return
         try:
             if not clean(new_url):
                 st.error("กรุณากรอก URL ก่อนบันทึก")
@@ -341,6 +363,14 @@ def render_customer_actions(row: dict, owner_options: list[str], user: dict, can
             st.rerun()
         except Exception as exc:
             st.error(f"อัปเดต URL ไม่สำเร็จ: {exc}")
+
+
+def can_edit_customer_follow_action(row: dict, user: dict) -> bool:
+    if can_manage_all(user):
+        return True
+    user_staff_code = clean(user.get("staff_code"))
+    row_staff_code = clean(row.get("staff_code"))
+    return bool(user_staff_code and row_staff_code and user_staff_code == row_staff_code)
 
 
 def unique_names(rows: list[dict]) -> list[str]:
