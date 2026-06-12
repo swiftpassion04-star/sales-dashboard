@@ -73,10 +73,10 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
                     selected_index = labels.index(selected_label) - 1
                     selected_staff = dict(staff_choices[selected_index][1])
                     owner = display_staff_name(selected_staff)
-                    staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code"))) or neon.owner_to_staff_code(owner)
+                    staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code")))
             else:
                 owner = st.text_input("ผู้ดูแล", key="manual_owner_text")
-                staff_code = neon.owner_to_staff_code(owner)
+                staff_code = ""
         else:
             staff_code = normalize_staff_code(staff_code)
             owner = strip_duplicate_staff_suffix(owner or staff_code, staff_code)
@@ -115,6 +115,8 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         errors.append("จำนวนสินค้าต้องมากกว่า 0")
     if not owner:
         errors.append("กรุณาระบุผู้ดูแล")
+    if not staff_code:
+        errors.append("กรุณาระบุ staff_code ของผู้ดูแล")
     if errors:
         st.error(" / ".join(errors))
         return
@@ -175,18 +177,9 @@ def find_manual_order_owner_conflict(phone1: str, phone2: str, user: dict, owner
         for value in [staff_code, user.get("staff_code")]
         if normalize_staff_code(neon.clean(value))
     }
-    allowed_names = {
-        normalize_compare_text(value)
-        for value in [owner, user.get("staff_name"), user.get("owner_alias")]
-        if normalize_compare_text(value)
-    }
-
     for row in rows:
         existing_code = normalize_staff_code(neon.clean(row.get("staff_code"))).casefold()
-        existing_owner = normalize_compare_text(row.get("owner"))
         if existing_code and existing_code in allowed_codes:
-            continue
-        if existing_owner and existing_owner in allowed_names:
             continue
         return dict(row)
     return {}
@@ -293,6 +286,8 @@ def build_staff_choices(rows: list[dict]) -> list[tuple[str, dict]]:
     choices = []
     seen = set()
     for row in rows:
+        if not normalize_staff_code(neon.clean(row.get("staff_code"))):
+            continue
         label = staff_label(row)
         key = label.casefold()
         if not label or key in seen:

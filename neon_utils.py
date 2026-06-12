@@ -551,7 +551,7 @@ def upsert_manual_order(payload: dict) -> dict:
     url = clean(payload.get("url"))
     order_date = parse_date(payload.get("order_date")) or datetime.now(timezone.utc).date().isoformat()
     owner = clean(payload.get("owner"))
-    staff_code = clean(payload.get("staff_code")) or owner_to_staff_code(owner)
+    staff_code = clean(payload.get("staff_code"))
     uploaded_by = clean(payload.get("uploaded_by"))
     updated_by = clean(payload.get("updated_by")) or uploaded_by
     now = now_iso()
@@ -793,7 +793,7 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     sale_type = clean(payload.get("sale_type")) or "NEW_ORDER"
     order_date = parse_date(payload.get("order_date")) or datetime.now(timezone.utc).date().isoformat()
     owner = clean(payload.get("owner"))
-    staff_code = clean(payload.get("staff_code")) or owner_to_staff_code(owner)
+    staff_code = clean(payload.get("staff_code"))
     force_owner_update = bool(payload.get("force_owner_update"))
     uploaded_by = clean(payload.get("uploaded_by"))
     updated_by = clean(payload.get("updated_by")) or uploaded_by
@@ -808,6 +808,8 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
         errors.append("phone1/phone2 ว่าง")
     if not owner:
         errors.append("owner ว่าง")
+    if not staff_code:
+        errors.append("staff_code เธงเนเธฒเธ")
     normalized_items = []
     for item in items or []:
         sku = clean(item.get("sku"))
@@ -2126,23 +2128,9 @@ def _followup_staff_scope(user: dict, alias: str = "d") -> tuple[str, list]:
         return "", []
 
     staff_code = clean(user.get("staff_code"))
-    staff_name = clean(user.get("staff_name"))
-    owner_alias = clean(user.get("owner_alias"))
-    clauses: list[str] = []
-    params: list = []
-
-    if staff_code:
-        clauses.append(f"nullif(trim(coalesce({alias}.staff_code, '')), '') = %s")
-        params.append(staff_code)
-    owner_matches = [value for value in [staff_name, owner_alias] if value]
-    if owner_matches:
-        placeholders = ", ".join([_normalized_text_sql("%s")] * len(owner_matches))
-        clauses.append(f"{_normalized_text_sql(f'{alias}.owner')} in ({placeholders})")
-        params.extend(owner_matches)
-
-    if not clauses:
+    if not staff_code:
         return "1 = 0", []
-    return "(" + " or ".join(clauses) + ")", params
+    return f"nullif(trim(coalesce({alias}.staff_code, '')), '') = %s", [staff_code]
 
 
 def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list]:
