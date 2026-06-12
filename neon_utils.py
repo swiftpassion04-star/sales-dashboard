@@ -215,38 +215,6 @@ alter table public.crm_staff_options
 alter table public.crm_data_imports
   add column if not exists staff_code text;
 
-update public.crm_user_roles
-set staff_code = nullif(trim(coalesce(staff_code, staff_name, '')), '')
-where staff_code is null or staff_code = '';
-
-update public.crm_staff_options
-set staff_code = nullif(
-  trim(
-    case
-      when staff_code is not null and staff_code <> '' then staff_code
-      when staff_name ~ '\\([^()]+\\)' then regexp_replace(staff_name, '^.*\\(([^()]*)\\).*$', '\\1')
-      else staff_name
-    end
-  ),
-  ''
-)
-where staff_code is null or staff_code = '';
-
-update public.crm_data_imports
-set staff_code = nullif(
-  trim(
-    case
-      when staff_code is not null and staff_code <> '' then staff_code
-      when owner ~ '\\([^()]+\\)' then regexp_replace(owner, '^.*\\(([^()]*)\\).*$', '\\1')
-      else owner
-    end
-  ),
-  ''
-)
-where (staff_code is null or staff_code = '')
-  and owner is not null
-  and owner <> '';
-
 create index if not exists idx_crm_data_imports_staff_code
   on public.crm_data_imports (staff_code);
 
@@ -332,6 +300,8 @@ def normalize_phone(value) -> str:
 
 
 def owner_to_staff_code(value) -> str:
+    # Legacy/display-only helper. Never use this to write canonical staff_code.
+    # Canonical staff_code must come from crm_user_roles/crm_staff_options.
     text = clean(value)
     if not text:
         return ""
@@ -475,7 +445,7 @@ def build_record_from_mapping(
         "order_status": pick("order_status"),
         "total_amount": to_number(pick("total_amount")),
         "owner": owner,
-        "staff_code": owner_to_staff_code(owner),
+        "staff_code": "",
         "import_status": "invalid" if errors else "valid",
         "validation_error": "; ".join(errors),
         "dedupe_key": make_dedupe_key(order_id, phone1, phone2, tracking_no),
@@ -1280,7 +1250,6 @@ def apply_latest_customer_updates(cur, updates) -> None:
         row_id = clean(update.get("id"))
         url = clean(update.get("url"))
         owner = clean(update.get("owner"))
-        staff_code = owner_to_staff_code(owner)
         if not row_id or (not url and not owner):
             continue
         cur.execute(
@@ -1288,11 +1257,10 @@ def apply_latest_customer_updates(cur, updates) -> None:
             update public.crm_data_imports
             set url = coalesce(nullif(%s, ''), url),
                 owner = coalesce(nullif(%s, ''), owner),
-                staff_code = coalesce(nullif(%s, ''), staff_code),
                 updated_at = now()
             where id = %s
             """,
-            [url, owner, staff_code, row_id],
+            [url, owner, row_id],
         )
 
 
@@ -1335,7 +1303,6 @@ def apply_owner_assignments(cur, records: list[dict]) -> None:
             owner = owner_by_phone.get(normalize_phone(record.get(name)))
             if owner:
                 record["owner"] = owner
-                record["staff_code"] = owner_to_staff_code(owner)
                 break
 
 
@@ -1773,26 +1740,37 @@ def fetch_customer_by_id(customer_id: str) -> list[dict]:
             return cur.fetchall()
 
 
-def assign_owner_to_phones(phones: tuple[str, ...], owner: str, updated_by: str) -> int:
+def assign_owner_to_phones(phones: tuple[str, ...], owner: str, updated_by: str, staff_code: str = "") -> int:
     clean_phones = sorted({normalize_phone(phone) for phone in phones if normalize_phone(phone)})
     owner = clean(owner)
-    staff_code = owner_to_staff_code(owner)
+    staff_code = clean(staff_code)
     if not clean_phones or not owner:
         return 0
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    update public.crm_data_imports
-                    set owner = %s,
-                        staff_code = %s,
-                        updated_at = now()
-                    where phone1 = any(%s) or phone2 = any(%s)
-                    """,
-                    [owner, staff_code, clean_phones, clean_phones],
-                )
+                if staff_code:
+                    cur.execute(
+                        """
+                        update public.crm_data_imports
+                        set owner = %s,
+                            staff_code = %s,
+                            updated_at = now()
+                        where phone1 = any(%s) or phone2 = any(%s)
+                        """,
+                        [owner, staff_code, clean_phones, clean_phones],
+                    )
+                else:
+                    cur.execute(
+                        """
+                        update public.crm_data_imports
+                        set owner = %s,
+                            updated_at = now()
+                        where phone1 = any(%s) or phone2 = any(%s)
+                        """,
+                        [owner, clean_phones, clean_phones],
+                    )
                 updated = int(cur.rowcount or 0)
                 cur.executemany(
                     """
@@ -1840,18 +1818,18 @@ def assign_url_to_phones(phones: tuple[str, ...], url: str, updated_by: str) -> 
             raise
 
 
-def assign_owner_to_order_record(record_id: str, order_id: str, owner: str, updated_by: str) -> int:
+def assign_owner_to_order_record(record_id: str, order_id: str, owner: str, updated_by: str, staff_code: str = "") -> int:
     record_id = clean(record_id)
     order_id = clean(order_id)
     owner = clean(owner)
-    staff_code = owner_to_staff_code(owner)
+    staff_code = clean(staff_code)
     if not record_id or not owner:
         return 0
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
         try:
             with conn.cursor() as cur:
-                if order_id:
+                if order_id and staff_code:
                     cur.execute(
                         """
                         update public.crm_data_imports
@@ -1862,7 +1840,17 @@ def assign_owner_to_order_record(record_id: str, order_id: str, owner: str, upda
                         """,
                         [owner, staff_code, order_id],
                     )
-                else:
+                elif order_id:
+                    cur.execute(
+                        """
+                        update public.crm_data_imports
+                        set owner = %s,
+                            updated_at = now()
+                        where order_id = %s
+                        """,
+                        [owner, order_id],
+                    )
+                elif staff_code:
                     cur.execute(
                         """
                         update public.crm_data_imports
@@ -1872,6 +1860,16 @@ def assign_owner_to_order_record(record_id: str, order_id: str, owner: str, upda
                         where id = %s
                         """,
                         [owner, staff_code, record_id],
+                    )
+                else:
+                    cur.execute(
+                        """
+                        update public.crm_data_imports
+                        set owner = %s,
+                            updated_at = now()
+                        where id = %s
+                        """,
+                        [owner, record_id],
                     )
                 updated = int(cur.rowcount or 0)
             conn.commit()
