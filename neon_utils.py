@@ -2107,6 +2107,7 @@ def fetch_orders_by_phones(phones: tuple[str, ...], limit: int = 5000) -> list[d
     return rows
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_import_history(limit: int = 50) -> list[dict]:
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
@@ -2295,6 +2296,7 @@ def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list
     return "where " + " and ".join(clauses), params
 
 
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_followup_filter_options(user: dict) -> dict[str, list[str]]:
     ensure_crm_data_imports_schema()
     clauses = ["d.import_status = 'valid'"]
@@ -2487,6 +2489,7 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
             return cur.fetchall(), total
 
 
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_product_options() -> list[dict]:
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
@@ -2839,6 +2842,7 @@ def fetch_staff_options(active_only: bool = False) -> list[dict]:
             return cur.fetchall()
 
 
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_owner_user_options(active_only: bool = False) -> list[dict]:
     ensure_crm_data_imports_schema()
     active_clause = "and is_active = true" if active_only else ""
