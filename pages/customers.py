@@ -60,7 +60,6 @@ def main() -> None:
     render_page_header("ลูกค้า", "ค้นหาและดูข้อมูลลูกค้าจาก Neon แบบ server-side")
 
     filters = render_filters(user)
-    render_export_panel(filters, user)
     page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customers_page_size")
     page = int(st.number_input("หน้า", min_value=1, value=int(st.session_state.get("customers_page", 1)), step=1))
     st.session_state.customers_page = page

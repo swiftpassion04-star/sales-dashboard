@@ -5,6 +5,7 @@ from auth_utils import current_user, require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from permissions import can_add_manual_order, can_import_excel
+from ui.customer_export_ui import render_customer_export_panel
 from ui.import_excel_ui import render_excel_import, render_import_history
 from ui.manual_order_ui import render_manual_order_form
 
@@ -27,6 +28,12 @@ def main() -> None:
 
     st.markdown('<div class="crm-section-title">เพิ่มคำสั่งซื้อ</div>', unsafe_allow_html=True)
     render_manual_order_form(user, is_editor)
+    render_customer_export_panel(
+        {},
+        user,
+        form_key="import_excel_customer_xlsx_export",
+        state_prefix="import_excel_customers_export",
+    )
     if not is_editor:
         st.info("บัญชีพนักงานเพิ่มคำสั่งซื้อได้ แต่ไม่มีสิทธินำเข้า Excel หรือจัดการ import history")
         return
