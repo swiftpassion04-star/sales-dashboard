@@ -9,11 +9,12 @@ from nav_utils import render_sidebar_nav
 from neon_utils import (
     fetch_followup_filter_options,
     fetch_followup_page,
+    fetch_existing_owner_rows_by_phones,
     fetch_product_options,
     upsert_lead_followup,
     upsert_manual_order_items,
 )
-from permissions import can_view_followup, can_view_followup_owner_filter
+from permissions import can_manage_all, can_view_followup, can_view_followup_owner_filter
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -480,6 +481,13 @@ def render_order_dialog(row: dict, user: dict) -> None:
         st.error(" / ".join(errors))
         return
 
+    if not can_manage_all(user):
+        owner_conflict = find_popup_order_owner_conflict(phone1, phone2, user, staff_code)
+        if owner_conflict:
+            conflict_owner = clean(owner_conflict.get("owner")) or clean(owner_conflict.get("staff_code")) or "-"
+            st.error(f"มีผู้ดูแลแล้ว: {conflict_owner}")
+            return
+
     try:
         result = upsert_manual_order_items(
             {
@@ -513,6 +521,24 @@ def render_order_dialog(row: dict, user: dict) -> None:
     )
     close_followup_modal()
     st.rerun()
+
+
+def find_popup_order_owner_conflict(phone1: str, phone2: str, user: dict, staff_code: str) -> dict:
+    rows = fetch_existing_owner_rows_by_phones(phone1, phone2)
+    if not rows:
+        return {}
+
+    allowed_codes = {
+        clean(value).casefold()
+        for value in [staff_code, (user or {}).get("staff_code")]
+        if clean(value)
+    }
+    for row in rows:
+        existing_code = clean(row.get("staff_code")).casefold()
+        if existing_code and existing_code in allowed_codes:
+            continue
+        return dict(row)
+    return {}
 
 
 def render_popup_customer_summary(row: dict) -> None:
