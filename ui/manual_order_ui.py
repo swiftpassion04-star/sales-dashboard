@@ -153,7 +153,7 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
 
     actions = result.get("actions") or {}
     action_text = f"สินค้า {result.get('item_count', 0)} รายการ (เพิ่มใหม่ {actions.get('inserted', 0)}, อัปเดต {actions.get('updated', 0)})"
-    st.cache_data.clear()
+    neon.clear_cached_data_functions(neon.fetch_followup_filter_options)
     st.session_state.manual_order_success_message = f"บันทึกสำเร็จ: {action_text}"
     st.session_state.manual_order_clear_requested = True
     st.rerun()

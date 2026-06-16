@@ -7,10 +7,12 @@ from auth_utils import current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
+    clear_cached_data_functions,
     clean,
     fetch_customer_360_base,
     fetch_customer_360_orders,
     fetch_customer_360_products,
+    fetch_followup_filter_options,
     neon_connection,
     normalize_phone,
     upsert_lead_followup,
@@ -284,7 +286,7 @@ def render_followup_form(customer: dict, followup: dict, user: dict) -> None:
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
     upsert_lead_followup(payload)
-    st.cache_data.clear()
+    clear_cached_data_functions(fetch_followup_filter_options)
     st.success("บันทึก Follow-up แล้ว")
     st.rerun()
 

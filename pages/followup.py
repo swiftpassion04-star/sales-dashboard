@@ -7,6 +7,7 @@ from auth_utils import current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
+    clear_cached_data_functions,
     fetch_followup_filter_options,
     fetch_followup_page,
     fetch_existing_owner_rows_by_phones,
@@ -285,7 +286,7 @@ def render_detail(row: dict, user: dict) -> None:
         }
         upsert_lead_followup(payload)
         st.session_state.setdefault("followup_drafts_v2", {}).pop(key, None)
-        st.cache_data.clear()
+        clear_cached_data_functions(fetch_followup_filter_options)
         st.session_state.followup_page_success = "บันทึกสำเร็จแล้ว"
         close_followup_modal()
         st.rerun()
@@ -511,7 +512,7 @@ def render_order_dialog(row: dict, user: dict) -> None:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
-    st.cache_data.clear()
+    clear_cached_data_functions(fetch_followup_filter_options)
     clear_popup_order_state(prefix, row)
     actions = result.get("actions") or {}
     st.session_state.followup_page_success = (
