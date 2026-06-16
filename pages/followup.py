@@ -8,10 +8,13 @@ from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
     clear_cached_data_functions,
+    fetch_crm_owner_options,
+    fetch_filter_options,
     fetch_followup_filter_options,
     fetch_followup_page,
     fetch_existing_owner_rows_by_phones,
     fetch_product_options,
+    fetch_sales_report_owner_options,
     upsert_lead_followup,
     upsert_manual_order_items,
 )
@@ -512,7 +515,12 @@ def render_order_dialog(row: dict, user: dict) -> None:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
-    clear_cached_data_functions(fetch_followup_filter_options)
+    clear_cached_data_functions(
+        fetch_followup_filter_options,
+        fetch_filter_options,
+        fetch_sales_report_owner_options,
+        fetch_crm_owner_options,
+    )
     clear_popup_order_state(prefix, row)
     actions = result.get("actions") or {}
     st.session_state.followup_page_success = (

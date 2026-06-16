@@ -11,11 +11,14 @@ from nav_utils import render_sidebar_nav
 from neon_utils import (
     assign_owner_to_order_record,
     assign_url_to_phones,
+    clear_cached_data_functions,
+    fetch_crm_owner_options,
     fetch_customer_export_rows,
     fetch_customer_page,
     fetch_filter_options,
     fetch_orders_by_phones,
     fetch_owner_user_options,
+    fetch_sales_report_owner_options,
     normalize_phone,
     upsert_lead_followup,
 )
@@ -371,6 +374,11 @@ def render_customer_actions(
                 selected_owner,
                 clean(user.get("email")),
                 staff_code=selected_staff_code,
+            )
+            clear_cached_data_functions(
+                fetch_filter_options,
+                fetch_sales_report_owner_options,
+                fetch_crm_owner_options,
             )
             st.success(f"อัปเดตผู้ดูแลแล้ว {updated:,} แถว")
             st.rerun()
