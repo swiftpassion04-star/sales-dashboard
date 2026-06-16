@@ -6,15 +6,12 @@ import streamlit as st
 from auth_utils import current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
+import neon_utils as neon
 from neon_utils import (
-    clear_cached_data_functions,
-    fetch_crm_owner_options,
-    fetch_filter_options,
     fetch_followup_filter_options,
     fetch_followup_page,
     fetch_existing_owner_rows_by_phones,
     fetch_product_options,
-    fetch_sales_report_owner_options,
     upsert_lead_followup,
     upsert_manual_order_items,
 )
@@ -289,7 +286,7 @@ def render_detail(row: dict, user: dict) -> None:
         }
         upsert_lead_followup(payload)
         st.session_state.setdefault("followup_drafts_v2", {}).pop(key, None)
-        clear_cached_data_functions(fetch_followup_filter_options)
+        neon.clear_cached_data_functions(fetch_followup_filter_options)
         st.session_state.followup_page_success = "บันทึกสำเร็จแล้ว"
         close_followup_modal()
         st.rerun()
@@ -515,11 +512,11 @@ def render_order_dialog(row: dict, user: dict) -> None:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
-    clear_cached_data_functions(
+    neon.clear_cached_data_functions(
         fetch_followup_filter_options,
-        fetch_filter_options,
-        fetch_sales_report_owner_options,
-        fetch_crm_owner_options,
+        getattr(neon, "fetch_filter_options", None),
+        getattr(neon, "fetch_sales_report_owner_options", None),
+        getattr(neon, "fetch_crm_owner_options", None),
     )
     clear_popup_order_state(prefix, row)
     actions = result.get("actions") or {}

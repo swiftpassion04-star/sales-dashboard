@@ -8,17 +8,15 @@ import streamlit as st
 from auth_utils import current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
+import neon_utils as neon
 from neon_utils import (
     assign_owner_to_order_record,
     assign_url_to_phones,
-    clear_cached_data_functions,
-    fetch_crm_owner_options,
     fetch_customer_export_rows,
     fetch_customer_page,
     fetch_filter_options,
     fetch_orders_by_phones,
     fetch_owner_user_options,
-    fetch_sales_report_owner_options,
     normalize_phone,
     upsert_lead_followup,
 )
@@ -375,10 +373,10 @@ def render_customer_actions(
                 clean(user.get("email")),
                 staff_code=selected_staff_code,
             )
-            clear_cached_data_functions(
+            neon.clear_cached_data_functions(
                 fetch_filter_options,
-                fetch_sales_report_owner_options,
-                fetch_crm_owner_options,
+                getattr(neon, "fetch_sales_report_owner_options", None),
+                getattr(neon, "fetch_crm_owner_options", None),
             )
             st.success(f"อัปเดตผู้ดูแลแล้ว {updated:,} แถว")
             st.rerun()
