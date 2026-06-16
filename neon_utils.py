@@ -1549,6 +1549,7 @@ def _can_view_all_sales(user: dict | None) -> bool:
     return clean((user or {}).get("role")) in {"ADMIN", "EDITOR"}
 
 
+@st.cache_data(ttl=300)
 def fetch_sales_report_owner_options(user: dict | None = None) -> list[str]:
     ensure_crm_data_imports_schema()
     if not crm_sales_report_ready() or not _can_view_all_sales(user):
@@ -2000,6 +2001,7 @@ def assign_owner_to_order_record(
     return updated
 
 
+@st.cache_data(ttl=900)
 def fetch_filter_options() -> dict[str, list[str]]:
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
@@ -2714,6 +2716,7 @@ def fetch_user_roles() -> list[dict]:
             return cur.fetchall()
 
 
+@st.cache_data(ttl=900)
 def fetch_crm_owner_options(limit: int = 1000) -> list[str]:
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
