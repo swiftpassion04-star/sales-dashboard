@@ -15,6 +15,7 @@ from neon_utils import (
     fetch_customer_export_rows,
     fetch_customer_page,
     fetch_filter_options,
+    fetch_followup_filter_options,
     fetch_orders_by_phones,
     fetch_owner_user_options,
     normalize_phone,
@@ -375,6 +376,7 @@ def render_customer_actions(
             )
             neon.clear_cached_data_functions(
                 fetch_filter_options,
+                fetch_followup_filter_options,
                 getattr(neon, "fetch_sales_report_owner_options", None),
                 getattr(neon, "fetch_crm_owner_options", None),
             )
