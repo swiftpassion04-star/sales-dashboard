@@ -286,7 +286,7 @@ def render_detail(row: dict, user: dict) -> None:
         }
         upsert_lead_followup(payload)
         st.session_state.setdefault("followup_drafts_v2", {}).pop(key, None)
-        neon.clear_cached_data_functions(fetch_followup_filter_options)
+        clear_cached_functions_safely(fetch_followup_filter_options)
         st.session_state.followup_page_success = "บันทึกสำเร็จแล้ว"
         close_followup_modal()
         st.rerun()
@@ -401,6 +401,17 @@ def close_followup_modal() -> None:
     st.session_state.pop("followup_modal_row", None)
 
 
+def clear_cached_functions_safely(*functions) -> None:
+    clear_many = getattr(neon, "clear_cached_data_functions", None)
+    if callable(clear_many):
+        clear_many(*functions)
+        return
+    for function in functions:
+        clear = getattr(function, "clear", None)
+        if callable(clear):
+            clear()
+
+
 @st.dialog("ติดตามลูกค้า", width="large")
 def render_followup_dialog(row: dict, user: dict) -> None:
     render_popup_customer_summary(row)
@@ -512,7 +523,7 @@ def render_order_dialog(row: dict, user: dict) -> None:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
-    neon.clear_cached_data_functions(
+    clear_cached_functions_safely(
         fetch_followup_filter_options,
         getattr(neon, "fetch_filter_options", None),
         getattr(neon, "fetch_sales_report_owner_options", None),
