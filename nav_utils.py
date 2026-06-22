@@ -1,3 +1,5 @@
+import html
+
 import streamlit as st
 
 from crm_theme import inject_saas_theme, render_page_header
@@ -35,8 +37,14 @@ NAV_GROUPS = [
 ]
 
 
-def render_sidebar_nav() -> None:
+def _has_auth_session() -> bool:
+    return bool(st.session_state.get("auth_user") and st.session_state.get("auth_role"))
+
+
+def render_sidebar_nav(disabled: bool | None = None) -> None:
     inject_saas_theme()
+    if disabled is None:
+        disabled = not _has_auth_session()
     st.sidebar.markdown(
         """
 <div class="crm-nav-brand">
@@ -49,7 +57,13 @@ def render_sidebar_nav() -> None:
     for group, links in NAV_GROUPS:
         st.sidebar.markdown(f'<div class="crm-nav-title">{group}</div>', unsafe_allow_html=True)
         for label, page in links:
-            st.sidebar.page_link(page, label=label)
+            if disabled:
+                st.sidebar.markdown(
+                    f'<div class="crm-nav-disabled" title="เข้าสู่ระบบก่อนใช้งาน">{html.escape(label)}</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.sidebar.page_link(page, label=label)
         st.sidebar.markdown('<div class="crm-nav-spacer"></div>', unsafe_allow_html=True)
 
 

@@ -155,6 +155,23 @@ h3 {
   border-left-color:var(--crm-primary) !important;
   color:var(--crm-text) !important;
 }
+.crm-nav-disabled {
+  min-height:42px;
+  display:flex;
+  align-items:center;
+  border-radius:12px;
+  padding:9px 10px 9px 14px;
+  border-left:3px solid transparent;
+  margin:2px 0;
+  color:#8A6A52 !important;
+  font-weight:650;
+  opacity:.72;
+  cursor:not-allowed;
+  user-select:none;
+}
+.crm-nav-disabled:hover {
+  background:#FFF8F0;
+}
 p, label, span, small, div[data-testid="stMarkdownContainer"] {
   color:var(--crm-text);
   letter-spacing:0;

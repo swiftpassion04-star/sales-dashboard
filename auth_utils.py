@@ -115,6 +115,19 @@ def inject_login_css() -> None:
     st.markdown(
         """
 <style>
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"] {
+  background:#FFF8F0 !important;
+  color:#1F2937 !important;
+}
+[data-testid="stSidebar"] {
+  background:#FFF3E8 !important;
+  border-right:1px solid #F3E4D2 !important;
+}
+[data-testid="stSidebarNav"] {
+  display:none !important;
+}
 .block-container {
   max-width: 1180px !important;
   padding-top: 4.2rem !important;
@@ -158,6 +171,16 @@ def inject_login_css() -> None:
   padding:12px 14px;
   font-size:14px;
   margin-bottom:14px;
+}
+.crm-login-status {
+  max-width:430px;
+  margin:0 auto;
+  background:#FFFFFF;
+  border:1px solid #F3E4D2;
+  color:#6B7280;
+  border-radius:20px;
+  padding:18px 20px;
+  box-shadow:0 14px 34px rgba(31,41,55,.08);
 }
 div[data-testid="stForm"] {
   max-width:430px;
@@ -358,23 +381,7 @@ def html_escape(value) -> str:
     )
 
 
-def require_login() -> dict:
-    inject_auth_css()
-    if st.session_state.pop("auth_clear_browser_session", False):
-        clear_browser_session()
-    restore_status = "empty"
-    if not st.session_state.get("auth_skip_restore"):
-        restore_status = restore_browser_session()
-    user = current_user()
-    if user:
-        render_user_box(user)
-        return user
-
-    inject_login_css()
-    if restore_status == "pending":
-        st.info("กำลังตรวจสอบ session จาก browser...")
-        st.stop()
-
+def render_login_shell(message: str | None = None) -> None:
     left, center, right = st.columns([1, 1.08, 1])
     with center:
         st.markdown(
@@ -392,6 +399,33 @@ def require_login() -> dict:
 """,
             unsafe_allow_html=True,
         )
+        if message:
+            st.markdown(
+                f'<div class="crm-login-status">{html_escape(message)}</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def require_login() -> dict:
+    inject_auth_css()
+    inject_login_css()
+    if st.session_state.pop("auth_clear_browser_session", False):
+        clear_browser_session()
+    restore_status = "empty"
+    if not st.session_state.get("auth_skip_restore"):
+        restore_status = restore_browser_session()
+    user = current_user()
+    if user:
+        render_user_box(user)
+        return user
+
+    if restore_status == "pending":
+        render_login_shell("กำลังตรวจสอบ session จาก browser...")
+        st.stop()
+
+    render_login_shell()
+    left, center, right = st.columns([1, 1.08, 1])
+    with center:
         with st.form("crm_login_form"):
             email = st.text_input("อีเมล", value="", placeholder="name@example.com")
             password = st.text_input("รหัสผ่าน", value="", type="password")
@@ -523,10 +557,12 @@ def restore_browser_session() -> str:
         st.session_state.auth_refresh_token = refresh_token
         st.session_state.auth_session_expires_at = expires_at
 
+        refreshed_payload = None
         try:
             verified_user = fetch_auth_user(access_token)
         except Exception:
             refreshed = refresh_auth_session(refresh_token)
+            refreshed_payload = refreshed
             verified_user = refreshed.get("user") or {}
             st.session_state.auth_access_token = refreshed.get("access_token")
             st.session_state.auth_refresh_token = refreshed.get("refresh_token") or refresh_token
@@ -537,14 +573,15 @@ def restore_browser_session() -> str:
             return "empty"
         st.session_state.auth_user = verified_user
         st.session_state.auth_role = fetch_user_role(user_email)
-        save_browser_session(
-            {
-                "access_token": st.session_state.get("auth_access_token"),
-                "refresh_token": st.session_state.get("auth_refresh_token"),
-                "user": verified_user,
-            },
-            st.session_state.auth_role,
-        )
+        if refreshed_payload is not None:
+            save_browser_session(
+                {
+                    "access_token": st.session_state.get("auth_access_token"),
+                    "refresh_token": st.session_state.get("auth_refresh_token"),
+                    "user": verified_user,
+                },
+                st.session_state.auth_role,
+            )
         ensure_fresh_session()
         return "restored"
     except Exception:
