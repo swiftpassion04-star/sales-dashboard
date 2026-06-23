@@ -10,6 +10,9 @@ from neon_utils import fetch_customer_export_rows
 from permissions import can_export_customers
 
 
+EXPORT_MODE_ALL_ROWS = "คำสั่งซื้อทั้งหมด"
+EXPORT_MODE_LATEST_OWNER = "ผู้ดูแลล่าสุดต่อเบอร์"
+EXPORT_MODE_OPTIONS = [EXPORT_MODE_ALL_ROWS, EXPORT_MODE_LATEST_OWNER]
 EXPORT_PERIOD_OPTIONS = ["ทั้งหมด", "รายวัน", "รายเดือน", "กำหนดช่วงวันที่"]
 CRM_EXPORT_HEADERS = [
     "วันที่สั่งซื้อ",
@@ -35,6 +38,7 @@ CRM_EXPORT_HEADERS = [
     "พนักงานอัพเซลล์",
     "พนักงานดูแล",
 ]
+CRM_LATEST_OWNER_HEADER = "ผู้ดูแลล่าสุด"
 
 
 def render_customer_export_panel(
@@ -43,6 +47,7 @@ def render_customer_export_panel(
     *,
     form_key: str = "customer_xlsx_export",
     state_prefix: str = "customers_export",
+    allow_latest_owner_mode: bool = False,
 ) -> None:
     if not can_export_customers(user):
         return
@@ -52,14 +57,31 @@ def render_customer_export_panel(
         period_col, date_col = st.columns([1, 2])
         period = period_col.selectbox("ช่วงข้อมูล", EXPORT_PERIOD_OPTIONS, key=f"{state_prefix}_period")
         start_date, end_date = resolve_export_dates(period, date_col, state_prefix)
+        export_mode = EXPORT_MODE_ALL_ROWS
+        if allow_latest_owner_mode:
+            export_mode = st.selectbox("รูปแบบไฟล์", EXPORT_MODE_OPTIONS, key=f"{state_prefix}_mode")
         prepared = st.form_submit_button("เตรียมไฟล์ดาวน์โหลด", use_container_width=True)
 
     if prepared:
         try:
-            rows = fetch_customer_export_rows(filters or {}, user, start_date=start_date, end_date=end_date)
-            st.session_state[f"{state_prefix}_xlsx"] = build_customer_export_xlsx(rows)
+            latest_owner_only = export_mode == EXPORT_MODE_LATEST_OWNER
+            rows = fetch_customer_export_rows(
+                filters or {},
+                user,
+                start_date=start_date,
+                end_date=end_date,
+                latest_owner_only=latest_owner_only,
+            )
+            st.session_state[f"{state_prefix}_xlsx"] = build_customer_export_xlsx(
+                rows,
+                include_latest_owner=latest_owner_only,
+            )
             st.session_state[f"{state_prefix}_count"] = len(rows)
-            st.session_state[f"{state_prefix}_name"] = build_export_filename(start_date, end_date)
+            st.session_state[f"{state_prefix}_name"] = build_export_filename(
+                start_date,
+                end_date,
+                latest_owner_only=latest_owner_only,
+            )
         except Exception as exc:
             st.error(f"เตรียมไฟล์ดาวน์โหลดไม่สำเร็จ: {exc}")
             return
@@ -104,23 +126,32 @@ def resolve_export_dates(period: str, container, state_prefix: str) -> tuple[dat
     return today, today
 
 
-def build_export_filename(start_date: date | None, end_date: date | None) -> str:
+def build_export_filename(
+    start_date: date | None,
+    end_date: date | None,
+    *,
+    latest_owner_only: bool = False,
+) -> str:
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    prefix = "crm_latest_owner" if latest_owner_only else "crm_customers"
     if start_date and end_date:
-        return f"crm_customers_{start_date:%Y%m%d}_{end_date:%Y%m%d}_{stamp}.xlsx"
-    return f"crm_customers_all_{stamp}.xlsx"
+        return f"{prefix}_{start_date:%Y%m%d}_{end_date:%Y%m%d}_{stamp}.xlsx"
+    return f"{prefix}_all_{stamp}.xlsx"
 
 
-def build_customer_export_xlsx(rows: list[dict]) -> bytes:
-    table = [customer_export_row(row) for row in rows]
-    df = pd.DataFrame(table, columns=CRM_EXPORT_HEADERS)
+def build_customer_export_xlsx(rows: list[dict], *, include_latest_owner: bool = False) -> bytes:
+    headers = [*CRM_EXPORT_HEADERS]
+    if include_latest_owner:
+        headers.append(CRM_LATEST_OWNER_HEADER)
+    table = [customer_export_row(row, include_latest_owner=include_latest_owner) for row in rows]
+    df = pd.DataFrame(table, columns=headers)
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="customers")
     return buffer.getvalue()
 
 
-def customer_export_row(row: dict) -> dict:
+def customer_export_row(row: dict, *, include_latest_owner: bool = False) -> dict:
     raw = row.get("raw_data") or {}
     if not isinstance(raw, dict):
         raw = {}
@@ -139,7 +170,7 @@ def customer_export_row(row: dict) -> dict:
     if not price:
         price = pick("total_amount", "ราคา", "ยอดขาย", "ยอดขายรวม")
 
-    return {
+    export_row = {
         "วันที่สั่งซื้อ": pick("order_date", "วันที่สั่งซื้อ", "วันที่"),
         "เลขคำสั่งซื้อ": pick("order_id", "เลขคำสั่งซื้อ", "เลขออเดอร์"),
         "ช่องทางขาย": pick("sales_channel", "ช่องทางขาย", "ช่องทาง"),
@@ -163,6 +194,9 @@ def customer_export_row(row: dict) -> dict:
         "พนักงานอัพเซลล์": pick("upsell_staff", "พนักงานอัพเซลล์", "พนักงาน UPSELL"),
         "พนักงานดูแล": pick("owner", "พนักงานดูแล", "ผู้ดูแล"),
     }
+    if include_latest_owner:
+        export_row[CRM_LATEST_OWNER_HEADER] = pick("latest_owner", "พนักงานดูแล", "ผู้ดูแล")
+    return export_row
 
 
 def clean(value) -> str:

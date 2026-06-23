@@ -33,6 +33,7 @@ def main() -> None:
         user,
         form_key="import_excel_customer_xlsx_export",
         state_prefix="import_excel_customers_export",
+        allow_latest_owner_mode=True,
     )
     if not is_editor:
         st.info("บัญชีพนักงานเพิ่มคำสั่งซื้อได้ แต่ไม่มีสิทธินำเข้า Excel หรือจัดการ import history")

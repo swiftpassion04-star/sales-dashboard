@@ -1406,6 +1406,7 @@ def fetch_customer_export_rows(
     user: dict | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
+    latest_owner_only: bool = False,
 ) -> list[dict]:
     ensure_crm_data_imports_schema()
     where, params = build_customer_where(filters, user, enforce_user_scope=False)
@@ -1427,6 +1428,84 @@ def fetch_customer_export_rows(
 
     with neon_connection() as conn:
         with conn.cursor() as cur:
+            if latest_owner_only:
+                cur.execute(
+                    f"""
+                    with keyed as (
+                      select
+                        d.id::text as id,
+                        d.order_date,
+                        d.order_id,
+                        d.sku,
+                        d.product_name,
+                        {quantity_expr},
+                        d.total_amount,
+                        {amount_expr},
+                        d.carrier,
+                        d.tracking_no,
+                        d.url,
+                        d.customer_name,
+                        d.phone1,
+                        d.phone2,
+                        {address_expr},
+                        d.city,
+                        d.province,
+                        d.postal_code,
+                        d.owner,
+                        d.owner as latest_owner,
+                        d.order_status,
+                        d.raw_data,
+                        d.uploaded_at,
+                        d.created_at,
+                        d.updated_at,
+                        case
+                          when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
+                          else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
+                        end as phone_key
+                      from public.crm_data_imports d
+                      {where_sql}
+                    ),
+                    ranked as (
+                      select
+                        keyed.*,
+                        row_number() over (
+                          partition by phone_key
+                          order by order_date desc nulls last, uploaded_at desc, id desc
+                        ) as rn
+                      from keyed
+                    )
+                    select
+                      id,
+                      order_date,
+                      order_id,
+                      sku,
+                      product_name,
+                      quantity,
+                      total_amount,
+                      amount,
+                      carrier,
+                      tracking_no,
+                      url,
+                      customer_name,
+                      phone1,
+                      phone2,
+                      address,
+                      city,
+                      province,
+                      postal_code,
+                      owner,
+                      latest_owner,
+                      order_status,
+                      raw_data,
+                      created_at,
+                      updated_at
+                    from ranked
+                    where rn = 1
+                    order by order_date desc nulls last, uploaded_at desc, id desc
+                    """,
+                    params,
+                )
+                return cur.fetchall()
             cur.execute(
                 f"""
                 select
