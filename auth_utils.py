@@ -66,11 +66,11 @@ def inject_auth_css() -> None:
 .crm-auth-card {
   background:#FFFFFF;
   border:1px solid #F3E4D2;
-  border-radius:16px;
-  padding:14px;
+  border-radius:18px;
+  padding:16px;
   margin:12px 0 18px;
   color:#1F2937;
-  box-shadow:0 2px 8px rgba(31,41,55,.04);
+  box-shadow:0 4px 14px rgba(124,45,18,.045);
 }
 .crm-auth-card strong { color:#9A4B12; }
 [data-testid="stSidebar"] .crm-auth-card * { color:#1F2937 !important; }
@@ -79,14 +79,18 @@ div.stFormSubmitButton > button {
   background:#F97316 !important;
   color:#ffffff !important;
   border:1px solid #EA580C !important;
-  border-radius:12px !important;
+  border-radius:999px !important;
   font-weight:700 !important;
+  min-height:46px !important;
+  padding:10px 24px !important;
 }
 div.stButton > button[kind="secondary"] {
   background:#ffffff !important;
   color:#9A4B12 !important;
   border:1px solid #F97316 !important;
-  border-radius:12px !important;
+  border-radius:999px !important;
+  min-height:46px !important;
+  padding:10px 24px !important;
 }
 div[data-baseweb="input"] > div,
 div[data-baseweb="select"] > div,
@@ -118,7 +122,10 @@ def inject_login_css() -> None:
 .stApp,
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"] {
-  background:#FFF8F0 !important;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255,219,181,.48), transparent 28%),
+    radial-gradient(circle at 82% 4%, rgba(255,242,226,.72), transparent 34%),
+    #FFF8F0 !important;
   color:#1F2937 !important;
 }
 [data-testid="stSidebar"] {
@@ -147,9 +154,9 @@ def inject_login_css() -> None:
 .crm-login-logo {
   width:42px;
   height:42px;
-  border-radius:12px;
+  border-radius:14px;
   background:#F97316;
-  box-shadow:0 8px 18px rgba(249,115,22,.16);
+  box-shadow:0 12px 24px rgba(249,115,22,.18);
 }
 .crm-login-title {
   font-size:28px;
@@ -167,7 +174,7 @@ def inject_login_css() -> None:
   background:#FFF8F0;
   border:1px solid #F3E4D2;
   color:#6B7280;
-  border-radius:14px;
+  border-radius:18px;
   padding:12px 14px;
   font-size:14px;
   margin-bottom:14px;
@@ -178,18 +185,18 @@ def inject_login_css() -> None:
   background:#FFFFFF;
   border:1px solid #F3E4D2;
   color:#6B7280;
-  border-radius:20px;
+  border-radius:24px;
   padding:18px 20px;
-  box-shadow:0 14px 34px rgba(31,41,55,.08);
+  box-shadow:0 18px 42px rgba(124,45,18,.10);
 }
 div[data-testid="stForm"] {
   max-width:430px;
   margin:0 auto !important;
   background:#FFFFFF;
   border:1px solid #F3E4D2;
-  border-radius:20px;
-  padding:22px 22px 20px;
-  box-shadow:0 14px 34px rgba(31,41,55,.08);
+  border-radius:24px;
+  padding:24px 24px 22px;
+  box-shadow:0 18px 42px rgba(124,45,18,.10);
 }
 div[data-testid="stForm"] label {
   color:#1F2937 !important;
@@ -197,28 +204,28 @@ div[data-testid="stForm"] label {
   font-size:13px !important;
 }
 div[data-testid="stForm"] input {
-  height:44px !important;
+  height:46px !important;
   background:#ffffff !important;
   border:1px solid #F3E4D2 !important;
   color:#1F2937 !important;
-  border-radius:12px !important;
+  border-radius:14px !important;
   box-shadow:none !important;
 }
 div[data-testid="stForm"] input:focus {
   border-color:#F97316 !important;
-  box-shadow:0 0 0 3px rgba(249,115,22,.14) !important;
+  box-shadow:0 0 0 4px rgba(249,115,22,.14) !important;
 }
 div[data-testid="stForm"] input::placeholder {
   color:#94a3b8 !important;
 }
 div[data-testid="stForm"] [data-baseweb="input"] > div {
   background:#ffffff !important;
-  border-radius:12px !important;
+  border-radius:14px !important;
   border-color:#F3E4D2 !important;
 }
 div[data-testid="stForm"] button {
-  min-height:44px !important;
-  border-radius:12px !important;
+  min-height:46px !important;
+  border-radius:999px !important;
 }
 @media (max-width: 760px) {
   .block-container { padding-top:2.4rem !important; }
