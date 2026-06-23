@@ -20,7 +20,7 @@ from permissions import can_manage_all, can_view_followup, can_view_followup_own
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
-FOLLOWUP_TABLE_COLUMNS = [0.95, 1.25, 1.05, 1.75, 1.2, 0.9, 1.75, 1.2, 1.25, 1.0, 0.95]
+FOLLOWUP_TABLE_COLUMNS = [0.85, 1.1, 1.0, 2.25, 1.15, 0.75, 1.5, 1.6, 1.7, 0.9, 0.85]
 PRODUCT_PLACEHOLDER = "เลือกสินค้า"
 ALL = "ทั้งหมด"
 LEAD_STATUS_OPTIONS = {
@@ -123,6 +123,13 @@ div[role="dialog"] button[aria-label="Close"] {
   border-bottom:0;
   border-radius:14px 14px 0 0;
   overflow:hidden;
+}
+.st-key-followup_table_header_v2,
+[class*="st-key-followup_table_row_"] {
+  width:min(1620px, calc(100vw - 310px));
+  max-width:none;
+  margin-left:50%;
+  transform:translateX(-50%);
 }
 .st-key-followup_table_header_v2 [data-testid="column"],
 [class*="st-key-followup_table_row_"] [data-testid="column"] {
