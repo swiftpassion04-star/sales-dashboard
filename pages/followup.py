@@ -20,6 +20,7 @@ from permissions import can_manage_all, can_view_followup, can_view_followup_own
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
+FOLLOWUP_TABLE_COLUMNS = [0.95, 1.25, 1.05, 1.75, 1.2, 0.9, 1.75, 1.2, 1.25, 1.0, 0.95]
 PRODUCT_PLACEHOLDER = "เลือกสินค้า"
 ALL = "ทั้งหมด"
 LEAD_STATUS_OPTIONS = {
@@ -115,6 +116,49 @@ div[role="dialog"] div[data-baseweb="input"] > div {
 }
 div[role="dialog"] button[aria-label="Close"] {
   color:#EA580C !important;
+}
+.st-key-followup_table_header_v2 [data-testid="stHorizontalBlock"] {
+  background:#FFF2E2;
+  border:1px solid #F97316;
+  border-bottom:0;
+  border-radius:14px 14px 0 0;
+  overflow:hidden;
+}
+.st-key-followup_table_header_v2 [data-testid="column"],
+[class*="st-key-followup_table_row_"] [data-testid="column"] {
+  border-right:1px solid #FB923C;
+  min-height:62px;
+  padding:10px 12px;
+  display:flex;
+  align-items:center;
+}
+.st-key-followup_table_header_v2 [data-testid="column"]:last-child,
+[class*="st-key-followup_table_row_"] [data-testid="column"]:last-child {
+  border-right:0;
+}
+.st-key-followup_table_header_v2 p,
+[class*="st-key-followup_table_row_"] p {
+  margin:0;
+  line-height:1.45;
+}
+[class*="st-key-followup_table_row_"] [data-testid="stHorizontalBlock"] {
+  border-left:1px solid #FB923C;
+  border-right:1px solid #FB923C;
+  border-bottom:1px solid #FB923C;
+  overflow:hidden;
+}
+[class*="st-key-followup_table_row_even_"] [data-testid="stHorizontalBlock"] {
+  background:#FFFDF9;
+}
+[class*="st-key-followup_table_row_odd_"] [data-testid="stHorizontalBlock"] {
+  background:#FFF2E2;
+}
+[class*="st-key-followup_table_row_"] [data-testid="stHorizontalBlock"]:hover {
+  background:#FFF5EB;
+}
+[class*="st-key-followup_table_row_"] .stButton > button {
+  min-height:38px;
+  white-space:nowrap;
 }
 </style>
 """,
@@ -308,15 +352,19 @@ def normalize_phone(value) -> str:
 
 
 def render_followup_table(rows: list[dict], user: dict) -> None:
-    header = st.columns([0.8, 1.05, 1.0, 1.25, 1.0, 0.75, 1.2, 1.0, 1.0, 0.9, 0.8])
+    with st.container(key="followup_table_header_v2"):
+        header = st.columns(FOLLOWUP_TABLE_COLUMNS)
     labels = ["ติดตาม", "เพิ่มคำสั่งซื้อ", "วันนัด", "ชื่อลูกค้า", "เบอร์โทร", "SKU", "สินค้า", "สถานะลูกค้า", "สถานะติดตาม", "ความสำคัญ", "URL"]
     for col, label in zip(header, labels):
         col.markdown(f"**{label}**")
 
-    for row in rows:
+    for index, row in enumerate(rows):
         key = row_key(row)
         url = clean(row.get("url"))
-        cols = st.columns([0.8, 1.05, 1.0, 1.25, 1.0, 0.75, 1.2, 1.0, 1.0, 0.9, 0.8])
+        safe_key = "".join(ch if ch.isalnum() else "_" for ch in key)[:60] or str(index)
+        row_tone = "even" if index % 2 == 0 else "odd"
+        with st.container(key=f"followup_table_row_{row_tone}_{index}_{safe_key}"):
+            cols = st.columns(FOLLOWUP_TABLE_COLUMNS)
         if cols[0].button("ติดตาม", key=f"followup_popup_{key}", use_container_width=True):
             st.session_state.followup_modal_type = "followup"
             st.session_state.followup_modal_row = dict(row)
