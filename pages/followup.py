@@ -14,11 +14,12 @@ from neon_utils import (
     fetch_product_options,
     upsert_lead_followup,
     upsert_manual_order_items,
+    validate_phone_pair,
 )
 from permissions import can_manage_all, can_view_followup, can_view_followup_owner_filter
 
 
-PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
 PRODUCT_PLACEHOLDER = "เลือกสินค้า"
 ALL = "ทั้งหมด"
 LEAD_STATUS_OPTIONS = {
@@ -171,51 +172,6 @@ def render_followup_sections(rows: list[dict]) -> None:
     c2.metric("ค้างเกินกำหนด", f"{overdue:,}")
     c3.metric("สัปดาห์นี้", f"{week:,}")
     c4.metric("เสร็จแล้ว", f"{done:,}")
-
-
-def render_followup_table(rows: list[dict], user: dict) -> None:
-    st.markdown(
-        """
-<div class="crm-table">
-  <div class="crm-table-header" style="grid-template-columns:.85fr 1fr 1.35fr 1fr .8fr 1.2fr 1fr 1fr .9fr .8fr;">
-    <div class="crm-table-cell">ติดตาม</div>
-    <div class="crm-table-cell">วันนัด</div>
-    <div class="crm-table-cell">ชื่อลูกค้า</div>
-    <div class="crm-table-cell">เบอร์โทร</div>
-    <div class="crm-table-cell">SKU</div>
-    <div class="crm-table-cell">สินค้า</div>
-    <div class="crm-table-cell">สถานะลูกค้า</div>
-    <div class="crm-table-cell">สถานะติดตาม</div>
-    <div class="crm-table-cell">ความสำคัญ</div>
-    <div class="crm-table-cell">URL</div>
-  </div>
-""",
-        unsafe_allow_html=True,
-    )
-    selected_id = clean(st.session_state.get("followup_selected_id_v2"))
-    for row in rows:
-        key = row_key(row)
-        url = clean(row.get("url"))
-        url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
-        detail_url = customer_detail_url(row)
-        st.markdown(
-            f"""
-<div class="crm-table-row" style="grid-template-columns:.85fr 1fr 1.35fr 1fr .8fr 1.2fr 1fr 1fr .9fr .8fr;">
-  <div class="crm-table-cell"><a class="crm-link crm-outline-link" href="{html.escape(detail_url, quote=True)}" target="_blank">ติดตาม</a></div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("next_followup_date")) or "ว่าง")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("customer_name")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("sku")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(row.get("product_name")) or "-")}</div>
-  <div class="crm-table-cell">{badge(lead_label(clean(row.get("lead_status")) or "new"), "blue")}</div>
-  <div class="crm-table-cell">{badge(followup_label(clean(row.get("followup_status")) or "none"), "gray")}</div>
-  <div class="crm-table-cell">{priority_badge(clean(row.get("priority")) or "normal")}</div>
-  <div class="crm-table-cell">{url_html}</div>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def select_followup_row(next_id: str) -> None:
@@ -485,8 +441,7 @@ def render_order_dialog(row: dict, user: dict) -> None:
         errors.append("กรุณากรอกหมายเลขคำสั่งซื้อ")
     if not clean(customer_name):
         errors.append("กรุณากรอกชื่อลูกค้า")
-    if not normalize_phone(phone1) and not normalize_phone(phone2):
-        errors.append("กรุณากรอกเบอร์โทรหรือเบอร์สำรอง")
+    errors.extend(validate_phone_pair(phone1, phone2))
     if not items:
         errors.append("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ")
     if errors:

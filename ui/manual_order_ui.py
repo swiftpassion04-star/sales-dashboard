@@ -106,8 +106,7 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         errors.append("กรุณากรอกหมายเลขคำสั่งซื้อ")
     if not neon.clean(customer_name):
         errors.append("กรุณากรอกชื่อลูกค้า")
-    if not neon.normalize_phone(phone1) and not neon.normalize_phone(phone2):
-        errors.append("กรุณากรอกเบอร์โทรหรือเบอร์สำรอง")
+    errors.extend(neon.validate_phone_pair(phone1, phone2))
     manual_items = st.session_state.get("manual_order_items", [])
     if not manual_items:
         errors.append("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ")

@@ -24,7 +24,7 @@ from neon_utils import (
 from permissions import can_assign_customer_owner, can_export_customers, can_manage_all
 
 
-PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
 ALL = "ทั้งหมด"
 EXPORT_PERIOD_OPTIONS = ["ทั้งหมด", "รายวัน", "รายเดือน", "กำหนดช่วงวันที่"]
 CRM_EXPORT_HEADERS = [

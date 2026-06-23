@@ -329,6 +329,32 @@ def clean(value) -> str:
     return "" if text.upper() in {"NULL", "NONE", "NAN", "NAT"} else text
 
 
+PHONE_RULE_MESSAGE = "ต้องเป็นตัวเลข 10 หลัก ขึ้นต้นด้วย 0 และห้ามมีสัญลักษณ์"
+
+
+def validate_phone_value(value, label: str) -> str:
+    text = clean(value)
+    if not text:
+        return ""
+    if not text.isdigit() or len(text) != 10 or not text.startswith("0"):
+        return f"{label}ใส่ไม่ถูกต้อง {PHONE_RULE_MESSAGE}"
+    return ""
+
+
+def validate_phone_pair(phone1, phone2, require_one: bool = True) -> list[str]:
+    first = clean(phone1)
+    second = clean(phone2)
+    if require_one and not first and not second:
+        return ["กรุณากรอกเบอร์โทรหรือเบอร์สำรอง"]
+
+    errors = []
+    for value, label in ((first, "เบอร์โทร"), (second, "เบอร์สำรอง")):
+        error = validate_phone_value(value, label)
+        if error:
+            errors.append(error)
+    return errors
+
+
 def parse_date(value) -> str | None:
     text = clean(value)
     if not text:
@@ -424,8 +450,7 @@ def build_record_from_mapping(
     errors = []
     if not customer_name:
         errors.append("customer_name ว่าง")
-    if not normalize_phone(phone1) and not normalize_phone(phone2):
-        errors.append("phone1/phone2 ว่าง")
+    errors.extend(validate_phone_pair(phone1, phone2))
 
     raw_data = {str(key): clean(value) for key, value in row.items()}
     owner = pick("owner")
@@ -523,6 +548,7 @@ def upsert_manual_order(payload: dict) -> dict:
     ensure_crm_data_imports_schema()
     order_id = clean(payload.get("order_id"))
     customer_name = clean(payload.get("customer_name"))
+    phone_errors = validate_phone_pair(payload.get("phone1"), payload.get("phone2"))
     phone1 = normalize_phone(payload.get("phone1"))
     phone2 = normalize_phone(payload.get("phone2"))
     product_name = clean(payload.get("product_name"))
@@ -552,8 +578,7 @@ def upsert_manual_order(payload: dict) -> dict:
         errors.append("order_id ว่าง")
     if not customer_name:
         errors.append("customer_name ว่าง")
-    if not phone1 and not phone2:
-        errors.append("phone1/phone2 ว่าง")
+    errors.extend(phone_errors)
     if not product_name:
         errors.append("product_name ว่าง")
     if not owner:
@@ -764,6 +789,7 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     ensure_crm_data_imports_schema()
     order_id = clean(payload.get("order_id"))
     customer_name = clean(payload.get("customer_name"))
+    phone_errors = validate_phone_pair(payload.get("phone1"), payload.get("phone2"))
     phone1 = normalize_phone(payload.get("phone1"))
     phone2 = normalize_phone(payload.get("phone2"))
     url = clean(payload.get("url"))
@@ -782,8 +808,7 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
         errors.append("order_id ว่าง")
     if not customer_name:
         errors.append("customer_name ว่าง")
-    if not phone1 and not phone2:
-        errors.append("phone1/phone2 ว่าง")
+    errors.extend(phone_errors)
     if not owner:
         errors.append("owner ว่าง")
     if not staff_code:
@@ -1130,7 +1155,7 @@ def build_import_plan(cur, records: list[dict], mutate_records: bool) -> dict:
         order_id = clean(record.get("order_id"))
 
         if record.get("import_status") == "invalid" or not phones:
-            skipped_records.append(skip_preview(record, "ไม่มีเบอร์โทร"))
+            skipped_records.append(skip_preview(record, clean(record.get("validation_error")) or "ไม่มีเบอร์โทร"))
             continue
         if order_id and order_id in existing_order_ids:
             skipped_records.append(skip_preview(record, "ซ้ำเลขออเดอร์ในฐานข้อมูล"))
