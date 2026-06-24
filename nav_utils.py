@@ -45,6 +45,7 @@ def render_sidebar_nav(disabled: bool | None = None) -> None:
     inject_saas_theme()
     if disabled is None:
         disabled = not _has_auth_session()
+    st.session_state.crm_sidebar_nav_last_disabled = bool(disabled)
     st.sidebar.markdown(
         """
 <div class="crm-nav-brand">

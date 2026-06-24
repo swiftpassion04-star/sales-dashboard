@@ -415,7 +415,6 @@ def render_login_shell(message: str | None = None) -> None:
 
 def require_login() -> dict:
     inject_auth_css()
-    inject_login_css()
     if st.session_state.pop("auth_clear_browser_session", False):
         clear_browser_session()
     restore_status = "empty"
@@ -423,9 +422,13 @@ def require_login() -> dict:
         restore_status = restore_browser_session()
     user = current_user()
     if user:
+        if restore_status == "restored" and st.session_state.get("crm_sidebar_nav_last_disabled"):
+            st.session_state.crm_sidebar_nav_last_disabled = False
+            st.rerun()
         render_user_box(user)
         return user
 
+    inject_login_css()
     if restore_status == "pending":
         render_login_shell("กำลังตรวจสอบ session จาก browser...")
         st.stop()
