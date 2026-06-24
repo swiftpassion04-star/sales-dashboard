@@ -45,6 +45,22 @@ PRIORITY_OPTIONS = {
     "low": "ต่ำ",
 }
 
+DATE_FILTER_OPTIONS = {
+    "all": ALL,
+    "today": "วันนี้",
+    "single": "เลือกวัน",
+    "range": "เลือกช่วงระหว่างวัน",
+}
+FOLLOWUP_FILTER_DEFAULTS = {
+    "followup_filter_lead_status": ALL,
+    "followup_filter_followup_status": ALL,
+    "followup_filter_priority": ALL,
+    "followup_filter_product": ALL,
+    "followup_filter_owner": ALL,
+    "followup_filter_keyword": "",
+    "followup_filter_date_mode": "all",
+}
+
 st.set_page_config(page_title="Follow-up", layout="wide")
 
 
@@ -195,36 +211,92 @@ div[role="dialog"] button[aria-label="Close"] {
     )
 
 
+def reset_followup_filter_state() -> None:
+    for key, value in FOLLOWUP_FILTER_DEFAULTS.items():
+        st.session_state[key] = value
+    today = date.today()
+    st.session_state['followup_filter_single_date'] = today
+    st.session_state['followup_filter_date_range'] = (today, today)
+
+
+def date_filter_label(value: str) -> str:
+    return DATE_FILTER_OPTIONS.get(value, value)
+
+
+def resolve_followup_date_filter(date_mode: str) -> tuple[str, str]:
+    today = date.today()
+    if date_mode == 'today':
+        return today.isoformat(), today.isoformat()
+    if date_mode == 'single':
+        selected = st.session_state.get('followup_filter_single_date') or today
+        return selected.isoformat(), selected.isoformat()
+    if date_mode == 'range':
+        selected_range = st.session_state.get('followup_filter_date_range') or (today, today)
+        if isinstance(selected_range, tuple):
+            dates = [selected for selected in selected_range if selected]
+        else:
+            dates = [selected_range] if selected_range else []
+        if not dates:
+            return '', ''
+        if len(dates) == 1:
+            start_date = end_date = dates[0]
+        else:
+            start_date, end_date = sorted(dates[:2])
+        return start_date.isoformat(), end_date.isoformat()
+    return '', ''
+
+
 def render_filters(user: dict) -> dict[str, str]:
+    if st.session_state.pop('followup_filter_reset_requested', False):
+        reset_followup_filter_state()
     try:
         options = fetch_followup_filter_options(user)
     except Exception:
-        options = {"owners": [], "products": []}
-    with st.form("followup_filters_v2"):
+        options = {'owners': [], 'products': []}
+    with st.form('followup_filters_v2'):
         c1, c2, c3 = st.columns(3)
-        lead_status = c1.selectbox("สถานะลูกค้า", [ALL] + list(LEAD_STATUS_OPTIONS.keys()), format_func=lead_label)
-        followup_status = c2.selectbox("สถานะติดตาม", [ALL] + list(FOLLOWUP_STATUS_OPTIONS.keys()), format_func=followup_label)
-        priority = c3.selectbox("ความสำคัญ", [ALL] + list(PRIORITY_OPTIONS.keys()), format_func=priority_label)
+        lead_status = c1.selectbox('สถานะลูกค้า', [ALL] + list(LEAD_STATUS_OPTIONS.keys()), format_func=lead_label, key='followup_filter_lead_status')
+        followup_status = c2.selectbox('สถานะติดตาม', [ALL] + list(FOLLOWUP_STATUS_OPTIONS.keys()), format_func=followup_label, key='followup_filter_followup_status')
+        priority = c3.selectbox('ความสำคัญ', [ALL] + list(PRIORITY_OPTIONS.keys()), format_func=priority_label, key='followup_filter_priority')
         c4, c5 = st.columns(2)
-        product = c4.selectbox("สินค้า / SKU", [ALL] + options.get("products", []))
+        product = c4.selectbox('สินค้า / SKU', [ALL] + options.get('products', []), key='followup_filter_product')
         owner = ALL
         if can_view_followup_owner_filter(user):
-            owner = c5.selectbox("ผู้ดูแล", [ALL] + options.get("owners", []))
-        keyword = st.text_input("ค้นหา", placeholder="เบอร์โทร / ชื่อลูกค้า / เลขคำสั่งซื้อ")
-        submitted = st.form_submit_button("ค้นหา", use_container_width=True)
+            owner = c5.selectbox('ผู้ดูแล', [ALL] + options.get('owners', []), key='followup_filter_owner')
+        else:
+            st.session_state['followup_filter_owner'] = ALL
+
+        date_mode = st.selectbox('วันที่นัด', list(DATE_FILTER_OPTIONS.keys()), format_func=date_filter_label, key='followup_filter_date_mode')
+        if date_mode == 'single':
+            st.date_input('เลือกวันที่นัด', key='followup_filter_single_date')
+        elif date_mode == 'range':
+            st.date_input('เลือกช่วงวันที่นัด', key='followup_filter_date_range')
+
+        keyword = st.text_input('ค้นหา', placeholder='เบอร์โทร / ชื่อลูกค้า / เลขคำสั่งซื้อ', key='followup_filter_keyword')
+        search_col, reset_col = st.columns([3, 1])
+        submitted = search_col.form_submit_button('ค้นหา', use_container_width=True)
+        reset_submitted = reset_col.form_submit_button('รีเฟรช / ล้างตัวกรอง', use_container_width=True)
+    if reset_submitted:
+        st.session_state.followup_page_v2 = 1
+        st.session_state['followup_filter_reset_requested'] = True
+        close_followup_modal()
+        st.rerun()
     if submitted:
         st.session_state.followup_page_v2 = 1
         close_followup_modal()
+    date_start, date_end = resolve_followup_date_filter(date_mode)
     return {
-        "lead_status": lead_status,
-        "followup_status": followup_status,
-        "priority": priority,
-        "product": product,
-        "owner": owner,
-        "phone": normalize_phone(keyword),
-        "keyword": keyword,
+        'lead_status': lead_status,
+        'followup_status': followup_status,
+        'priority': priority,
+        'product': product,
+        'owner': owner,
+        'phone': normalize_phone(keyword),
+        'keyword': keyword,
+        'date_mode': date_mode,
+        'date_start': date_start,
+        'date_end': date_end,
     }
-
 
 def render_summary(rows: list[dict], total: int, page_size: int, page: int) -> None:
     total_pages = max((total - 1) // page_size + 1, 1)

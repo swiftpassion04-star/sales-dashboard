@@ -2407,6 +2407,15 @@ def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list
         clauses.append("(d.product_name ilike %s or d.sku ilike %s)")
         params.extend([like, like])
 
+    date_start = clean(filters.get('date_start'))
+    date_end = clean(filters.get('date_end'))
+    if date_start and date_end:
+        clauses.append('coalesce(l.next_followup_date, l.follow_up_date) between %s::date and %s::date')
+        params.extend([date_start, date_end])
+    elif date_start:
+        clauses.append('coalesce(l.next_followup_date, l.follow_up_date) = %s::date')
+        params.append(date_start)
+
     return "where " + " and ".join(clauses), params
 
 
