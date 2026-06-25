@@ -1795,6 +1795,12 @@ def fetch_sales_report_rows(
     params = [start_ts, end_ts, *extra_params, int(limit)]
     where_sql = "where " + " and ".join(clauses)
     qty_expr = "coalesce(d.quantity, 1)" if neon_column_exists("crm_data_imports", "quantity") else "1"
+    creator_sources = []
+    if neon_column_exists("crm_data_imports", "created_by"):
+        creator_sources.append("nullif(d.created_by, '')")
+    if neon_column_exists("crm_data_imports", "uploaded_by"):
+        creator_sources.append("nullif(d.uploaded_by, '')")
+    creator_expr = f"coalesce({', '.join(creator_sources)}, '')" if creator_sources else "''"
 
     with neon_connection() as conn:
         with conn.cursor() as cur:
@@ -1808,10 +1814,10 @@ def fetch_sales_report_rows(
                   d.product_name,
                   {qty_expr} as quantity,
                   coalesce(d.amount, 0) as amount,
-                  coalesce(nullif(creator.staff_name, ''), nullif(d.created_by, ''), nullif(d.uploaded_by, ''), '') as created_staff
+                  coalesce(nullif(creator.staff_name, ''), {creator_expr}) as created_staff
                 from public.crm_data_imports d
                 left join public.crm_user_roles creator
-                  on lower(creator.email) = lower(coalesce(nullif(d.created_by, ''), nullif(d.uploaded_by, ''), ''))
+                  on lower(creator.email) = lower({creator_expr})
                 {where_sql}
                 order by d.created_at asc, d.id asc
                 limit %s
