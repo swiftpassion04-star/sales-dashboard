@@ -1778,6 +1778,47 @@ def fetch_sales_report(
     return {"ready": True, "summary": summary, "daily": daily_rows}
 
 
+def fetch_sales_report_rows(
+    user: dict | None,
+    start_date: date,
+    end_date: date,
+    owner_filter: str = "ทั้งหมด",
+    limit: int = 1000,
+) -> list[dict]:
+    ensure_crm_data_imports_schema()
+    if not crm_sales_report_ready():
+        return []
+
+    start_ts = datetime.combine(start_date, datetime.min.time(), tzinfo=BANGKOK_TZ).astimezone(timezone.utc)
+    end_ts = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=BANGKOK_TZ).astimezone(timezone.utc)
+    clauses, extra_params = _sales_report_where(user, owner_filter)
+    params = [start_ts, end_ts, *extra_params, int(limit)]
+    where_sql = "where " + " and ".join(clauses)
+    qty_expr = "coalesce(d.quantity, 1)" if neon_column_exists("crm_data_imports", "quantity") else "1"
+
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select
+                  to_char(d.created_at at time zone 'Asia/Bangkok', 'HH24:MI') as sale_time,
+                  coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') as sale_type,
+                  d.order_id,
+                  d.sku,
+                  d.product_name,
+                  {qty_expr} as quantity,
+                  coalesce(d.amount, 0) as amount,
+                  coalesce(d.validation_error, '') as note
+                from public.crm_data_imports d
+                {where_sql}
+                order by d.created_at asc, d.id asc
+                limit %s
+                """,
+                params,
+            )
+            return cur.fetchall()
+
+
 def build_customer_where(
     filters: dict[str, str],
     user: dict | None = None,
