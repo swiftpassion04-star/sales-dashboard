@@ -495,10 +495,11 @@ def render_order_history(rows: list[dict]) -> None:
     st.markdown(
         """
 <div class="crm-table">
-  <div class="crm-table-header" style="grid-template-columns:1fr 1fr 1.4fr 1fr 1fr 1fr .8fr;">
+  <div class="crm-table-header" style="grid-template-columns:1fr 1fr 1.4fr .8fr 1fr 1fr 1fr .8fr;">
     <div class="crm-table-cell">เลขออเดอร์</div>
     <div class="crm-table-cell">วันที่</div>
     <div class="crm-table-cell">สินค้า</div>
+    <div class="crm-table-cell">จำนวน</div>
     <div class="crm-table-cell">ยอดขาย</div>
     <div class="crm-table-cell">ขนส่ง</div>
     <div class="crm-table-cell">เลขพัสดุ</div>
@@ -512,10 +513,11 @@ def render_order_history(rows: list[dict]) -> None:
         url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
         st.markdown(
             f"""
-<div class="crm-table-row" style="grid-template-columns:1fr 1fr 1.4fr 1fr 1fr 1fr .8fr;">
+<div class="crm-table-row" style="grid-template-columns:1fr 1fr 1.4fr .8fr 1fr 1fr 1fr .8fr;">
   <div class="crm-table-cell">{html.escape(clean(order.get("order_id")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("date_text")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("product_name")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(clean(order.get("quantity")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("total_sales")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("shipping")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("tracking_no")) or "-")}</div>

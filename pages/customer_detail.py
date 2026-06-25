@@ -205,11 +205,12 @@ def render_latest_order(order: dict) -> None:
     cols[1].metric("วันที่", display_value(order.get("date_text")))
     cols[2].metric("ประเภทการขาย", display_value(order.get("sale_type")))
     cols[3].metric("ยอดขาย", display_value(order.get("amount") or order.get("total_sales")))
-    cols = st.columns(4)
+    cols = st.columns(5)
     cols[0].metric("SKU", display_value(order.get("sku")))
     cols[1].metric("สินค้า", display_value(order.get("product_name")))
-    cols[2].metric("ขนส่ง", display_value(order.get("shipping")))
-    cols[3].metric("เลขพัสดุ", display_value(order.get("tracking_no")))
+    cols[2].metric("จำนวน", display_value(order.get("quantity")))
+    cols[3].metric("ขนส่ง", display_value(order.get("shipping")))
+    cols[4].metric("เลขพัสดุ", display_value(order.get("tracking_no")))
 
 
 def render_url_owner(customer: dict) -> None:
@@ -304,10 +305,11 @@ def render_customer_order_history(orders: list[dict]) -> None:
     st.markdown(
         """
 <div class="crm-table">
-  <div class="crm-table-header" style="grid-template-columns:1fr 1fr 1.4fr 1fr 1fr 1fr .8fr;">
+  <div class="crm-table-header" style="grid-template-columns:1fr 1fr 1.4fr .8fr 1fr 1fr 1fr .8fr;">
     <div class="crm-table-cell">เลขออเดอร์</div>
     <div class="crm-table-cell">วันที่</div>
     <div class="crm-table-cell">สินค้า</div>
+    <div class="crm-table-cell">จำนวน</div>
     <div class="crm-table-cell">ยอดขาย</div>
     <div class="crm-table-cell">ขนส่ง</div>
     <div class="crm-table-cell">เลขพัสดุ</div>
@@ -321,10 +323,11 @@ def render_customer_order_history(orders: list[dict]) -> None:
         url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
         st.markdown(
             f"""
-<div class="crm-table-row" style="grid-template-columns:1fr 1fr 1.4fr 1fr 1fr 1fr .8fr;">
+<div class="crm-table-row" style="grid-template-columns:1fr 1fr 1.4fr .8fr 1fr 1fr 1fr .8fr;">
   <div class="crm-table-cell">{html.escape(display_value(order.get("order_id")))}</div>
   <div class="crm-table-cell">{html.escape(display_value(order.get("date_text")))}</div>
   <div class="crm-table-cell">{html.escape(display_value(order.get("product_name")))}</div>
+  <div class="crm-table-cell">{html.escape(display_value(order.get("quantity")))}</div>
   <div class="crm-table-cell">{html.escape(display_value(order.get("amount") or order.get("total_sales")))}</div>
   <div class="crm-table-cell">{html.escape(display_value(order.get("shipping")))}</div>
   <div class="crm-table-cell">{html.escape(display_value(order.get("tracking_no")))}</div>

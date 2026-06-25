@@ -67,7 +67,8 @@ alter table public.crm_data_imports
   add column if not exists order_id text,
   add column if not exists url text,
   add column if not exists source_type text,
-  add column if not exists updated_by text;
+  add column if not exists updated_by text,
+  add column if not exists quantity numeric;
 
 create index if not exists idx_crm_data_imports_phone1
   on public.crm_data_imports (phone1);
@@ -1794,7 +1795,18 @@ def fetch_sales_report_rows(
     clauses, extra_params = _sales_report_where(user, owner_filter)
     params = [start_ts, end_ts, *extra_params, int(limit)]
     where_sql = "where " + " and ".join(clauses)
-    qty_expr = "coalesce(d.quantity, 1)" if neon_column_exists("crm_data_imports", "quantity") else "1"
+    raw_qty_expr = (
+        "case when nullif(d.raw_data->>'qty', '') ~ '^[0-9]+(\\.[0-9]+)?$' "
+        "then (d.raw_data->>'qty')::numeric end"
+    )
+    raw_thai_qty_expr = (
+        "case when nullif(d.raw_data->>'จำนวน', '') ~ '^[0-9]+(\\.[0-9]+)?$' "
+        "then (d.raw_data->>'จำนวน')::numeric end"
+    )
+    if neon_column_exists("crm_data_imports", "quantity"):
+        qty_expr = f"coalesce(d.quantity, {raw_qty_expr}, {raw_thai_qty_expr}, 1)"
+    else:
+        qty_expr = f"coalesce({raw_qty_expr}, {raw_thai_qty_expr}, 1)"
     creator_sources = []
     if neon_column_exists("crm_data_imports", "created_by"):
         creator_sources.append("nullif(d.created_by, '')")
@@ -1806,20 +1818,39 @@ def fetch_sales_report_rows(
         with conn.cursor() as cur:
             cur.execute(
                 f"""
+                with base as (
+                  select
+                    min(d.created_at) as created_at,
+                    coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') as sale_type,
+                    coalesce(nullif(d.order_id, ''), d.id::text) as order_id,
+                    coalesce(nullif(d.sku, ''), '-') as sku,
+                    coalesce(nullif(d.product_name, ''), '-') as product_name,
+                    sum({qty_expr}) as quantity,
+                    sum(coalesce(d.amount, 0)) as amount,
+                    coalesce(nullif(creator.staff_name, ''), {creator_expr}) as created_staff,
+                    min(d.id) as first_id
+                  from public.crm_data_imports d
+                  left join public.crm_user_roles creator
+                    on lower(creator.email) = lower({creator_expr})
+                  {where_sql}
+                  group by
+                    coalesce(nullif(d.sale_type, ''), 'NEW_ORDER'),
+                    coalesce(nullif(d.order_id, ''), d.id::text),
+                    coalesce(nullif(d.sku, ''), '-'),
+                    coalesce(nullif(d.product_name, ''), '-'),
+                    coalesce(nullif(creator.staff_name, ''), {creator_expr})
+                )
                 select
-                  to_char(d.created_at at time zone 'Asia/Bangkok', 'HH24:MI') as sale_time,
-                  coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') as sale_type,
-                  d.order_id,
-                  d.sku,
-                  d.product_name,
-                  {qty_expr} as quantity,
-                  coalesce(d.amount, 0) as amount,
-                  coalesce(nullif(creator.staff_name, ''), {creator_expr}) as created_staff
-                from public.crm_data_imports d
-                left join public.crm_user_roles creator
-                  on lower(creator.email) = lower({creator_expr})
-                {where_sql}
-                order by d.created_at asc, d.id asc
+                  to_char(created_at at time zone 'Asia/Bangkok', 'HH24:MI') as sale_time,
+                  sale_type,
+                  order_id,
+                  sku,
+                  product_name,
+                  quantity,
+                  amount,
+                  created_staff
+                from base
+                order by created_at asc, first_id asc
                 limit %s
                 """,
                 params,
@@ -1929,10 +1960,22 @@ def fetch_customer_360_orders(phone1: str, phone2: str, limit: int = 20) -> list
     if not clean_phones:
         return []
     ensure_crm_data_imports_schema()
+    raw_qty_expr = (
+        "case when nullif(raw_data->>'qty', '') ~ '^[0-9]+(\\.[0-9]+)?$' "
+        "then (raw_data->>'qty')::numeric end"
+    )
+    raw_thai_qty_expr = (
+        "case when nullif(raw_data->>'จำนวน', '') ~ '^[0-9]+(\\.[0-9]+)?$' "
+        "then (raw_data->>'จำนวน')::numeric end"
+    )
+    if neon_column_exists("crm_data_imports", "quantity"):
+        quantity_expr = f"coalesce(quantity, {raw_qty_expr}, {raw_thai_qty_expr})"
+    else:
+        quantity_expr = f"coalesce({raw_qty_expr}, {raw_thai_qty_expr})"
     with neon_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 select
                   id::text as source_key,
                   order_id,
@@ -1945,6 +1988,7 @@ def fetch_customer_360_orders(phone1: str, phone2: str, limit: int = 20) -> list
                   product_name,
                   owner as care_staff,
                   staff_code,
+                  {quantity_expr} as quantity,
                   total_amount as total_sales,
                   amount,
                   sale_type,
@@ -2213,6 +2257,18 @@ def fetch_orders_by_phones(phones: tuple[str, ...], limit: int = 5000) -> list[d
     if not clean_phones:
         return []
     ensure_crm_data_imports_schema()
+    raw_qty_expr = (
+        "case when nullif(raw_data->>'qty', '') ~ '^[0-9]+(\\.[0-9]+)?$' "
+        "then (raw_data->>'qty')::numeric end"
+    )
+    raw_thai_qty_expr = (
+        "case when nullif(raw_data->>'จำนวน', '') ~ '^[0-9]+(\\.[0-9]+)?$' "
+        "then (raw_data->>'จำนวน')::numeric end"
+    )
+    if neon_column_exists("crm_data_imports", "quantity"):
+        quantity_expr = f"coalesce(quantity, {raw_qty_expr}, {raw_thai_qty_expr})"
+    else:
+        quantity_expr = f"coalesce({raw_qty_expr}, {raw_thai_qty_expr})"
     clauses = []
     params: list = []
     for phone in clean_phones[:6]:
@@ -2239,6 +2295,7 @@ def fetch_orders_by_phones(phones: tuple[str, ...], limit: int = 5000) -> list[d
                   raw_data->>'พนักงานเปิดบิล' as sales_staff,
                   raw_data->>'พนักงานอัพเซลล์' as upsell_staff,
                   owner as care_staff,
+                  {quantity_expr} as quantity,
                   total_amount as total_sales,
                   order_status,
                   raw_data->>'วิธีการชำระ' as payment_method,
@@ -2263,7 +2320,7 @@ def fetch_orders_by_phones(phones: tuple[str, ...], limit: int = 5000) -> list[d
             {
                 "sku": clean(row.get("sku")),
                 "name": clean(row.get("product_name")),
-                "qty": clean((row.get("raw_data") or {}).get("จำนวน")),
+                "qty": clean(row.get("quantity")) or clean((row.get("raw_data") or {}).get("จำนวน")),
                 "price": clean(row.get("total_sales")),
             }
         ]
