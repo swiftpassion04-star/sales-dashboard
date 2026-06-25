@@ -1808,8 +1808,10 @@ def fetch_sales_report_rows(
                   d.product_name,
                   {qty_expr} as quantity,
                   coalesce(d.amount, 0) as amount,
-                  coalesce(d.validation_error, '') as note
+                  coalesce(nullif(creator.staff_name, ''), nullif(d.created_by, ''), nullif(d.uploaded_by, ''), '') as created_staff
                 from public.crm_data_imports d
+                left join public.crm_user_roles creator
+                  on lower(creator.email) = lower(coalesce(nullif(d.created_by, ''), nullif(d.uploaded_by, ''), ''))
                 {where_sql}
                 order by d.created_at asc, d.id asc
                 limit %s

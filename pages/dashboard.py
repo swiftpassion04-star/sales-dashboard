@@ -198,7 +198,7 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders) -> No
 """,
         unsafe_allow_html=True,
     )
-    header = ["ลำดับ", "เวลา", "ประเภทคำสั่งซื้อ", "เลขคำสั่งซื้อ", "ชื่อสินค้า", "จำนวนชิ้น", "ราคาอัพ", "หมายเหตุ"]
+    header = ["ลำดับ", "เวลา", "ประเภทคำสั่งซื้อ", "เลขคำสั่งซื้อ", "ชื่อสินค้า", "จำนวนชิ้น", "ราคาอัพ", "พนักงานที่สร้าง"]
     html_parts = ['<div class="sales-sheet-grid">']
     for label in header:
         html_parts.append(f'<div class="sales-sheet-cell sales-sheet-head">{html.escape(label)}</div>')
@@ -214,7 +214,7 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders) -> No
             (product or "-", ""),
             (str(int(row.get("quantity") or 0)), "sales-sheet-center"),
             (format_money(row.get("amount")), "sales-sheet-right"),
-            (str(row.get("note") or ""), ""),
+            (str(row.get("created_staff") or ""), ""),
         ]
         for value, extra_class in cells:
             classes = " ".join(part for part in ["sales-sheet-cell", row_class, extra_class] if part)
