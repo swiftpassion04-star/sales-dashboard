@@ -154,9 +154,6 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders) -> No
 .sales-sheet-row-alt {
   background: #fff7ed;
 }
-.sales-sheet-upsell {
-  background: #ffff66;
-}
 .sales-sheet-center {
   justify-content: center;
   text-align: center;
@@ -207,7 +204,7 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders) -> No
         html_parts.append(f'<div class="sales-sheet-cell sales-sheet-head">{html.escape(label)}</div>')
     for index, row in enumerate(rows, start=1):
         sale_type = str(row.get("sale_type") or "").strip()
-        row_class = "sales-sheet-upsell" if sale_type == "UPSELL" else ("sales-sheet-row-alt" if index % 2 == 0 else "")
+        row_class = "sales-sheet-row-alt" if index % 2 == 0 else ""
         product = " ".join(part for part in [str(row.get("sku") or "").strip(), str(row.get("product_name") or "").strip()] if part)
         cells = [
             (str(index), "sales-sheet-center"),
