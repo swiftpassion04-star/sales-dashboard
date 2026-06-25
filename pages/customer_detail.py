@@ -32,6 +32,10 @@ LEAD_STATUS_OPTIONS = {
 FOLLOWUP_STATUS_OPTIONS = {
     "none": "ยังไม่ตั้งติดตาม",
     "scheduled": "นัดติดตาม",
+    "round_1": "ติดตามรอบ 1",
+    "round_2": "ติดตามรอบ 2",
+    "round_3": "ติดตามรอบ 3",
+    "round_4": "ติดตามรอบ 4",
     "done": "ติดตามแล้ว",
     "missed": "เลยกำหนด",
 }
