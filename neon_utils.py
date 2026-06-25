@@ -870,11 +870,11 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
                         select id
                         from public.crm_orders
                         where order_id = %s
-                          and coalesce(phone1, '') = %s
-                          and coalesce(phone2, '') = %s
+                          and (phone1 = any(%s) or phone2 = any(%s))
+                        order by updated_at desc nulls last, created_at desc nulls last, id desc
                         limit 1
                         """,
-                        [order_id, phone1, phone2],
+                        [order_id, phones, phones],
                     )
                     row = cur.fetchone()
                     crm_order_id = row.get("id") if row else None
