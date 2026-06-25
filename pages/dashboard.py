@@ -7,7 +7,15 @@ import streamlit as st
 from auth_utils import current_user, require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
-from neon_utils import fetch_dashboard_kpis, fetch_sales_report, fetch_sales_report_owner_options, fetch_sales_report_rows
+from neon_utils import (
+    clear_cached_data_functions,
+    delete_sales_report_records,
+    fetch_dashboard_kpis,
+    fetch_sales_report,
+    fetch_sales_report_owner_options,
+    fetch_sales_report_rows,
+)
+from permissions import ROLE_EDITOR, user_role
 
 
 st.set_page_config(page_title="Dashboard", layout="wide")
@@ -102,7 +110,7 @@ def render_sales_report(user: dict) -> None:
     cols[2].metric("AOV", format_money(total.get("aov")))
 
     rows = fetch_sales_report_rows(user, start_date, end_date, owner_filter)
-    render_sales_order_table(rows, total.get("sales_amount"), total.get("order_count"))
+    render_sales_order_table(rows, total.get("sales_amount"), total.get("order_count"), user)
 
     daily = report.get("daily") or []
     if not daily:
@@ -118,7 +126,7 @@ def render_sales_report(user: dict) -> None:
     st.line_chart(pivot, use_container_width=True)
 
 
-def render_sales_order_table(rows: list[dict], total_amount, total_orders) -> None:
+def render_sales_order_table(rows: list[dict], total_amount, total_orders, user: dict | None) -> None:
     st.markdown("##### ตารางรายการขาย")
     if not rows:
         st.info("ยังไม่มีรายการ NEW_ORDER / UPSELL ในช่วงเวลานี้")
@@ -221,6 +229,7 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders) -> No
             html_parts.append(f'<div class="{classes}">{html.escape(value)}</div>')
     html_parts.append("</div>")
     st.markdown("".join(html_parts), unsafe_allow_html=True)
+    render_sales_delete_controls(rows, user)
     st.markdown(
         f"""
 <div class="sales-summary-card">
@@ -230,6 +239,51 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders) -> No
 """,
         unsafe_allow_html=True,
     )
+
+
+def render_sales_delete_controls(rows: list[dict], user: dict | None) -> None:
+    if user_role(user) != ROLE_EDITOR:
+        return
+
+    options: list[tuple[str, list[str]]] = []
+    for index, row in enumerate(rows, start=1):
+        record_ids = row.get("record_ids") or []
+        if isinstance(record_ids, str):
+            record_ids = [record_ids]
+        record_ids = [str(record_id) for record_id in record_ids if str(record_id or "").strip()]
+        if not record_ids or not row.get("can_delete"):
+            continue
+        product = " ".join(part for part in [str(row.get("sku") or "").strip(), str(row.get("product_name") or "").strip()] if part)
+        label = f"{index}. {row.get('order_id') or '-'} | {product or '-'} | {row.get('sale_time') or '-'} น."
+        options.append((label, record_ids))
+
+    if not options:
+        return
+
+    st.markdown("##### ลบคำสั่งซื้อ")
+    labels = ["เลือกคำสั่งซื้อที่ต้องการลบ", *[label for label, _ in options]]
+    selected_label = st.selectbox("รายการ", labels, key="dashboard_delete_order_label")
+    selected_ids = []
+    for label, record_ids in options:
+        if label == selected_label:
+            selected_ids = record_ids
+            break
+
+    confirm = st.checkbox("ยืนยันว่าต้องการลบคำสั่งซื้อนี้แบบถาวร", key="dashboard_delete_order_confirm")
+    if st.button(
+        "ลบคำสั่งซื้อ",
+        key="dashboard_delete_order_button",
+        disabled=not selected_ids or not confirm,
+        type="secondary",
+    ):
+        try:
+            deleted = delete_sales_report_records(selected_ids, user)
+        except Exception as exc:
+            st.error(f"ลบคำสั่งซื้อไม่สำเร็จ: {exc}")
+            return
+        clear_cached_data_functions(fetch_dashboard_kpis, fetch_sales_report, fetch_sales_report_rows)
+        st.success(f"ลบคำสั่งซื้อสำเร็จ {deleted:,} รายการ")
+        st.rerun()
 
 
 def resolve_sales_range(label: str) -> tuple[date, date]:

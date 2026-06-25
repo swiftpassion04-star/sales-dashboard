@@ -846,6 +846,16 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     phones = [phone for phone in (phone1, phone2) if phone]
     actions = {"inserted": 0, "updated": 0}
     record_ids: list[str] = []
+    raw_qty_match_expr = (
+        "case when nullif(raw_data->>'qty', '') ~ '^[0-9]+(\\.[0-9]+)?$' "
+        "then (raw_data->>'qty')::numeric end"
+    )
+    raw_amount_match_expr = (
+        "case when nullif(raw_data->>'amount', '') ~ '^[0-9]+(\\.[0-9]+)?$' "
+        "then (raw_data->>'amount')::numeric end"
+    )
+    qty_match_expr = f"coalesce(quantity, {raw_qty_match_expr}, 0)" if has_quantity else f"coalesce({raw_qty_match_expr}, 0)"
+    amount_match_expr = f"coalesce(amount, {raw_amount_match_expr}, 0)" if has_amount else f"coalesce({raw_amount_match_expr}, 0)"
 
     with neon_connection() as conn:
         try:
@@ -929,17 +939,28 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
                         "updated_by": updated_by,
                     }
                     cur.execute(
-                        """
+                        f"""
                         select id::text as id
                         from public.crm_data_imports
                         where import_status = 'valid'
                           and order_id = %s
                           and sku = %s
+                          and coalesce(nullif(trim(product_name), ''), '') = %s
+                          and {qty_match_expr} = %s
+                          and {amount_match_expr} = %s
                           and (phone1 = any(%s) or phone2 = any(%s))
                         order by order_date desc nulls last, updated_at desc nulls last, uploaded_at desc, id desc
                         limit 1
                         """,
-                        [order_id, item["sku"], phones, phones],
+                        [
+                            order_id,
+                            item["sku"],
+                            item["product_name"],
+                            item["qty"],
+                            item.get("amount") or 0,
+                            phones,
+                            phones,
+                        ],
                     )
                     row = cur.fetchone()
                     target_id = clean(row.get("id")) if row else ""
@@ -1825,10 +1846,16 @@ def fetch_sales_report_rows(
                     coalesce(nullif(d.order_id, ''), d.id::text) as order_id,
                     coalesce(nullif(d.sku, ''), '-') as sku,
                     coalesce(nullif(d.product_name, ''), '-') as product_name,
-                    sum({qty_expr}) as quantity,
-                    sum(coalesce(d.amount, 0)) as amount,
+                    {qty_expr} as quantity,
+                    coalesce(d.amount, 0) as amount,
                     coalesce(nullif(creator.staff_name, ''), {creator_expr}) as created_staff,
-                    min(d.id) as first_id
+                    min(d.id) as first_id,
+                    array_agg(d.id::text order by d.id) as record_ids,
+                    bool_and(
+                      coalesce(nullif(d.source_type, ''), '') = 'manual'
+                      or coalesce(nullif(d.source_file_name, ''), '') = 'manual_order'
+                      or coalesce(nullif(d.raw_data->>'source', ''), '') = 'manual_order'
+                    ) as can_delete
                   from public.crm_data_imports d
                   left join public.crm_user_roles creator
                     on lower(creator.email) = lower({creator_expr})
@@ -1838,6 +1865,8 @@ def fetch_sales_report_rows(
                     coalesce(nullif(d.order_id, ''), d.id::text),
                     coalesce(nullif(d.sku, ''), '-'),
                     coalesce(nullif(d.product_name, ''), '-'),
+                    {qty_expr},
+                    coalesce(d.amount, 0),
                     coalesce(nullif(creator.staff_name, ''), {creator_expr})
                 )
                 select
@@ -1848,7 +1877,9 @@ def fetch_sales_report_rows(
                   product_name,
                   quantity,
                   amount,
-                  created_staff
+                  created_staff,
+                  record_ids,
+                  can_delete
                 from base
                 order by created_at asc, first_id asc
                 limit %s
@@ -1856,6 +1887,87 @@ def fetch_sales_report_rows(
                 params,
             )
             return cur.fetchall()
+
+
+def delete_sales_report_records(record_ids: list[str], user: dict | None) -> int:
+    from permissions import ROLE_EDITOR, user_role
+
+    if user_role(user) != ROLE_EDITOR:
+        raise PermissionError("Only EDITOR can delete sales report records")
+
+    clean_ids = [clean(record_id) for record_id in (record_ids or []) if clean(record_id)]
+    if not clean_ids:
+        return 0
+
+    ensure_crm_data_imports_schema()
+    has_order_items = neon_table_exists("crm_order_items")
+    has_order_item_import_id = has_order_items and neon_column_exists("crm_order_items", "crm_data_import_id")
+    has_orders = neon_table_exists("crm_orders")
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select distinct order_id
+                    from public.crm_data_imports
+                    where id::text = any(%s)
+                      and (
+                        coalesce(nullif(source_type, ''), '') = 'manual'
+                        or coalesce(nullif(source_file_name, ''), '') = 'manual_order'
+                        or coalesce(nullif(raw_data->>'source', ''), '') = 'manual_order'
+                      )
+                    """,
+                    [clean_ids],
+                )
+                order_ids = [clean(row.get("order_id")) for row in cur.fetchall() if clean(row.get("order_id"))]
+
+                if has_order_item_import_id:
+                    cur.execute(
+                        """
+                        delete from public.crm_order_items
+                        where crm_data_import_id::text = any(%s)
+                        """,
+                        [clean_ids],
+                    )
+
+                cur.execute(
+                    """
+                    delete from public.crm_data_imports
+                    where id::text = any(%s)
+                      and (
+                        coalesce(nullif(source_type, ''), '') = 'manual'
+                        or coalesce(nullif(source_file_name, ''), '') = 'manual_order'
+                        or coalesce(nullif(raw_data->>'source', ''), '') = 'manual_order'
+                      )
+                    """,
+                    [clean_ids],
+                )
+                deleted = int(cur.rowcount or 0)
+
+                if has_orders and order_ids:
+                    cur.execute(
+                        """
+                        delete from public.crm_orders o
+                        where o.order_id = any(%s)
+                          and not exists (
+                            select 1
+                            from public.crm_order_items i
+                            where i.crm_order_id = o.id
+                          )
+                          and not exists (
+                            select 1
+                            from public.crm_data_imports d
+                            where d.order_id = o.order_id
+                              and d.import_status = 'valid'
+                          )
+                        """,
+                        [order_ids],
+                    )
+            conn.commit()
+            return deleted
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def build_customer_where(
