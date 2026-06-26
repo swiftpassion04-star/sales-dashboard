@@ -484,11 +484,31 @@ def unique_order_history(row: dict) -> list[dict]:
     history: list[dict] = []
     for order in orders:
         order_id = clean(order.get("order_id"))
-        if not order_id or order_id in seen:
+        if not order_id:
             continue
-        seen.add(order_id)
+        row_key = "|".join(
+            [
+                order_id,
+                clean(order.get("sku")),
+                clean(order.get("product_name")),
+                clean(order.get("quantity")),
+                order_sales_display(order),
+            ]
+        )
+        if row_key in seen:
+            continue
+        seen.add(row_key)
         history.append(order)
     return history
+
+
+def order_sales_display(order: dict) -> str:
+    sale_type = clean(order.get("sale_type")).upper()
+    if sale_type == "FOLLOW":
+        return "-"
+    if sale_type in {"NEW_ORDER", "UPSELL"}:
+        return clean(order.get("amount")) or clean(order.get("total_sales")) or "-"
+    return clean(order.get("total_sales")) or clean(order.get("amount")) or "-"
 
 
 def render_order_history(rows: list[dict]) -> None:
@@ -518,7 +538,7 @@ def render_order_history(rows: list[dict]) -> None:
   <div class="crm-table-cell">{html.escape(clean(order.get("date_text")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("product_name")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("quantity")) or "-")}</div>
-  <div class="crm-table-cell">{html.escape(clean(order.get("total_sales")) or "-")}</div>
+  <div class="crm-table-cell">{html.escape(order_sales_display(order))}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("shipping")) or "-")}</div>
   <div class="crm-table-cell">{html.escape(clean(order.get("tracking_no")) or "-")}</div>
   <div class="crm-table-cell">{url_html}</div>

@@ -2381,6 +2381,8 @@ def fetch_orders_by_phones(phones: tuple[str, ...], limit: int = 5000) -> list[d
         quantity_expr = f"coalesce(quantity, {raw_qty_expr}, {raw_thai_qty_expr})"
     else:
         quantity_expr = f"coalesce({raw_qty_expr}, {raw_thai_qty_expr})"
+    amount_expr = "amount" if neon_column_exists("crm_data_imports", "amount") else "null::numeric as amount"
+    sale_type_expr = "sale_type" if neon_column_exists("crm_data_imports", "sale_type") else "null::text as sale_type"
     clauses = []
     params: list = []
     for phone in clean_phones[:6]:
@@ -2409,6 +2411,8 @@ def fetch_orders_by_phones(phones: tuple[str, ...], limit: int = 5000) -> list[d
                   owner as care_staff,
                   {quantity_expr} as quantity,
                   total_amount as total_sales,
+                  {amount_expr},
+                  {sale_type_expr},
                   order_status,
                   raw_data->>'วิธีการชำระ' as payment_method,
                   carrier as shipping,
@@ -2433,7 +2437,7 @@ def fetch_orders_by_phones(phones: tuple[str, ...], limit: int = 5000) -> list[d
                 "sku": clean(row.get("sku")),
                 "name": clean(row.get("product_name")),
                 "qty": clean(row.get("quantity")) or clean((row.get("raw_data") or {}).get("จำนวน")),
-                "price": clean(row.get("total_sales")),
+                "price": clean(row.get("amount")) or clean(row.get("total_sales")),
             }
         ]
     return rows
