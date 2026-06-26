@@ -1,3 +1,11 @@
+import streamlit as st
+
+
+st.set_page_config(page_title="Legacy Customer 360", layout="wide")
+st.warning("หน้านี้เลิกใช้แล้ว กรุณาใช้หน้าใหม่: Customer 360 ผ่านหน้าค้นหาลูกค้า")
+st.page_link("pages/customers.py", label="ไปหน้าค้นหาลูกค้าเพื่อเปิด Customer 360")
+st.stop()
+
 import html
 import json
 from datetime import date, datetime

@@ -1,3 +1,12 @@
+import streamlit as st
+
+
+st.set_page_config(page_title="Legacy page", layout="wide")
+st.warning("หน้านี้เลิกใช้แล้ว กรุณาใช้หน้าใหม่: สินค้า")
+st.page_link("pages/products.py", label="ไปหน้าสินค้า")
+st.switch_page("pages/products.py")
+st.stop()
+
 from io import BytesIO
 from datetime import datetime, timezone
 

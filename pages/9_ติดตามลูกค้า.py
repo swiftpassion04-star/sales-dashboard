@@ -1,3 +1,12 @@
+import streamlit as st
+
+
+st.set_page_config(page_title="Legacy page", layout="wide")
+st.warning("หน้านี้เลิกใช้แล้ว กรุณาใช้หน้าใหม่: ติดตามลูกค้า")
+st.page_link("pages/followup.py", label="ไปหน้าติดตามลูกค้า")
+st.switch_page("pages/followup.py")
+st.stop()
+
 from datetime import date, datetime
 import html
 

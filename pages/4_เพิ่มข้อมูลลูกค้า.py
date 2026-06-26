@@ -1,3 +1,12 @@
+import streamlit as st
+
+
+st.set_page_config(page_title="Legacy page", layout="wide")
+st.warning("หน้านี้เลิกใช้แล้ว กรุณาใช้หน้าใหม่: เพิ่มคำสั่งซื้อ / Import Excel")
+st.page_link("pages/import_excel.py", label="ไปหน้าเพิ่มคำสั่งซื้อ / Import Excel")
+st.switch_page("pages/import_excel.py")
+st.stop()
+
 from datetime import date
 from io import BytesIO
 

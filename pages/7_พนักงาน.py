@@ -1,3 +1,12 @@
+import streamlit as st
+
+
+st.set_page_config(page_title="Legacy page", layout="wide")
+st.warning("หน้านี้เลิกใช้แล้ว กรุณาใช้หน้าใหม่: User / Role")
+st.page_link("pages/users.py", label="ไปหน้า User / Role")
+st.switch_page("pages/users.py")
+st.stop()
+
 from datetime import datetime, timezone
 
 import pandas as pd
