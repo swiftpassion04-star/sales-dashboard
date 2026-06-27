@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 
+from crm_data.cache import clear_cached_data_functions
+
 try:
     import psycopg
     from psycopg.rows import dict_row
@@ -20,14 +22,6 @@ except ImportError:  # pragma: no cover - shown in the UI when dependency is mis
 
 
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
-
-
-def clear_cached_data_functions(*functions) -> None:
-    """Clear only the Streamlit cached functions passed in."""
-    for function in functions:
-        clear = getattr(function, "clear", None)
-        if callable(clear):
-            clear()
 
 
 CRM_DATA_IMPORTS_DDL = """
