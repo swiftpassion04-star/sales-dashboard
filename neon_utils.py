@@ -3,13 +3,13 @@ import json
 import os
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
 
 from crm_data.cache import clear_cached_data_functions
+from crm_data.common import new_batch_id, now_iso
 from crm_data.products import (
     delete_product_option,
     fetch_product_options,
@@ -380,14 +380,6 @@ def to_number(value):
 def make_dedupe_key(order_id: str, phone1: str, phone2: str, tracking_no: str) -> str:
     text = "|".join([clean(order_id), normalize_phone(phone1), normalize_phone(phone2), clean(tracking_no)])
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def new_batch_id() -> str:
-    return str(uuid4())
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @st.cache_data(ttl=300, show_spinner=False)
