@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from neon_utils import new_batch_id, now_iso
+from neon_utils import BANGKOK_TZ, new_batch_id, now_iso
 
 
 def test_new_batch_id_returns_unique_uuid_strings():
@@ -22,3 +22,31 @@ def test_now_iso_returns_parseable_utc_timestamp():
     parsed = datetime.fromisoformat(value)
     assert parsed.tzinfo is not None
     assert parsed.utcoffset() == timedelta(0)
+
+
+def test_bangkok_timezone_key():
+    assert BANGKOK_TZ.key == "Asia/Bangkok"
+
+
+def test_bangkok_timezone_offset_is_plus_7():
+    value = datetime(2026, 6, 29, 12, 0, tzinfo=BANGKOK_TZ)
+
+    assert value.utcoffset() == timedelta(hours=7)
+
+
+def test_bangkok_midnight_converts_to_previous_day_utc_17():
+    bangkok_midnight = datetime(2026, 6, 29, 0, 0, tzinfo=BANGKOK_TZ)
+    utc_value = bangkok_midnight.astimezone(timezone.utc)
+
+    assert utc_value == datetime(2026, 6, 28, 17, 0, tzinfo=timezone.utc)
+
+
+def test_bangkok_date_range_end_boundary_is_exclusive_next_midnight():
+    start = datetime(2026, 6, 29, 0, 0, tzinfo=BANGKOK_TZ)
+    end = datetime(2026, 6, 30, 0, 0, tzinfo=BANGKOK_TZ)
+
+    start_utc = start.astimezone(timezone.utc)
+    end_utc = end.astimezone(timezone.utc)
+
+    assert end > start
+    assert end_utc - start_utc == timedelta(days=1)
