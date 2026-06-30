@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from crm_data.cache import clear_cached_data_functions
-from crm_data.common import BANGKOK_TZ, clean, new_batch_id, now_iso, to_number
+from crm_data.common import BANGKOK_TZ, clean, new_batch_id, now_iso, parse_date, to_number
 from crm_data.products import (
     delete_product_option,
     fetch_product_options,
@@ -341,16 +341,6 @@ def validate_phone_pair(phone1, phone2, require_one: bool = True) -> list[str]:
         if error:
             errors.append(error)
     return errors
-
-
-def parse_date(value) -> str | None:
-    text = clean(value)
-    if not text:
-        return None
-    parsed = pd.to_datetime(text, errors="coerce", dayfirst=True)
-    if pd.isna(parsed):
-        return None
-    return parsed.date().isoformat()
 
 
 def make_dedupe_key(order_id: str, phone1: str, phone2: str, tracking_no: str) -> str:

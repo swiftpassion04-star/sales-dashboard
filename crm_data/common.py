@@ -27,6 +27,16 @@ def to_number(value):
         return None
 
 
+def parse_date(value) -> str | None:
+    text = clean(value)
+    if not text:
+        return None
+    parsed = pd.to_datetime(text, errors="coerce", dayfirst=True)
+    if pd.isna(parsed):
+        return None
+    return parsed.date().isoformat()
+
+
 def new_batch_id() -> str:
     return str(uuid4())
 
