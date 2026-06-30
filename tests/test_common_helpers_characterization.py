@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from neon_utils import BANGKOK_TZ, new_batch_id, now_iso
+import pandas as pd
+
+from neon_utils import BANGKOK_TZ, clean, new_batch_id, now_iso
 
 
 def test_new_batch_id_returns_unique_uuid_strings():
@@ -50,3 +52,29 @@ def test_bangkok_date_range_end_boundary_is_exclusive_next_midnight():
 
     assert end > start
     assert end_utc - start_utc == timedelta(days=1)
+
+
+def test_clean_empty_like_values():
+    assert clean(None) == ""
+    assert clean("") == ""
+    assert clean("   ") == ""
+    assert clean(float("nan")) == ""
+    assert clean(pd.NaT) == ""
+
+
+def test_clean_preserves_current_pd_na_behavior():
+    assert clean(pd.NA) == "<NA>"
+
+
+def test_clean_strips_and_stringifies_values():
+    assert clean("  abc  ") == "abc"
+    assert clean(123) == "123"
+    assert clean(0) == "0"
+    assert clean(False) == "False"
+
+
+def test_clean_sentinel_strings_become_empty():
+    assert clean("NULL") == ""
+    assert clean("none") == ""
+    assert clean(" NaN ") == ""
+    assert clean("nat") == ""
