@@ -3,7 +3,18 @@ from uuid import UUID
 
 import pandas as pd
 
-from neon_utils import BANGKOK_TZ, clean, new_batch_id, now_iso, parse_date, to_number
+from neon_utils import (
+    BANGKOK_TZ,
+    PHONE_RULE_MESSAGE,
+    clean,
+    new_batch_id,
+    normalize_phone,
+    now_iso,
+    parse_date,
+    to_number,
+    validate_phone_pair,
+    validate_phone_value,
+)
 
 
 def test_new_batch_id_returns_unique_uuid_strings():
@@ -118,3 +129,49 @@ def test_parse_date_valid_values_and_dayfirst_behavior():
     assert parse_date("01/02/2026") == "2026-02-01"
     assert parse_date(datetime(2026, 6, 30, 8, 15)) == "2026-06-30"
     assert parse_date(date(2026, 6, 30)) == "2026-06-30"
+
+
+def test_normalize_phone_preserves_current_digit_extraction_behavior():
+    assert normalize_phone(None) == ""
+    assert normalize_phone("") == ""
+    assert normalize_phone("   ") == ""
+    assert normalize_phone("0812345678") == "0812345678"
+    assert normalize_phone("081-234-5678") == "0812345678"
+    assert normalize_phone("081 234 5678") == "0812345678"
+    assert normalize_phone("+66 81 234 5678") == "66812345678"
+    assert normalize_phone("abc0812345678xyz") == "0812345678"
+    assert normalize_phone(812345678) == "812345678"
+
+
+def test_phone_rule_message_is_stable():
+    assert PHONE_RULE_MESSAGE == "ต้องเป็นตัวเลข 10 หลัก ขึ้นต้นด้วย 0 และห้ามมีสัญลักษณ์"
+
+
+def test_validate_phone_value_preserves_current_labelled_messages():
+    invalid_message = f"เบอร์โทรใส่ไม่ถูกต้อง {PHONE_RULE_MESSAGE}"
+
+    assert validate_phone_value("", "เบอร์โทร") == ""
+    assert validate_phone_value("0812345678", "เบอร์โทร") == ""
+    assert validate_phone_value("812345678", "เบอร์โทร") == invalid_message
+    assert validate_phone_value("081234567", "เบอร์โทร") == invalid_message
+    assert validate_phone_value("08123456789", "เบอร์โทร") == invalid_message
+    assert validate_phone_value("081-234-5678", "เบอร์โทร") == invalid_message
+    assert validate_phone_value("+66 81 234 5678", "เบอร์โทร") == invalid_message
+    assert validate_phone_value("abc0812345678xyz", "เบอร์โทร") == invalid_message
+
+
+def test_validate_phone_pair_preserves_current_required_and_valid_behavior():
+    assert validate_phone_pair("", "") == ["กรุณากรอกเบอร์โทรหรือเบอร์สำรอง"]
+    assert validate_phone_pair("", "", require_one=False) == []
+    assert validate_phone_pair("0812345678", "") == []
+    assert validate_phone_pair("", "0812345678") == []
+    assert validate_phone_pair("0812345678", "0912345678") == []
+
+
+def test_validate_phone_pair_rejects_symbols_and_invalid_lengths():
+    primary_error = f"เบอร์โทรใส่ไม่ถูกต้อง {PHONE_RULE_MESSAGE}"
+    secondary_error = f"เบอร์สำรองใส่ไม่ถูกต้อง {PHONE_RULE_MESSAGE}"
+
+    assert validate_phone_pair("081-234-5678", "") == [primary_error]
+    assert validate_phone_pair("", "091-234-5678") == [secondary_error]
+    assert validate_phone_pair("812345678", "") == [primary_error]
