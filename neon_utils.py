@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from crm_data.cache import clear_cached_data_functions
-from crm_data.common import BANGKOK_TZ, clean, new_batch_id, now_iso
+from crm_data.common import BANGKOK_TZ, clean, new_batch_id, now_iso, to_number
 from crm_data.products import (
     delete_product_option,
     fetch_product_options,
@@ -351,16 +351,6 @@ def parse_date(value) -> str | None:
     if pd.isna(parsed):
         return None
     return parsed.date().isoformat()
-
-
-def to_number(value):
-    text = clean(value).replace(",", "")
-    if not text:
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        return None
 
 
 def make_dedupe_key(order_id: str, phone1: str, phone2: str, tracking_no: str) -> str:
