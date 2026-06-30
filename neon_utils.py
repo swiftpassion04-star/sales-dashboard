@@ -3,13 +3,12 @@ import json
 import os
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
 
 from crm_data.cache import clear_cached_data_functions
-from crm_data.common import new_batch_id, now_iso
+from crm_data.common import BANGKOK_TZ, new_batch_id, now_iso
 from crm_data.products import (
     delete_product_option,
     fetch_product_options,
@@ -26,10 +25,6 @@ except ImportError:  # pragma: no cover - shown in the UI when dependency is mis
     psycopg = None
     dict_row = None
     Jsonb = None
-
-
-BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
-
 
 CRM_DATA_IMPORTS_DDL = """
 create table if not exists public.crm_data_imports (
