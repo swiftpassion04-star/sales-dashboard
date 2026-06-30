@@ -1,9 +1,9 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 import pandas as pd
 
-from neon_utils import BANGKOK_TZ, clean, new_batch_id, now_iso
+from neon_utils import BANGKOK_TZ, clean, new_batch_id, now_iso, parse_date, to_number
 
 
 def test_new_batch_id_returns_unique_uuid_strings():
@@ -78,3 +78,43 @@ def test_clean_sentinel_strings_become_empty():
     assert clean("none") == ""
     assert clean(" NaN ") == ""
     assert clean("nat") == ""
+
+
+def test_to_number_empty_like_values():
+    assert to_number(None) is None
+    assert to_number("") is None
+    assert to_number("   ") is None
+    assert to_number(float("nan")) is None
+    assert to_number(pd.NA) is None
+
+
+def test_to_number_numeric_values():
+    assert to_number(123) == 123.0
+    assert to_number(0) == 0.0
+    assert to_number("1,234.56") == 1234.56
+    assert to_number("-12.5") == -12.5
+    assert to_number("1e3") == 1000.0
+
+
+def test_to_number_invalid_values():
+    assert to_number(False) is None
+    assert to_number("$123") is None
+    assert to_number("(123)") is None
+    assert to_number("abc") is None
+
+
+def test_parse_date_empty_and_invalid_values():
+    assert parse_date(None) is None
+    assert parse_date("") is None
+    assert parse_date("   ") is None
+    assert parse_date(pd.NaT) is None
+    assert parse_date("not a date") is None
+    assert parse_date(45000) is None
+
+
+def test_parse_date_valid_values_and_dayfirst_behavior():
+    assert parse_date("2026-06-30") == "2026-06-30"
+    assert parse_date("30/06/2026") == "2026-06-30"
+    assert parse_date("01/02/2026") == "2026-02-01"
+    assert parse_date(datetime(2026, 6, 30, 8, 15)) == "2026-06-30"
+    assert parse_date(date(2026, 6, 30)) == "2026-06-30"
