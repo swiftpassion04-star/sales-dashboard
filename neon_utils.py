@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from crm_data.cache import clear_cached_data_functions
-from crm_data.common import BANGKOK_TZ, new_batch_id, now_iso
+from crm_data.common import BANGKOK_TZ, clean, new_batch_id, now_iso
 from crm_data.products import (
     delete_product_option,
     fetch_product_options,
@@ -315,15 +315,6 @@ def owner_to_staff_code(value) -> str:
         if inner:
             return inner
     return text
-
-
-def clean(value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, float) and pd.isna(value):
-        return ""
-    text = str(value).strip()
-    return "" if text.upper() in {"NULL", "NONE", "NAN", "NAT"} else text
 
 
 PHONE_RULE_MESSAGE = "ต้องเป็นตัวเลข 10 หลัก ขึ้นต้นด้วย 0 และห้ามมีสัญลักษณ์"
