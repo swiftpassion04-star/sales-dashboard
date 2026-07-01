@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 from contextlib import contextmanager
@@ -12,6 +11,7 @@ from crm_data.common import (
     BANGKOK_TZ,
     PHONE_RULE_MESSAGE,
     clean,
+    make_dedupe_key,
     new_batch_id,
     normalize_phone,
     now_iso,
@@ -322,11 +322,6 @@ def owner_to_staff_code(value) -> str:
         if inner:
             return inner
     return text
-
-
-def make_dedupe_key(order_id: str, phone1: str, phone2: str, tracking_no: str) -> str:
-    text = "|".join([clean(order_id), normalize_phone(phone1), normalize_phone(phone2), clean(tracking_no)])
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @st.cache_data(ttl=300, show_spinner=False)

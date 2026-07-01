@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -19,6 +20,11 @@ def clean(value) -> str:
 
 def normalize_phone(value) -> str:
     return "".join(ch for ch in clean(value) if ch.isdigit())
+
+
+def make_dedupe_key(order_id: str, phone1: str, phone2: str, tracking_no: str) -> str:
+    text = "|".join([clean(order_id), normalize_phone(phone1), normalize_phone(phone2), clean(tracking_no)])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 PHONE_RULE_MESSAGE = "ต้องเป็นตัวเลข 10 หลัก ขึ้นต้นด้วย 0 และห้ามมีสัญลักษณ์"
