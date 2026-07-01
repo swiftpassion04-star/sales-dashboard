@@ -73,9 +73,48 @@ def render_pagination(
         on_change=reset_page,
     )
 
+    controls_key = f"{key_prefix}_pagination_controls"
+    st.markdown(
+        f"""
+<style>
+.st-key-{controls_key} {{
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}}
+.st-key-{controls_key} [data-testid="stButton"] {{
+  flex: 0 0 auto !important;
+  width: auto !important;
+}}
+.st-key-{controls_key} [data-testid="stButton"] > button {{
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 44px !important;
+  width: auto !important;
+  min-height: 36px !important;
+  height: 36px !important;
+  padding: 0 12px !important;
+  white-space: nowrap !important;
+  line-height: 1 !important;
+  font-size: 13px !important;
+  box-sizing: border-box !important;
+}}
+.st-key-{controls_key} [data-testid="stButton"] > button p {{
+  margin: 0 !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+  word-break: keep-all !important;
+  line-height: 1 !important;
+}}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
     tokens = _page_tokens(current_page, total_pages)
     with st.container(
-        key=f"{key_prefix}_pagination_controls",
+        key=controls_key,
         horizontal=True,
         horizontal_alignment="right",
         vertical_alignment="center",
@@ -87,7 +126,6 @@ def render_pagination(
             disabled=current_page <= 1,
             on_click=select_page,
             args=(current_page - 1,),
-            width=44,
             help="หน้าก่อนหน้า",
         )
 
@@ -97,7 +135,6 @@ def render_pagination(
                     "...",
                     key=f"{key_prefix}_pagination_gap_{index}",
                     disabled=True,
-                    width=44,
                 )
                 continue
             st.button(
@@ -106,7 +143,6 @@ def render_pagination(
                 type="primary" if token == current_page else "secondary",
                 on_click=select_page,
                 args=(token,),
-                width=44,
                 help=f"ไปหน้า {token}",
             )
 
@@ -116,7 +152,6 @@ def render_pagination(
             disabled=current_page >= total_pages,
             on_click=select_page,
             args=(current_page + 1,),
-            width=44,
             help="หน้าถัดไป",
         )
     return page_size, current_page
