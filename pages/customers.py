@@ -22,6 +22,7 @@ from neon_utils import (
     upsert_lead_followup,
 )
 from permissions import can_assign_customer_owner, can_export_customers, can_manage_all
+from ui.pagination import get_pagination_state, render_pagination
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
@@ -62,13 +63,21 @@ def main() -> None:
     render_page_header("ลูกค้า", "ค้นหาและดูข้อมูลลูกค้าจาก Neon แบบ server-side")
 
     filters = render_filters(user)
-    page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="customers_page_size")
-    page = int(st.number_input("หน้า", min_value=1, value=int(st.session_state.get("customers_page", 1)), step=1))
-    st.session_state.customers_page = page
+    page_size, page = get_pagination_state(
+        key_prefix="customers",
+        page_size_options=PAGE_SIZE_OPTIONS,
+    )
 
     with st.spinner("กำลังโหลดข้อมูลลูกค้า..."):
         rows, total = fetch_customer_page(filters, page_size, page, user, enforce_user_scope=False)
 
+    page_size, page = render_pagination(
+        total_rows=total,
+        page_size=page_size,
+        current_page=page,
+        key_prefix="customers",
+        page_size_options=PAGE_SIZE_OPTIONS,
+    )
     c1, c2, c3 = st.columns(3)
     c1.metric("ลูกค้าทั้งหมด", f"{total:,}")
     c2.metric("แถวที่แสดง", f"{len(rows):,}")

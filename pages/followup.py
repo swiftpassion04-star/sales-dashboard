@@ -17,6 +17,7 @@ from neon_utils import (
     validate_phone_pair,
 )
 from permissions import can_manage_all, can_view_followup, can_view_followup_owner_filter
+from ui.pagination import get_pagination_state, render_pagination
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
@@ -80,12 +81,25 @@ def main() -> None:
     render_page_header("ติดตามลูกค้า", "จัดการ Lead และ Follow-up จาก Neon เท่านั้น")
     render_followup_page_message()
     filters = render_filters(user)
-    page_size = st.selectbox("จำนวนแถวต่อหน้า", PAGE_SIZE_OPTIONS, index=0, key="followup_page_size_v2")
-    page = int(st.number_input("หน้า", min_value=1, value=int(st.session_state.get("followup_page_v2", 1)), step=1))
-    st.session_state.followup_page_v2 = page
+    page_size, page = get_pagination_state(
+        key_prefix="followup",
+        page_size_options=PAGE_SIZE_OPTIONS,
+        page_key="followup_page_v2",
+        page_size_key="followup_page_size_v2",
+    )
 
     with st.spinner("กำลังโหลดรายการติดตาม..."):
         rows, total = fetch_followup_page(filters, user, page_size, page)
+
+    page_size, page = render_pagination(
+        total_rows=total,
+        page_size=page_size,
+        current_page=page,
+        key_prefix="followup",
+        page_size_options=PAGE_SIZE_OPTIONS,
+        page_key="followup_page_v2",
+        page_size_key="followup_page_size_v2",
+    )
     render_summary(rows, total, page_size, page)
     render_followup_sections(rows)
     if not rows:
