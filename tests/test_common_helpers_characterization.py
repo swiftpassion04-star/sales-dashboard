@@ -7,6 +7,7 @@ from neon_utils import (
     BANGKOK_TZ,
     PHONE_RULE_MESSAGE,
     clean,
+    make_dedupe_key,
     new_batch_id,
     normalize_phone,
     now_iso,
@@ -175,3 +176,61 @@ def test_validate_phone_pair_rejects_symbols_and_invalid_lengths():
     assert validate_phone_pair("081-234-5678", "") == [primary_error]
     assert validate_phone_pair("", "091-234-5678") == [secondary_error]
     assert validate_phone_pair("812345678", "") == [primary_error]
+
+
+def assert_sha256_hex(value: str) -> None:
+    assert isinstance(value, str)
+    assert len(value) == 64
+    assert value == value.lower()
+    int(value, 16)
+
+
+def test_make_dedupe_key_empty_values_have_stable_hash():
+    expected = "be5be69f55e91af25e54ecc2154d4da359b67b3b27e25f5cc0b3ff54eb74dff3"
+
+    assert make_dedupe_key("", "", "", "") == expected
+    assert make_dedupe_key(None, None, None, None) == expected
+    assert_sha256_hex(expected)
+
+
+def test_make_dedupe_key_trims_and_normalizes_phone_formatting():
+    expected = "ec8dbb1bdf94987c1ccc5fd9ad0539c5abdb789aac0777812353046ed415fc3f"
+    plain = make_dedupe_key("A001", "0812345678", "", "TH123")
+    trimmed = make_dedupe_key(" A001 ", "081-234-5678", "", " TH123 ")
+    spaced_phone = make_dedupe_key("A001", "081 234 5678", "", "TH123")
+
+    assert plain == expected
+    assert trimmed == expected
+    assert spaced_phone == expected
+    assert_sha256_hex(plain)
+
+
+def test_make_dedupe_key_preserves_plus66_behavior():
+    value = make_dedupe_key("A001", "+66 81 234 5678", "", "TH123")
+
+    assert value == "11f19b85145a1957e15d478d1f08450950ba6aac6ef8fc4a81cf815e71e5acac"
+    assert value != make_dedupe_key("A001", "0812345678", "", "TH123")
+    assert_sha256_hex(value)
+
+
+def test_make_dedupe_key_phone_order_is_significant():
+    phone_pair = make_dedupe_key("A001", "0812345678", "0912345678", "TH123")
+    swapped = make_dedupe_key("A001", "0912345678", "0812345678", "TH123")
+
+    assert phone_pair == "c0a65085d6de99ede6a618504ed8011cc0ff7364fb26d616f461aca7477b1f80"
+    assert swapped == "104d8e45836dec28b278f882e73b2bbd1d974e9c7b108a6c7178bc951cf78677"
+    assert phone_pair != swapped
+    assert_sha256_hex(phone_pair)
+    assert_sha256_hex(swapped)
+
+
+def test_make_dedupe_key_is_case_sensitive_and_stringifies_numbers():
+    lowercase = make_dedupe_key("a001", "0812345678", "", "th123")
+    numeric_phone = make_dedupe_key("A001", 812345678, "", "TH123")
+    base = make_dedupe_key("A001", "0812345678", "", "TH123")
+
+    assert lowercase == "94901deafe1ad488c160de674462687848a0e39608dae6b3c78440ba1791763b"
+    assert numeric_phone == "5e4e53e5998d15cef598fd707d92b57beb6e2cb34c4ca30e0d8666fcfb093072"
+    assert lowercase != base
+    assert numeric_phone != base
+    assert_sha256_hex(lowercase)
