@@ -74,46 +74,51 @@ def render_pagination(
     )
 
     tokens = _page_tokens(current_page, total_pages)
-    columns = st.columns([4, *([0.7] * (len(tokens) + 2)), 4])
-    controls = columns[1:-1]
-    controls[0].button(
-        "<",
-        key=f"{key_prefix}_pagination_previous",
-        disabled=current_page <= 1,
-        on_click=select_page,
-        args=(current_page - 1,),
-        use_container_width=True,
-        help="หน้าก่อนหน้า",
-    )
-
-    for index, token in enumerate(tokens, start=1):
-        if token is None:
-            controls[index].button(
-                "...",
-                key=f"{key_prefix}_pagination_gap_{index}",
-                disabled=True,
-                use_container_width=True,
-            )
-            continue
-        controls[index].button(
-            str(token),
-            key=f"{key_prefix}_pagination_page_{token}",
-            type="primary" if token == current_page else "secondary",
+    with st.container(
+        key=f"{key_prefix}_pagination_controls",
+        horizontal=True,
+        horizontal_alignment="right",
+        vertical_alignment="center",
+        gap="small",
+    ):
+        st.button(
+            "<",
+            key=f"{key_prefix}_pagination_previous",
+            disabled=current_page <= 1,
             on_click=select_page,
-            args=(token,),
-            use_container_width=True,
-            help=f"ไปหน้า {token}",
+            args=(current_page - 1,),
+            width=44,
+            help="หน้าก่อนหน้า",
         )
 
-    controls[-1].button(
-        ">",
-        key=f"{key_prefix}_pagination_next",
-        disabled=current_page >= total_pages,
-        on_click=select_page,
-        args=(current_page + 1,),
-        use_container_width=True,
-        help="หน้าถัดไป",
-    )
+        for index, token in enumerate(tokens, start=1):
+            if token is None:
+                st.button(
+                    "...",
+                    key=f"{key_prefix}_pagination_gap_{index}",
+                    disabled=True,
+                    width=44,
+                )
+                continue
+            st.button(
+                str(token),
+                key=f"{key_prefix}_pagination_page_{token}",
+                type="primary" if token == current_page else "secondary",
+                on_click=select_page,
+                args=(token,),
+                width=44,
+                help=f"ไปหน้า {token}",
+            )
+
+        st.button(
+            ">",
+            key=f"{key_prefix}_pagination_next",
+            disabled=current_page >= total_pages,
+            on_click=select_page,
+            args=(current_page + 1,),
+            width=44,
+            help="หน้าถัดไป",
+        )
     return page_size, current_page
 
 
