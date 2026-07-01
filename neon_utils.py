@@ -8,7 +8,18 @@ import pandas as pd
 import streamlit as st
 
 from crm_data.cache import clear_cached_data_functions
-from crm_data.common import BANGKOK_TZ, clean, new_batch_id, now_iso, parse_date, to_number
+from crm_data.common import (
+    BANGKOK_TZ,
+    PHONE_RULE_MESSAGE,
+    clean,
+    new_batch_id,
+    normalize_phone,
+    now_iso,
+    parse_date,
+    to_number,
+    validate_phone_pair,
+    validate_phone_value,
+)
 from crm_data.products import (
     delete_product_option,
     fetch_product_options,
@@ -300,10 +311,6 @@ def ensure_crm_data_imports_schema() -> bool:
     return True
 
 
-def normalize_phone(value) -> str:
-    return "".join(ch for ch in clean(value) if ch.isdigit())
-
-
 def owner_to_staff_code(value) -> str:
     # Legacy/display-only helper. Never use this to write canonical staff_code.
     # Canonical staff_code must come from crm_user_roles/crm_staff_options.
@@ -315,32 +322,6 @@ def owner_to_staff_code(value) -> str:
         if inner:
             return inner
     return text
-
-
-PHONE_RULE_MESSAGE = "ต้องเป็นตัวเลข 10 หลัก ขึ้นต้นด้วย 0 และห้ามมีสัญลักษณ์"
-
-
-def validate_phone_value(value, label: str) -> str:
-    text = clean(value)
-    if not text:
-        return ""
-    if not text.isdigit() or len(text) != 10 or not text.startswith("0"):
-        return f"{label}ใส่ไม่ถูกต้อง {PHONE_RULE_MESSAGE}"
-    return ""
-
-
-def validate_phone_pair(phone1, phone2, require_one: bool = True) -> list[str]:
-    first = clean(phone1)
-    second = clean(phone2)
-    if require_one and not first and not second:
-        return ["กรุณากรอกเบอร์โทรหรือเบอร์สำรอง"]
-
-    errors = []
-    for value, label in ((first, "เบอร์โทร"), (second, "เบอร์สำรอง")):
-        error = validate_phone_value(value, label)
-        if error:
-            errors.append(error)
-    return errors
 
 
 def make_dedupe_key(order_id: str, phone1: str, phone2: str, tracking_no: str) -> str:
