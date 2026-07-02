@@ -14,6 +14,7 @@ from crm_data.team_sales import (
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from permissions import ROLE_EDITOR, user_role
+from ui.design_system import inject_crm_design_system
 
 
 TEAM_OPTIONS = {
@@ -48,7 +49,8 @@ def _team_rows_by_code(summary: dict) -> dict[str, dict]:
 
 
 def _render_team_card(team: dict) -> None:
-    with st.container(border=True):
+    team_code = str(team.get("team_code") or "unknown").lower()
+    with st.container(border=True, key=f"team_sales_team_card_{team_code}"):
         st.subheader(str(team.get("team_name") or "-"))
         metrics = st.columns(3)
         metrics[0].metric("จำนวนออเดอร์", f"{int(team.get('order_count') or 0):,}")
@@ -158,6 +160,7 @@ def main() -> None:
         st.warning("คุณไม่มีสิทธิ์เข้าดูหน้ายอดขายทีม")
         st.stop()
 
+    inject_crm_design_system()
     render_page_header(
         "🎖️ยอดขายทีม",
         "แสดงยอดรวมคำสั่งซื้อที่เพิ่ม แยกตามทีม",
@@ -168,27 +171,28 @@ def main() -> None:
 
     today = date.today()
     month_start = today.replace(day=1)
-    filter_cols = st.columns([1, 1, 1, 1])
-    start_date = filter_cols[0].date_input(
-        "วันที่เริ่มต้น",
-        value=month_start,
-        key="team_sales_start_date",
-    )
-    end_date = filter_cols[1].date_input(
-        "วันที่สิ้นสุด",
-        value=today,
-        key="team_sales_end_date",
-    )
-    sale_type_label = filter_cols[2].selectbox(
-        "ประเภทออเดอร์",
-        list(SALE_TYPE_OPTIONS),
-        key="team_sales_sale_type",
-    )
-    team_label = filter_cols[3].selectbox(
-        "ทีม",
-        list(TEAM_OPTIONS),
-        key="team_sales_team",
-    )
+    with st.container(key="team_sales_filter_panel"):
+        filter_cols = st.columns([1, 1, 1, 1])
+        start_date = filter_cols[0].date_input(
+            "วันที่เริ่มต้น",
+            value=month_start,
+            key="team_sales_start_date",
+        )
+        end_date = filter_cols[1].date_input(
+            "วันที่สิ้นสุด",
+            value=today,
+            key="team_sales_end_date",
+        )
+        sale_type_label = filter_cols[2].selectbox(
+            "ประเภทออเดอร์",
+            list(SALE_TYPE_OPTIONS),
+            key="team_sales_sale_type",
+        )
+        team_label = filter_cols[3].selectbox(
+            "ทีม",
+            list(TEAM_OPTIONS),
+            key="team_sales_team",
+        )
 
     if start_date > end_date:
         st.warning("วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด")
@@ -217,25 +221,28 @@ def main() -> None:
 
     summary_col, products_col = st.columns([1.45, 1], gap="large")
     with summary_col:
-        st.subheader("ยอดรวมระดับทีม")
-        teams_by_code = _team_rows_by_code(summary)
-        visible_codes = [team_code_filter] if team_code_filter else list(TEAM_OPTIONS.values())[1:]
-        for team_code in visible_codes:
-            _render_team_card(teams_by_code.get(team_code, {}))
+        with st.container(key="team_sales_summary_panel"):
+            st.subheader("ยอดรวมระดับทีม")
+            teams_by_code = _team_rows_by_code(summary)
+            visible_codes = [team_code_filter] if team_code_filter else list(TEAM_OPTIONS.values())[1:]
+            for team_code in visible_codes:
+                _render_team_card(teams_by_code.get(team_code, {}))
 
-        unassigned = summary.get("unassigned") or {}
-        if int(unassigned.get("row_count") or 0) > 0:
-            st.warning(
-                "ยังมีรายการที่ยังไม่ถูกจัดทีม: "
-                f"{int(unassigned.get('row_count') or 0):,} รายการ / "
-                f"{int(unassigned.get('order_count') or 0):,} ออเดอร์"
-            )
+            unassigned = summary.get("unassigned") or {}
+            if int(unassigned.get("row_count") or 0) > 0:
+                st.warning(
+                    "ยังมีรายการที่ยังไม่ถูกจัดทีม: "
+                    f"{int(unassigned.get('row_count') or 0):,} รายการ / "
+                    f"{int(unassigned.get('order_count') or 0):,} ออเดอร์"
+                )
 
     with products_col:
-        _render_top_products(top_products)
+        with st.container(key="team_sales_top_products"):
+            _render_top_products(top_products)
 
     st.divider()
-    _render_assignment_users(users, str(user.get("email") or ""))
+    with st.container(key="team_sales_assignment_panel"):
+        _render_assignment_users(users, str(user.get("email") or ""))
 
 
 main()
