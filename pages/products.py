@@ -25,10 +25,45 @@ PRODUCT_SORT_OPTIONS = {
     "เพิ่มเก่าสุด": "created_asc",
     "เพิ่มล่าสุด": "created_desc",
 }
+PRODUCT_SELECTION_KEY = "selected_product_ids"
+PRODUCT_SELECTION_CONTEXT_KEY = "product_master_selection_context"
+PRODUCT_SELECTION_WIDGET_PREFIX = "product_master_select_"
+
+
+def clear_product_selection() -> None:
+    st.session_state[PRODUCT_SELECTION_KEY] = set()
+    for key in list(st.session_state):
+        if str(key).startswith(PRODUCT_SELECTION_WIDGET_PREFIX):
+            del st.session_state[key]
+
+
+def sync_product_selection_context(context: tuple) -> None:
+    if st.session_state.get(PRODUCT_SELECTION_CONTEXT_KEY) == context:
+        return
+    clear_product_selection()
+    st.session_state[PRODUCT_SELECTION_CONTEXT_KEY] = context
+
+
+def select_current_product_page(product_ids: list[str]) -> None:
+    clear_product_selection()
+    selected_ids = {product_id for product_id in product_ids if product_id}
+    st.session_state[PRODUCT_SELECTION_KEY] = selected_ids
+    for product_id in selected_ids:
+        st.session_state[f"{PRODUCT_SELECTION_WIDGET_PREFIX}{product_id}"] = True
+
+
+def update_product_selection(product_id: str, widget_key: str) -> None:
+    selected_ids = set(st.session_state.get(PRODUCT_SELECTION_KEY, set()))
+    if st.session_state.get(widget_key):
+        selected_ids.add(product_id)
+    else:
+        selected_ids.discard(product_id)
+    st.session_state[PRODUCT_SELECTION_KEY] = selected_ids
 
 
 def reset_product_page() -> None:
     st.session_state.product_master_page = 1
+    clear_product_selection()
 
 
 def main() -> None:
@@ -77,6 +112,14 @@ def main() -> None:
         current_page=page,
         key_prefix="product_master",
         page_size_options=[PRODUCT_PAGE_SIZE],
+    )
+    sync_product_selection_context(
+        (
+            page,
+            PRODUCT_STATUS_OPTIONS[status_label],
+            PRODUCT_SORT_OPTIONS[sort_label],
+            clean(query).casefold(),
+        )
     )
     render_product_table(rows, auth_user, is_editor)
 
@@ -229,13 +272,35 @@ def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> 
         return
 
     st.markdown('<div class="crm-section-title">รายการสินค้า</div>', unsafe_allow_html=True)
-    header = st.columns([0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
-    header[0].markdown("**SKU**")
-    header[1].markdown("**ชื่อสินค้า**")
-    header[2].markdown("**กลุ่มสินค้า**")
-    header[3].markdown("**Active**")
-    header[4].markdown("**บันทึก**")
-    header[5].markdown("**ปิดใช้งาน**")
+    page_product_ids = [clean(row.get("id")) for row in rows if clean(row.get("id"))]
+    selected_ids = set(st.session_state.get(PRODUCT_SELECTION_KEY, set()))
+    selected_on_page = selected_ids.intersection(page_product_ids)
+    select_col, clear_col, summary_col = st.columns([1.4, 1.2, 3.4])
+    select_col.button(
+        "เลือกทั้งหมดในหน้านี้",
+        key="product_master_select_current_page",
+        on_click=select_current_product_page,
+        args=(page_product_ids,),
+        disabled=not page_product_ids,
+        use_container_width=True,
+    )
+    clear_col.button(
+        "ล้างรายการที่เลือก",
+        key="product_master_clear_selection",
+        on_click=clear_product_selection,
+        disabled=not selected_ids,
+        use_container_width=True,
+    )
+    summary_col.caption(f"เลือกแล้ว {len(selected_on_page):,} รายการในหน้านี้")
+
+    header = st.columns([0.55, 0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
+    header[0].markdown("**เลือก**")
+    header[1].markdown("**SKU**")
+    header[2].markdown("**ชื่อสินค้า**")
+    header[3].markdown("**กลุ่มสินค้า**")
+    header[4].markdown("**Active**")
+    header[5].markdown("**บันทึก**")
+    header[6].markdown("**ปิดใช้งาน**")
 
     for row in rows:
         render_product_row(row, auth_user, is_editor)
@@ -243,28 +308,42 @@ def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> 
 
 def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
     row_id = clean(row.get("id"))
-    cols = st.columns([0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
+    cols = st.columns([0.55, 0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
+    if row_id:
+        selection_widget_key = f"{PRODUCT_SELECTION_WIDGET_PREFIX}{row_id}"
+        if selection_widget_key not in st.session_state:
+            selected_ids = set(st.session_state.get(PRODUCT_SELECTION_KEY, set()))
+            st.session_state[selection_widget_key] = row_id in selected_ids
+        cols[0].checkbox(
+            "เลือก",
+            key=selection_widget_key,
+            label_visibility="collapsed",
+            on_change=update_product_selection,
+            args=(row_id, selection_widget_key),
+        )
+    else:
+        cols[0].write("-")
     if is_editor:
-        sku = cols[0].text_input("SKU", value=clean(row.get("sku")), key=f"pm_sku_{row_id}", label_visibility="collapsed")
-        product_name = cols[1].text_input(
+        sku = cols[1].text_input("SKU", value=clean(row.get("sku")), key=f"pm_sku_{row_id}", label_visibility="collapsed")
+        product_name = cols[2].text_input(
             "ชื่อสินค้า",
             value=clean(row.get("product_name")),
             key=f"pm_name_{row_id}",
             label_visibility="collapsed",
         )
-        product_group = cols[2].text_input(
+        product_group = cols[3].text_input(
             "กลุ่มสินค้า",
             value=clean(row.get("product_group")) or "ทั่วไป",
             key=f"pm_group_{row_id}",
             label_visibility="collapsed",
         )
-        is_active = cols[3].checkbox(
+        is_active = cols[4].checkbox(
             "Active",
             value=bool(row.get("is_active")),
             key=f"pm_active_{row_id}",
             label_visibility="collapsed",
         )
-        if cols[4].button("บันทึก", key=f"pm_save_{row_id}", use_container_width=True):
+        if cols[5].button("บันทึก", key=f"pm_save_{row_id}", use_container_width=True):
             if not clean(sku) or not clean(product_name):
                 st.error("กรุณากรอก SKU และชื่อสินค้า")
                 return
@@ -283,7 +362,7 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
             st.cache_data.clear()
             st.success("บันทึกสินค้าแล้ว")
             st.rerun()
-        if cols[5].button("ปิดใช้งาน", key=f"pm_disable_{row_id}", disabled=not bool(row.get("is_active")), use_container_width=True):
+        if cols[6].button("ปิดใช้งาน", key=f"pm_disable_{row_id}", disabled=not bool(row.get("is_active")), use_container_width=True):
             neon.update_product_option(
                 row_id,
                 {
@@ -300,12 +379,12 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
             st.success("ปิดใช้งานสินค้าแล้ว")
             st.rerun()
     else:
-        cols[0].write(clean(row.get("sku")) or "-")
-        cols[1].write(clean(row.get("product_name")) or "-")
-        cols[2].write(clean(row.get("product_group")) or "-")
-        cols[3].write("เปิด" if row.get("is_active") else "ปิด")
-        cols[4].write("-")
+        cols[1].write(clean(row.get("sku")) or "-")
+        cols[2].write(clean(row.get("product_name")) or "-")
+        cols[3].write(clean(row.get("product_group")) or "-")
+        cols[4].write("เปิด" if row.get("is_active") else "ปิด")
         cols[5].write("-")
+        cols[6].write("-")
 
 
 def filter_products(rows: list[dict], query: str) -> list[dict]:
