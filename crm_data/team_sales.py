@@ -294,3 +294,154 @@ def fetch_team_sales_data_quality(start_date: date, end_date: date) -> dict:
     )
     row = rows[0] if rows else {}
     return {key: int(value or 0) for key, value in row.items()}
+
+
+def _normalized_email(value: str | None, *, required: bool) -> str | None:
+    email = str(value or "").strip().lower()
+    if required and not email:
+        raise ValueError("user_email is required")
+    return email or None
+
+
+def _set_user_team_assignment(
+    *,
+    user_email: str,
+    team_code: str | None,
+    actor_email: str | None,
+) -> dict:
+    normalized_user_email = _normalized_email(user_email, required=True)
+    normalized_actor_email = _normalized_email(actor_email, required=False)
+    normalized_team_code = str(team_code or "").strip().upper() or None
+    if normalized_team_code is not None and normalized_team_code not in TEAM_CODES:
+        raise ValueError("team_code must be CRM_TEAM or UPSELL_TEAM")
+
+    with _connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select
+                      id,
+                      user_email,
+                      team_code,
+                      team_name,
+                      effective_from,
+                      effective_to
+                    from public.crm_user_team_assignments
+                    where user_email = %s
+                      and effective_to is null
+                    order by effective_from desc
+                    limit 1
+                    for update
+                    """,
+                    [normalized_user_email],
+                )
+                current = cur.fetchone()
+
+                if current and current.get("team_code") == normalized_team_code:
+                    conn.commit()
+                    return {
+                        **dict(current),
+                        "changed": False,
+                        "action": "unchanged",
+                    }
+
+                if current is None and normalized_team_code is None:
+                    conn.commit()
+                    return {
+                        "user_email": normalized_user_email,
+                        "team_code": None,
+                        "team_name": None,
+                        "changed": False,
+                        "action": "unchanged",
+                    }
+
+                cur.execute("select clock_timestamp() as now_ts")
+                now_ts = cur.fetchone()["now_ts"]
+                if current and now_ts <= current["effective_from"]:
+                    now_ts = current["effective_from"] + timedelta(microseconds=1)
+
+                if current:
+                    cur.execute(
+                        """
+                        update public.crm_user_team_assignments
+                        set effective_to = %s,
+                            updated_at = %s,
+                            updated_by = %s
+                        where id = %s
+                        """,
+                        [now_ts, now_ts, normalized_actor_email, current["id"]],
+                    )
+
+                if normalized_team_code is None:
+                    result = {
+                        "user_email": normalized_user_email,
+                        "team_code": None,
+                        "team_name": None,
+                        "effective_from": None,
+                        "effective_to": now_ts,
+                        "changed": True,
+                        "action": "cleared",
+                    }
+                else:
+                    cur.execute(
+                        """
+                        insert into public.crm_user_team_assignments (
+                          user_email,
+                          team_code,
+                          effective_from,
+                          created_by,
+                          updated_by
+                        )
+                        values (%s, %s, %s, %s, %s)
+                        returning
+                          id,
+                          user_email,
+                          team_code,
+                          team_name,
+                          effective_from,
+                          effective_to
+                        """,
+                        [
+                            normalized_user_email,
+                            normalized_team_code,
+                            now_ts,
+                            normalized_actor_email,
+                            normalized_actor_email,
+                        ],
+                    )
+                    result = {
+                        **dict(cur.fetchone()),
+                        "changed": True,
+                        "action": "created" if current is None else "changed",
+                    }
+            conn.commit()
+            return result
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def save_user_team_assignment(
+    *,
+    user_email: str,
+    team_code: str,
+    actor_email: str | None,
+) -> dict:
+    return _set_user_team_assignment(
+        user_email=user_email,
+        team_code=team_code,
+        actor_email=actor_email,
+    )
+
+
+def clear_user_team_assignment(
+    *,
+    user_email: str,
+    actor_email: str | None,
+) -> dict:
+    return _set_user_team_assignment(
+        user_email=user_email,
+        team_code=None,
+        actor_email=actor_email,
+    )

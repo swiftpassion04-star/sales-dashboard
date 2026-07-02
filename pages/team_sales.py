@@ -5,13 +5,15 @@ import streamlit as st
 
 from auth_utils import current_user, require_login
 from crm_data.team_sales import (
+    clear_user_team_assignment,
     fetch_team_assignment_users,
     fetch_team_sales_summary,
     fetch_team_top_products,
+    save_user_team_assignment,
 )
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
-from permissions import can_manage_all
+from permissions import ROLE_EDITOR, user_role
 
 
 TEAM_OPTIONS = {
@@ -23,6 +25,11 @@ SALE_TYPE_OPTIONS = {
     "ทั้งหมด": None,
     "NEW_ORDER": "NEW_ORDER",
     "UPSELL": "UPSELL",
+}
+ASSIGNMENT_OPTIONS = {
+    "ยังไม่เลือกทีม": None,
+    "CRM Team": "CRM_TEAM",
+    "Upsell Team": "UPSELL_TEAM",
 }
 
 
@@ -79,33 +86,75 @@ def _render_top_products(rows: list[dict]) -> None:
     )
 
 
-def _render_assignment_users(users: list[dict]) -> None:
-    st.subheader("สถานะการจัดทีม User")
+def _render_assignment_users(users: list[dict], actor_email: str) -> None:
+    st.subheader("ตั้งค่าทีม User")
     if not users:
         st.info("ยังไม่พบ User ที่เปิดใช้งาน")
         return
 
-    table_rows = [
-        {
-            "Email": row.get("email") or "-",
-            "ชื่อพนักงาน": row.get("staff_name") or "-",
-            "Role": row.get("role") or "-",
-            "ทีมปัจจุบัน": row.get("current_team_name") or "ยังไม่เลือกทีม",
-        }
-        for row in users
-    ]
-    st.dataframe(
-        pd.DataFrame(table_rows),
-        hide_index=True,
-        use_container_width=True,
-    )
+    st.caption("เลือกทีมแล้วบันทึกทีละ User การเปลี่ยนทีมจะเริ่มมีผลตั้งแต่เวลาที่บันทึก")
+    option_labels = list(ASSIGNMENT_OPTIONS)
+    for row in users:
+        email = str(row.get("email") or "").strip().lower()
+        if not email:
+            continue
+        current_team_code = row.get("current_team_code")
+        current_label = next(
+            (
+                label
+                for label, code in ASSIGNMENT_OPTIONS.items()
+                if code == current_team_code
+            ),
+            "ยังไม่เลือกทีม",
+        )
+        with st.form(f"team_assignment_{email}"):
+            info_col, role_col, team_col, action_col = st.columns([2.2, 1, 1.4, 1])
+            info_col.markdown(f"**{row.get('staff_name') or '-'}**")
+            info_col.caption(email)
+            role_col.markdown("**Role**")
+            role_col.caption(str(row.get("role") or "-"))
+            selected_label = team_col.selectbox(
+                "ทีม",
+                option_labels,
+                index=option_labels.index(current_label),
+                key=f"team_assignment_select_{email}",
+            )
+            submitted = action_col.form_submit_button(
+                "บันทึก",
+                use_container_width=True,
+            )
+
+        if not submitted:
+            continue
+        try:
+            selected_team_code = ASSIGNMENT_OPTIONS[selected_label]
+            if selected_team_code is None:
+                result = clear_user_team_assignment(
+                    user_email=email,
+                    actor_email=actor_email,
+                )
+            else:
+                result = save_user_team_assignment(
+                    user_email=email,
+                    team_code=selected_team_code,
+                    actor_email=actor_email,
+                )
+        except Exception:
+            st.error(f"บันทึกทีมของ {email} ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
+            continue
+
+        if result.get("changed"):
+            st.session_state.team_assignment_notice = f"บันทึกทีมของ {email} แล้ว"
+        else:
+            st.session_state.team_assignment_notice = f"ทีมของ {email} ไม่มีการเปลี่ยนแปลง"
+        st.rerun()
 
 
 def main() -> None:
     render_sidebar_nav()
     auth_user = require_login()
     user = current_user() or auth_user or {}
-    if not can_manage_all(user):
+    if user_role(user) != ROLE_EDITOR:
         st.warning("คุณไม่มีสิทธิ์เข้าดูหน้ายอดขายทีม")
         st.stop()
 
@@ -113,6 +162,9 @@ def main() -> None:
         "🎖️ยอดขายทีม",
         "แสดงยอดรวมคำสั่งซื้อที่เพิ่ม แยกตามทีม",
     )
+    assignment_notice = st.session_state.pop("team_assignment_notice", "")
+    if assignment_notice:
+        st.success(assignment_notice)
 
     today = date.today()
     month_start = today.replace(day=1)
@@ -183,7 +235,7 @@ def main() -> None:
         _render_top_products(top_products)
 
     st.divider()
-    _render_assignment_users(users)
+    _render_assignment_users(users, str(user.get("email") or ""))
 
 
 main()
