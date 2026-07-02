@@ -5,12 +5,30 @@ import streamlit as st
 
 import neon_utils as neon
 from auth_utils import require_login
+from crm_data.products import PRODUCT_PAGE_SIZE, fetch_product_page
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from permissions import can_edit_products
+from ui.pagination import render_pagination
 
 
 st.set_page_config(page_title="สินค้า", layout="wide")
+
+PRODUCT_STATUS_OPTIONS = {
+    "สินค้าที่เปิดใช้งาน": "active",
+    "สินค้าที่ปิดใช้งาน": "inactive",
+    "สินค้าทั้งหมด": "all",
+}
+PRODUCT_SORT_OPTIONS = {
+    "SP น้อยไปมาก": "sku_asc",
+    "SP มากไปน้อย": "sku_desc",
+    "เพิ่มเก่าสุด": "created_asc",
+    "เพิ่มล่าสุด": "created_desc",
+}
+
+
+def reset_product_page() -> None:
+    st.session_state.product_master_page = 1
 
 
 def main() -> None:
@@ -19,17 +37,48 @@ def main() -> None:
     is_editor = can_edit_products(auth_user)
     render_page_header("สินค้า", "Product Master สำหรับเลือกสินค้าในคำสั่งซื้อ")
 
-    rows = neon.fetch_product_options()
-    query = st.text_input("ค้นหา SKU หรือชื่อสินค้า", key="product_master_search")
-    filtered_rows = filter_products(rows, query)
+    filter_col, sort_col = st.columns(2)
+    status_label = filter_col.selectbox(
+        "สถานะสินค้า",
+        list(PRODUCT_STATUS_OPTIONS),
+        key="product_master_status_filter",
+        on_change=reset_product_page,
+    )
+    sort_label = sort_col.selectbox(
+        "เรียงตาม",
+        list(PRODUCT_SORT_OPTIONS),
+        key="product_master_sort_mode",
+        on_change=reset_product_page,
+    )
+    query = st.text_input(
+        "ค้นหา SKU หรือชื่อสินค้า",
+        key="product_master_search",
+        on_change=reset_product_page,
+    )
+    page = max(int(st.session_state.get("product_master_page", 1)), 1)
+    rows, total = fetch_product_page(
+        status_filter=PRODUCT_STATUS_OPTIONS[status_label],
+        sort_mode=PRODUCT_SORT_OPTIONS[sort_label],
+        page=page,
+        page_size=PRODUCT_PAGE_SIZE,
+        search=query,
+    )
 
     if is_editor:
+        all_product_options = neon.fetch_product_options()
         render_create_product_form(auth_user)
-        render_product_import(auth_user, rows)
+        render_product_import(auth_user, all_product_options)
     else:
         st.info("บัญชีนี้ดูรายการสินค้าได้ แต่เพิ่ม/แก้ไข/ปิดใช้งานได้เฉพาะ EDITOR")
 
-    render_product_table(filtered_rows, auth_user, is_editor)
+    _, page = render_pagination(
+        total_rows=total,
+        page_size=PRODUCT_PAGE_SIZE,
+        current_page=page,
+        key_prefix="product_master",
+        page_size_options=[PRODUCT_PAGE_SIZE],
+    )
+    render_product_table(rows, auth_user, is_editor)
 
 
 def render_create_product_form(auth_user: dict) -> None:

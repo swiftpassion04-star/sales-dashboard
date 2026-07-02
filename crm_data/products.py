@@ -1,4 +1,27 @@
+import re
+
 import streamlit as st
+
+
+PRODUCT_PAGE_SIZE = 10
+PRODUCT_STATUS_FILTERS = {"all", "active", "inactive"}
+PRODUCT_SORT_MODES = {"sku_asc", "sku_desc", "created_asc", "created_desc"}
+_SP_SKU_PATTERN = re.compile(r"^SP\s*0*(\d+)", re.IGNORECASE)
+_SKU_NUMBER_SQL = """
+case
+  when upper(btrim(coalesce(sku, ''))) ~ '^SP[[:space:]]*[0-9]+'
+    then substring(upper(btrim(sku)) from '^SP[[:space:]]*0*([0-9]+)')::bigint
+  else null
+end
+""".strip()
+
+
+def sku_sort_key(value) -> tuple[int, int, str]:
+    text = str(value or "").strip()
+    match = _SP_SKU_PATTERN.match(text)
+    if match:
+        return 0, int(match.group(1)), text.casefold()
+    return 1, 0, text.casefold()
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -23,6 +46,78 @@ def fetch_product_options() -> list[dict]:
                 """
             )
             return cur.fetchall()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_product_page(
+    status_filter: str = "active",
+    sort_mode: str = "sku_asc",
+    page: int = 1,
+    page_size: int = PRODUCT_PAGE_SIZE,
+    search: str = "",
+) -> tuple[list[dict], int]:
+    from neon_utils import ensure_crm_data_imports_schema, neon_connection
+
+    normalized_status = str(status_filter or "active").strip().lower()
+    normalized_sort = str(sort_mode or "sku_asc").strip().lower()
+    if normalized_status not in PRODUCT_STATUS_FILTERS:
+        raise ValueError(f"unsupported product status filter: {status_filter}")
+    if normalized_sort not in PRODUCT_SORT_MODES:
+        raise ValueError(f"unsupported product sort mode: {sort_mode}")
+
+    safe_page = max(int(page or 1), 1)
+    safe_page_size = max(int(page_size or PRODUCT_PAGE_SIZE), 1)
+    search_text = str(search or "").strip()
+    clauses = []
+    params = []
+    if normalized_status == "active":
+        clauses.append("is_active = true")
+    elif normalized_status == "inactive":
+        clauses.append("is_active = false")
+    if search_text:
+        clauses.append("(sku ilike %s or product_name ilike %s)")
+        search_pattern = f"%{search_text}%"
+        params.extend([search_pattern, search_pattern])
+
+    where_sql = f"where {' and '.join(clauses)}" if clauses else ""
+    sort_sql = {
+        "sku_asc": "sku_number asc nulls last, lower(btrim(coalesce(sku, ''))) asc, id asc",
+        "sku_desc": "sku_number desc nulls last, lower(btrim(coalesce(sku, ''))) desc, id desc",
+        "created_asc": "created_at asc, lower(btrim(coalesce(sku, ''))) asc, id asc",
+        "created_desc": "created_at desc, lower(btrim(coalesce(sku, ''))) asc, id desc",
+    }[normalized_sort]
+
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"select count(*)::int as total from public.crm_product_options {where_sql}",
+                params,
+            )
+            count_row = cur.fetchone() or {}
+            total = int(count_row.get("total") or 0)
+            cur.execute(
+                f"""
+                select
+                  id::text as id,
+                  sku,
+                  product_group,
+                  product_name,
+                  is_active,
+                  sort_order,
+                  created_at,
+                  updated_at
+                from (
+                  select *, {_SKU_NUMBER_SQL} as sku_number
+                  from public.crm_product_options
+                  {where_sql}
+                ) product_page
+                order by {sort_sql}
+                limit %s offset %s
+                """,
+                [*params, safe_page_size, (safe_page - 1) * safe_page_size],
+            )
+            return cur.fetchall(), total
 
 
 def upsert_product_options(records: list[dict]) -> None:
