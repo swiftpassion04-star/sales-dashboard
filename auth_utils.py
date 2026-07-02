@@ -29,6 +29,49 @@ except ImportError:  # Local fallback until dependencies are installed.
 AUTH_STORAGE_KEY = "crm_core_auth_session"
 TOKEN_REFRESH_GRACE_SECONDS = 90
 LOCAL_STORAGE_TTL_SECONDS = 8 * 60 * 60
+BROWSER_SESSION_PENDING = "pending"
+BROWSER_SESSION_EMPTY = "empty"
+BROWSER_SESSION_HAS_SESSION = "has_session"
+BROWSER_SESSION_INVALID = "invalid"
+_BROWSER_SESSION_BRIDGE_READY_KEY = "bridge_ready"
+_BROWSER_SESSION_BRIDGE_PAYLOAD_KEY = "session_payload"
+
+
+def _decode_browser_session_payload(payload) -> tuple[str, dict | None]:
+    if payload is None:
+        return BROWSER_SESSION_PENDING, None
+
+    decoded = payload
+    if isinstance(decoded, str):
+        try:
+            decoded = json.loads(decoded)
+        except (TypeError, json.JSONDecodeError):
+            return BROWSER_SESSION_INVALID, None
+
+    if not isinstance(decoded, dict):
+        return BROWSER_SESSION_INVALID, None
+
+    if decoded.get(_BROWSER_SESSION_BRIDGE_READY_KEY) is True:
+        stored_payload = decoded.get(_BROWSER_SESSION_BRIDGE_PAYLOAD_KEY)
+        if stored_payload in (None, ""):
+            return BROWSER_SESSION_EMPTY, None
+        try:
+            decoded = json.loads(stored_payload) if isinstance(stored_payload, str) else stored_payload
+        except (TypeError, json.JSONDecodeError):
+            return BROWSER_SESSION_INVALID, None
+        if not isinstance(decoded, dict):
+            return BROWSER_SESSION_INVALID, None
+
+    if not decoded:
+        return BROWSER_SESSION_EMPTY, None
+    if decoded.get("access_token") and decoded.get("refresh_token"):
+        return BROWSER_SESSION_HAS_SESSION, decoded
+    return BROWSER_SESSION_INVALID, None
+
+
+def classify_browser_session_payload(payload) -> str:
+    state, _ = _decode_browser_session_payload(payload)
+    return state
 
 
 def get_secret(*names: str) -> str:
@@ -544,16 +587,22 @@ def restore_browser_session() -> str:
     if current_email() or streamlit_js_eval is None:
         return "ready"
     stored = streamlit_js_eval(
-        js_expressions=f"localStorage.getItem('{AUTH_STORAGE_KEY}')",
+        js_expressions=(
+            "JSON.stringify({"
+            f"{_BROWSER_SESSION_BRIDGE_READY_KEY}:true,"
+            f"{_BROWSER_SESSION_BRIDGE_PAYLOAD_KEY}:localStorage.getItem({json.dumps(AUTH_STORAGE_KEY)})"
+            "})"
+        ),
         key="auth_restore_session",
     )
-    if stored is None and not st.session_state.get("auth_restore_checked_once"):
-        st.session_state.auth_restore_checked_once = True
+    restore_state, payload = _decode_browser_session_payload(stored)
+    if restore_state == BROWSER_SESSION_PENDING:
         return "pending"
-    if not stored:
+    if restore_state == BROWSER_SESSION_EMPTY:
         return "empty"
     try:
-        payload = json.loads(stored)
+        if restore_state == BROWSER_SESSION_INVALID:
+            raise ValueError("invalid browser session payload")
         access_token = payload.get("access_token")
         refresh_token = payload.get("refresh_token")
         expires_at = int(payload.get("expires_at") or 0)
