@@ -5,7 +5,12 @@ import streamlit as st
 
 import neon_utils as neon
 from auth_utils import require_login
-from crm_data.products import PRODUCT_PAGE_SIZE, bulk_update_product_active, fetch_product_page
+from crm_data.products import (
+    PRODUCT_PAGE_SIZE,
+    bulk_update_product_active,
+    fetch_product_delete_readiness,
+    fetch_product_page,
+)
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from permissions import can_edit_products
@@ -32,11 +37,19 @@ PRODUCT_BULK_ACTION_KEY = "product_master_bulk_action"
 PRODUCT_BULK_CONFIRM_KEY = "product_master_bulk_confirm"
 PRODUCT_BULK_CLEAR_PENDING_KEY = "product_master_bulk_clear_pending"
 PRODUCT_BULK_SUCCESS_KEY = "product_master_bulk_success"
+PRODUCT_DELETE_READINESS_KEY = "product_master_delete_readiness"
+PRODUCT_DELETE_READINESS_SELECTION_KEY = "product_master_delete_readiness_selection"
+
+
+def clear_product_delete_readiness() -> None:
+    st.session_state.pop(PRODUCT_DELETE_READINESS_KEY, None)
+    st.session_state.pop(PRODUCT_DELETE_READINESS_SELECTION_KEY, None)
 
 
 def clear_product_selection() -> None:
     st.session_state[PRODUCT_SELECTION_KEY] = set()
     st.session_state.pop(PRODUCT_BULK_CONFIRM_KEY, None)
+    clear_product_delete_readiness()
     for key in list(st.session_state):
         if str(key).startswith(PRODUCT_SELECTION_WIDGET_PREFIX):
             del st.session_state[key]
@@ -65,6 +78,7 @@ def update_product_selection(product_id: str, widget_key: str) -> None:
         selected_ids.discard(product_id)
     st.session_state[PRODUCT_SELECTION_KEY] = selected_ids
     st.session_state.pop(PRODUCT_BULK_CONFIRM_KEY, None)
+    clear_product_delete_readiness()
 
 
 def reset_product_bulk_confirmation() -> None:
@@ -331,6 +345,7 @@ def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> 
     )
     summary_col.caption(f"เลือกแล้ว {len(selected_on_page):,} รายการในหน้านี้")
     render_product_bulk_actions(selected_ids, page_product_ids, auth_user, is_editor)
+    render_product_delete_readiness(selected_ids, page_product_ids, is_editor)
 
     header = st.columns([0.55, 0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
     header[0].markdown("**เลือก**")
@@ -405,6 +420,92 @@ def render_product_bulk_actions(
             f"{action_label}สินค้า {updated_count:,} รายการแล้ว"
         )
         st.rerun()
+
+
+def render_product_delete_readiness(
+    selected_ids: set[str],
+    page_product_ids: list[str],
+    is_editor: bool,
+) -> None:
+    if not is_editor or not selected_ids:
+        return
+
+    selection_signature = tuple(sorted(selected_ids))
+    with st.container(border=True):
+        st.markdown("**ตรวจสอบความพร้อมในการลบ**")
+        st.caption(
+            "ลบได้เฉพาะสินค้าที่ไม่เคยถูกใช้งานเท่านั้น "
+            "สินค้าที่เคยถูกใช้ในออเดอร์/ข้อมูลขายจะไม่ถูกลบ ให้ปิดใช้งานแทน"
+        )
+        if st.button(
+            "ตรวจสอบความพร้อมในการลบ",
+            key="product_master_check_delete_readiness",
+        ):
+            try:
+                product_ids = selected_product_ids_for_bulk(selected_ids, page_product_ids)
+                readiness = fetch_product_delete_readiness(product_ids)
+            except ValueError as exc:
+                st.error(str(exc))
+                clear_product_delete_readiness()
+            else:
+                st.session_state[PRODUCT_DELETE_READINESS_KEY] = readiness
+                st.session_state[PRODUCT_DELETE_READINESS_SELECTION_KEY] = selection_signature
+
+        readiness = st.session_state.get(PRODUCT_DELETE_READINESS_KEY, {})
+        readiness_selection = st.session_state.get(PRODUCT_DELETE_READINESS_SELECTION_KEY)
+        if not readiness or readiness_selection != selection_signature:
+            st.info("กดตรวจสอบเพื่อดูผลการใช้งานของสินค้าที่เลือก")
+            return
+
+        status_labels = {
+            "blocked_used": "ห้ามลบ: พบการใช้งาน",
+            "tentative_no_usage": "ไม่พบการใช้งานเบื้องต้น: ยังไม่เปิดให้ลบจริง",
+            "unsafe_unknown": "ห้ามลบ: ตรวจสอบไม่ครบ/ไม่ปลอดภัย",
+        }
+        reason_labels = {
+            "usage_found": "พบการอ้างอิงในข้อมูลขายหรือออเดอร์",
+            "no_usage_found_in_text_checks": "ไม่พบจาก text-based checks ที่ตรวจได้",
+            "product_not_found": "ไม่พบสินค้าใน Product Master",
+            "blank_sku_and_product_name": "SKU และชื่อสินค้าว่าง จึงตรวจสอบไม่ครบ",
+        }
+        display_rows = []
+        for product_id in sorted(readiness):
+            result = readiness[product_id]
+            reason = str(result.get("reason") or "")
+            if reason.startswith("usage_check_error:"):
+                reason = "ตรวจสอบไม่สำเร็จ: " + reason.split(":", 1)[1]
+            else:
+                reason = reason_labels.get(reason, reason or "-")
+            display_rows.append(
+                {
+                    "ID": result.get("product_id"),
+                    "SKU": result.get("sku") or "-",
+                    "สินค้า": result.get("product_name") or "-",
+                    "สถานะ": status_labels.get(result.get("status"), "ห้ามลบ: ไม่ทราบสถานะ"),
+                    "จำนวนการใช้งาน": int(result.get("usage_count") or 0),
+                    "แหล่งการใช้งาน": ", ".join(result.get("usage_sources") or []) or "-",
+                    "เหตุผล": reason,
+                }
+            )
+
+        blocked_count = sum(
+            result.get("status") == "blocked_used" for result in readiness.values()
+        )
+        tentative_count = sum(
+            result.get("status") == "tentative_no_usage" for result in readiness.values()
+        )
+        unknown_count = sum(
+            result.get("status") == "unsafe_unknown" for result in readiness.values()
+        )
+        summary_cols = st.columns(3)
+        summary_cols[0].metric("พบการใช้งาน", blocked_count)
+        summary_cols[1].metric("ไม่พบเบื้องต้น", tentative_count)
+        summary_cols[2].metric("ตรวจสอบไม่ครบ", unknown_count)
+        st.dataframe(pd.DataFrame(display_rows), hide_index=True, use_container_width=True)
+        st.warning(
+            "เพื่อความปลอดภัย ระบบยังไม่เปิดลบถาวร "
+            "จนกว่าจะมี stable product reference/FK หรือ usage audit ครบถ้วน"
+        )
 
 
 def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:

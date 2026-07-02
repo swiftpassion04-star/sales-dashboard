@@ -14,6 +14,45 @@ case
   else null
 end
 """.strip()
+_PRODUCT_DELETE_READINESS_SQL = """
+select
+  p.id::bigint as product_id,
+  p.sku,
+  p.product_name,
+  (
+    select count(*)::int
+    from public.crm_data_imports d
+    where nullif(btrim(p.sku), '') is not null
+      and lower(btrim(coalesce(d.sku, ''))) = lower(btrim(p.sku))
+  ) as imports_sku_count,
+  (
+    select count(*)::int
+    from public.crm_data_imports d
+    where nullif(btrim(p.product_name), '') is not null
+      and lower(btrim(coalesce(d.product_name, ''))) = lower(btrim(p.product_name))
+  ) as imports_name_count,
+  (
+    select count(*)::int
+    from public.crm_data_imports d
+    where nullif(btrim(p.sku), '') is not null
+      and lower(btrim(coalesce(d.raw_data->>'sku', ''))) = lower(btrim(p.sku))
+  ) as imports_raw_sku_count,
+  (
+    select count(*)::int
+    from public.crm_order_items i
+    where nullif(btrim(p.sku), '') is not null
+      and lower(btrim(coalesce(i.sku, ''))) = lower(btrim(p.sku))
+  ) as order_items_sku_count,
+  (
+    select count(*)::int
+    from public.crm_order_items i
+    where nullif(btrim(p.product_name), '') is not null
+      and lower(btrim(coalesce(i.product_name, ''))) = lower(btrim(p.product_name))
+  ) as order_items_name_count
+from public.crm_product_options p
+where p.id = any(%s::bigint[])
+order by p.id
+""".strip()
 
 
 def sku_sort_key(value) -> tuple[int, int, str]:
@@ -37,6 +76,101 @@ def validate_product_ids(product_ids: list[int]) -> list[int]:
             normalized_ids.append(product_id)
             seen_ids.add(product_id)
     return normalized_ids
+
+
+def build_product_delete_readiness(
+    product_ids: list[int],
+    rows: list[dict],
+    check_error: str = "",
+) -> dict[int, dict]:
+    normalized_ids = validate_product_ids(product_ids)
+    rows_by_id = {
+        int(row["product_id"]): row
+        for row in rows
+        if row.get("product_id") is not None
+    }
+    results = {}
+    for product_id in normalized_ids:
+        row = rows_by_id.get(product_id)
+        if check_error:
+            results[product_id] = {
+                "product_id": product_id,
+                "sku": str((row or {}).get("sku") or "").strip(),
+                "product_name": str((row or {}).get("product_name") or "").strip(),
+                "status": "unsafe_unknown",
+                "reason": f"usage_check_error:{check_error}",
+                "usage_sources": [],
+                "usage_count": 0,
+            }
+            continue
+        if row is None:
+            results[product_id] = {
+                "product_id": product_id,
+                "sku": "",
+                "product_name": "",
+                "status": "unsafe_unknown",
+                "reason": "product_not_found",
+                "usage_sources": [],
+                "usage_count": 0,
+            }
+            continue
+
+        sku = str(row.get("sku") or "").strip()
+        product_name = str(row.get("product_name") or "").strip()
+        if not sku and not product_name:
+            results[product_id] = {
+                "product_id": product_id,
+                "sku": "",
+                "product_name": "",
+                "status": "unsafe_unknown",
+                "reason": "blank_sku_and_product_name",
+                "usage_sources": [],
+                "usage_count": 0,
+            }
+            continue
+
+        usage_fields = {
+            "crm_data_imports.sku": int(row.get("imports_sku_count") or 0),
+            "crm_data_imports.product_name": int(row.get("imports_name_count") or 0),
+            "crm_data_imports.raw_data.sku": int(row.get("imports_raw_sku_count") or 0),
+            "crm_order_items.sku": int(row.get("order_items_sku_count") or 0),
+            "crm_order_items.product_name": int(row.get("order_items_name_count") or 0),
+        }
+        usage_sources = [source for source, count in usage_fields.items() if count > 0]
+        usage_count = sum(usage_fields.values())
+        status = "blocked_used" if usage_sources else "tentative_no_usage"
+        reason = "usage_found" if usage_sources else "no_usage_found_in_text_checks"
+        results[product_id] = {
+            "product_id": product_id,
+            "sku": sku,
+            "product_name": product_name,
+            "status": status,
+            "reason": reason,
+            "usage_sources": usage_sources,
+            "usage_count": usage_count,
+        }
+    return results
+
+
+def fetch_product_delete_readiness(product_ids: list[int]) -> dict[int, dict]:
+    normalized_ids = validate_product_ids(product_ids)
+    if not normalized_ids:
+        return {}
+
+    from neon_utils import neon_connection
+
+    try:
+        with neon_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(_PRODUCT_DELETE_READINESS_SQL, [normalized_ids])
+                rows = cur.fetchall()
+    except Exception as exc:
+        return build_product_delete_readiness(
+            normalized_ids,
+            [],
+            check_error=exc.__class__.__name__,
+        )
+    return build_product_delete_readiness(normalized_ids, rows)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
