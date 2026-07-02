@@ -25,8 +25,8 @@ def inject_crm_design_system() -> None:
   --crm-warning-border:rgba(234,179,8,.28);
   --crm-gradient-page:linear-gradient(155deg,#FFF7ED 0%,#FFFBF5 48%,#FFFFFF 100%);
   --crm-gradient-glass:linear-gradient(135deg,rgba(255,255,255,.82),rgba(255,247,237,.58));
-  --crm-gradient-crm-team:linear-gradient(145deg,#FFFFFF 0%,#FFF8EF 58%,#FFEDD5 100%);
-  --crm-gradient-upsell-team:linear-gradient(145deg,#FFFFFF 0%,#FFF7ED 52%,#FDE7CF 100%);
+  --crm-gradient-crm-team:linear-gradient(138deg,#FFF7ED 0%,#FED7AA 58%,#FDBA74 100%);
+  --crm-gradient-upsell-team:linear-gradient(138deg,#FFF4E6 0%,#FEC89A 54%,#FB923C 100%);
   --crm-gradient-kpi:linear-gradient(145deg,#FFFFFF 0%,#FFF9F2 55%,#FFEDD5 100%);
   --crm-gradient-kpi-upsell:linear-gradient(145deg,#FFFFFF 0%,#FFF6EA 52%,#FDDDBB 100%);
   --crm-table-header:#FFF0DF;
@@ -184,18 +184,19 @@ def inject_crm_design_system() -> None:
 }
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_team_card_crm_team {
   background:var(--crm-gradient-crm-team);
-  border-color:rgba(251,146,60,.22);
+  border-color:rgba(234,88,12,.32);
+  box-shadow:0 16px 35px rgba(234,88,12,.16),-8px -8px 20px rgba(255,255,255,.78),inset 1px 1px 0 rgba(255,255,255,.72);
 }
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_team_card_upsell_team {
   background:var(--crm-gradient-upsell-team);
-  border-color:rgba(234,88,12,.22);
-  box-shadow:11px 11px 25px rgba(205,154,105,.27),-10px -10px 24px rgba(255,255,255,.92),inset 1px 1px 0 rgba(255,255,255,.9);
+  border-color:rgba(194,65,12,.34);
+  box-shadow:0 18px 38px rgba(194,65,12,.18),-8px -8px 20px rgba(255,255,255,.74),inset 1px 1px 0 rgba(255,255,255,.68);
 }
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_team_card_crm_team h3,
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_team_card_upsell_team h3 {
-  color:var(--crm-text-main);
-  font-size:18px;
-  font-weight:760;
+  color:#431407;
+  font-size:19px;
+  font-weight:800;
   line-height:1.35;
   margin-bottom:var(--crm-space-sm);
 }
@@ -229,7 +230,8 @@ def inject_crm_design_system() -> None:
 }
 .stApp:has(.crm-team-sales-page-marker) .crm-top-products-table-wrap {
   width:100%;
-  overflow-x:auto;
+  max-width:100%;
+  overflow:hidden;
   border:1px solid var(--crm-table-grid);
   border-radius:var(--crm-radius-md);
   box-shadow:0 12px 30px rgba(15,23,42,.065);
@@ -237,24 +239,40 @@ def inject_crm_design_system() -> None:
 }
 .stApp:has(.crm-team-sales-page-marker) .crm-top-products-table {
   width:100%;
-  min-width:570px;
+  max-width:100%;
+  table-layout:fixed;
   border-collapse:separate;
   border-spacing:0;
   color:var(--crm-text-main);
-  font-size:13px;
-  line-height:1.4;
+  font-size:12px;
+  line-height:1.35;
+}
+.stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-col-rank {
+  width:11%;
+}
+.stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-col-sku {
+  width:18%;
+}
+.stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-col-product {
+  width:37%;
+}
+.stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-col-quantity {
+  width:19%;
+}
+.stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-col-orders {
+  width:15%;
 }
 .stApp:has(.crm-team-sales-page-marker) .crm-top-products-table th {
   background:var(--crm-table-header);
   color:#7C2D12;
-  font-size:12px;
+  font-size:11px;
   font-weight:750;
-  padding:13px 12px;
+  padding:11px 6px;
   border-bottom:1px solid rgba(249,115,22,.2);
   white-space:nowrap;
 }
 .stApp:has(.crm-team-sales-page-marker) .crm-top-products-table td {
-  padding:13px 12px;
+  padding:11px 6px;
   border-bottom:1px solid var(--crm-table-grid);
   vertical-align:middle;
   transition:background-color .15s ease;
@@ -275,11 +293,18 @@ def inject_crm_design_system() -> None:
 .stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-table-sku {
   text-align:center;
   font-variant-numeric:tabular-nums;
+}
+.stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-table-number {
   white-space:nowrap;
+}
+.stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-table-sku {
+  overflow-wrap:anywhere;
+  word-break:break-word;
 }
 .stApp:has(.crm-team-sales-page-marker) .crm-top-products-table .crm-table-product {
   text-align:left;
-  min-width:180px;
+  overflow-wrap:anywhere;
+  word-break:break-word;
 }
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_summary_panel [data-testid="stAlert"] {
   background:var(--crm-warning-bg) !important;

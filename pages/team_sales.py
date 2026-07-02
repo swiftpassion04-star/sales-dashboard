@@ -80,6 +80,13 @@ def _render_top_products(rows: list[dict]) -> None:
         """
 <div class="crm-top-products-table-wrap">
   <table class="crm-top-products-table">
+    <colgroup>
+      <col class="crm-col-rank">
+      <col class="crm-col-sku">
+      <col class="crm-col-product">
+      <col class="crm-col-quantity">
+      <col class="crm-col-orders">
+    </colgroup>
     <thead>
       <tr>
         <th class="crm-table-number">อันดับ</th>
@@ -232,7 +239,7 @@ def main() -> None:
         st.error("โหลดข้อมูลยอดขายทีมไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
         return
 
-    summary_col, products_col = st.columns([1.3, 1], gap="large")
+    summary_col, products_col = st.columns([1.12, 1], gap="large")
     with summary_col:
         with st.container(key="team_sales_summary_panel"):
             st.subheader("ยอดรวมระดับทีม")
