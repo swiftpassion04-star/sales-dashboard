@@ -1,6 +1,6 @@
 from datetime import date
+from html import escape
 
-import pandas as pd
 import streamlit as st
 
 from auth_utils import current_user, require_login
@@ -48,8 +48,8 @@ def _team_rows_by_code(summary: dict) -> dict[str, dict]:
     }
 
 
-def _render_team_card(team: dict) -> None:
-    team_code = str(team.get("team_code") or "unknown").lower()
+def _render_team_card(team: dict, card_key: str) -> None:
+    team_code = card_key.lower()
     with st.container(border=True, key=f"team_sales_team_card_{team_code}"):
         st.subheader(str(team.get("team_name") or "-"))
         metrics = st.columns(3)
@@ -68,23 +68,36 @@ def _render_top_products(rows: list[dict]) -> None:
     table_rows = []
     for rank, row in enumerate(rows, start=1):
         table_rows.append(
-            {
-                "อันดับ": rank,
-                "SKU": row.get("sku") or "-",
-                "สินค้า": row.get("product_name") or "-",
-                "จำนวนขาย": float(row.get("total_quantity") or 0),
-                "ออเดอร์": int(row.get("order_count") or 0),
-            }
+            "<tr>"
+            f'<td class="crm-table-number">{rank}</td>'
+            f'<td class="crm-table-sku">{escape(str(row.get("sku") or "-"))}</td>'
+            f'<td class="crm-table-product">{escape(str(row.get("product_name") or "-"))}</td>'
+            f'<td class="crm-table-number">{float(row.get("total_quantity") or 0):,.2f}</td>'
+            f'<td class="crm-table-number">{int(row.get("order_count") or 0):,}</td>'
+            "</tr>"
         )
-    st.dataframe(
-        pd.DataFrame(table_rows),
-        hide_index=True,
-        use_container_width=True,
-        column_config={
-            "อันดับ": st.column_config.NumberColumn(format="%d"),
-            "จำนวนขาย": st.column_config.NumberColumn(format="%.2f"),
-            "ออเดอร์": st.column_config.NumberColumn(format="%d"),
-        },
+    st.markdown(
+        """
+<div class="crm-top-products-table-wrap">
+  <table class="crm-top-products-table">
+    <thead>
+      <tr>
+        <th class="crm-table-number">อันดับ</th>
+        <th class="crm-table-sku">SKU</th>
+        <th class="crm-table-product">สินค้า</th>
+        <th class="crm-table-number">จำนวนขาย</th>
+        <th class="crm-table-number">ออเดอร์</th>
+      </tr>
+    </thead>
+    <tbody>
+"""
+        + "".join(table_rows)
+        + """
+    </tbody>
+  </table>
+</div>
+""",
+        unsafe_allow_html=True,
     )
 
 
@@ -219,14 +232,14 @@ def main() -> None:
         st.error("โหลดข้อมูลยอดขายทีมไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
         return
 
-    summary_col, products_col = st.columns([1.45, 1], gap="large")
+    summary_col, products_col = st.columns([1.3, 1], gap="large")
     with summary_col:
         with st.container(key="team_sales_summary_panel"):
             st.subheader("ยอดรวมระดับทีม")
             teams_by_code = _team_rows_by_code(summary)
             visible_codes = [team_code_filter] if team_code_filter else list(TEAM_OPTIONS.values())[1:]
             for team_code in visible_codes:
-                _render_team_card(teams_by_code.get(team_code, {}))
+                _render_team_card(teams_by_code.get(team_code, {}), team_code)
 
             unassigned = summary.get("unassigned") or {}
             if int(unassigned.get("row_count") or 0) > 0:
