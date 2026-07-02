@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from html import escape
 
 import streamlit as st
@@ -11,6 +11,7 @@ from crm_data.team_sales import (
     fetch_team_top_products,
     save_user_team_assignment,
 )
+from crm_data.common import BANGKOK_TZ
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from permissions import ROLE_EDITOR, user_role
@@ -32,6 +33,7 @@ ASSIGNMENT_OPTIONS = {
     "CRM Team": "CRM_TEAM",
     "Upsell Team": "UPSELL_TEAM",
 }
+AUTO_REFRESH_INTERVAL_SECONDS = 15
 
 
 st.set_page_config(page_title="ยอดขายทีม", layout="wide")
@@ -52,7 +54,7 @@ def _render_team_card(team: dict, card_key: str) -> None:
     team_code = card_key.lower()
     with st.container(border=True, key=f"team_sales_team_card_{team_code}"):
         st.subheader(str(team.get("team_name") or "-"))
-        metrics = st.columns(3)
+        metrics = st.columns([0.9, 1.65, 0.9])
         metrics[0].metric("จำนวนออเดอร์", f"{int(team.get('order_count') or 0):,}")
         metrics[1].metric("ยอดขายรวม", _format_money(team.get("sales_amount")))
         metrics[2].metric("จำนวนรายการ", f"{int(team.get('row_count') or 0):,}")
@@ -172,6 +174,94 @@ def _render_assignment_users(users: list[dict], actor_email: str) -> None:
         st.rerun()
 
 
+def _render_team_sales_live(
+    start_date: date,
+    end_date: date,
+    sale_type_filter: str | None,
+    team_code_filter: str | None,
+    *,
+    auto_refresh: bool,
+) -> None:
+    try:
+        with st.spinner("กำลังโหลดยอดขายทีมจาก Neon..."):
+            summary = fetch_team_sales_summary(
+                start_date,
+                end_date,
+                sale_type_filter=sale_type_filter,
+            )
+            top_products = fetch_team_top_products(
+                start_date,
+                end_date,
+                team_code=team_code_filter,
+                sale_type_filter=sale_type_filter,
+                limit=10,
+            )
+    except Exception:
+        st.error("โหลดข้อมูลยอดขายทีมไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
+        return
+
+    refresh_label = (
+        f"อัปเดตอัตโนมัติทุก {AUTO_REFRESH_INTERVAL_SECONDS} วินาที"
+        if auto_refresh
+        else "ปิดการอัปเดตอัตโนมัติ"
+    )
+    updated_at = datetime.now(BANGKOK_TZ).strftime("%H:%M:%S")
+    st.caption(f"{refresh_label} · อัปเดตล่าสุด: {updated_at}")
+
+    summary_col, products_col = st.columns([1.12, 1], gap="large")
+    with summary_col:
+        with st.container(key="team_sales_summary_panel"):
+            st.subheader("ยอดรวมระดับทีม")
+            teams_by_code = _team_rows_by_code(summary)
+            visible_codes = [team_code_filter] if team_code_filter else list(TEAM_OPTIONS.values())[1:]
+            for team_code in visible_codes:
+                _render_team_card(teams_by_code.get(team_code, {}), team_code)
+
+            unassigned = summary.get("unassigned") or {}
+            if int(unassigned.get("row_count") or 0) > 0:
+                st.warning(
+                    "ยังมีรายการที่ยังไม่ถูกจัดทีม: "
+                    f"{int(unassigned.get('row_count') or 0):,} รายการ / "
+                    f"{int(unassigned.get('order_count') or 0):,} ออเดอร์"
+                )
+
+    with products_col:
+        with st.container(key="team_sales_top_products"):
+            _render_top_products(top_products)
+
+
+@st.fragment(run_every=AUTO_REFRESH_INTERVAL_SECONDS)
+def _render_team_sales_auto_refresh(
+    start_date: date,
+    end_date: date,
+    sale_type_filter: str | None,
+    team_code_filter: str | None,
+) -> None:
+    _render_team_sales_live(
+        start_date,
+        end_date,
+        sale_type_filter,
+        team_code_filter,
+        auto_refresh=True,
+    )
+
+
+@st.fragment
+def _render_team_sales_once(
+    start_date: date,
+    end_date: date,
+    sale_type_filter: str | None,
+    team_code_filter: str | None,
+) -> None:
+    _render_team_sales_live(
+        start_date,
+        end_date,
+        sale_type_filter,
+        team_code_filter,
+        auto_refresh=False,
+    )
+
+
 def main() -> None:
     render_sidebar_nav()
     auth_user = require_login()
@@ -220,45 +310,24 @@ def main() -> None:
 
     sale_type_filter = SALE_TYPE_OPTIONS[sale_type_label]
     team_code_filter = TEAM_OPTIONS[team_label]
+    auto_refresh = st.toggle(
+        "เปิดอัปเดตอัตโนมัติ",
+        value=True,
+        key="team_sales_auto_refresh",
+        help="อัปเดตเฉพาะยอดรวมและ Top 10 โดยไม่รบกวนฟอร์มตั้งค่าทีม",
+    )
+
+    if auto_refresh:
+        _render_team_sales_auto_refresh(start_date, end_date, sale_type_filter, team_code_filter)
+    else:
+        _render_team_sales_once(start_date, end_date, sale_type_filter, team_code_filter)
+
     try:
-        with st.spinner("กำลังโหลดยอดขายทีมจาก Neon..."):
-            summary = fetch_team_sales_summary(
-                start_date,
-                end_date,
-                sale_type_filter=sale_type_filter,
-            )
-            top_products = fetch_team_top_products(
-                start_date,
-                end_date,
-                team_code=team_code_filter,
-                sale_type_filter=sale_type_filter,
-                limit=10,
-            )
+        with st.spinner("กำลังโหลดรายชื่อ User..."):
             users = fetch_team_assignment_users()
     except Exception:
         st.error("โหลดข้อมูลยอดขายทีมไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
         return
-
-    summary_col, products_col = st.columns([1.12, 1], gap="large")
-    with summary_col:
-        with st.container(key="team_sales_summary_panel"):
-            st.subheader("ยอดรวมระดับทีม")
-            teams_by_code = _team_rows_by_code(summary)
-            visible_codes = [team_code_filter] if team_code_filter else list(TEAM_OPTIONS.values())[1:]
-            for team_code in visible_codes:
-                _render_team_card(teams_by_code.get(team_code, {}), team_code)
-
-            unassigned = summary.get("unassigned") or {}
-            if int(unassigned.get("row_count") or 0) > 0:
-                st.warning(
-                    "ยังมีรายการที่ยังไม่ถูกจัดทีม: "
-                    f"{int(unassigned.get('row_count') or 0):,} รายการ / "
-                    f"{int(unassigned.get('order_count') or 0):,} ออเดอร์"
-                )
-
-    with products_col:
-        with st.container(key="team_sales_top_products"):
-            _render_top_products(top_products)
 
     st.divider()
     with st.container(key="team_sales_assignment_panel"):
