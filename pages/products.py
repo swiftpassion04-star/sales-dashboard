@@ -5,7 +5,7 @@ import streamlit as st
 
 import neon_utils as neon
 from auth_utils import require_login
-from crm_data.products import PRODUCT_PAGE_SIZE, fetch_product_page
+from crm_data.products import PRODUCT_PAGE_SIZE, bulk_update_product_active, fetch_product_page
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from permissions import can_edit_products
@@ -28,10 +28,15 @@ PRODUCT_SORT_OPTIONS = {
 PRODUCT_SELECTION_KEY = "selected_product_ids"
 PRODUCT_SELECTION_CONTEXT_KEY = "product_master_selection_context"
 PRODUCT_SELECTION_WIDGET_PREFIX = "product_master_select_"
+PRODUCT_BULK_ACTION_KEY = "product_master_bulk_action"
+PRODUCT_BULK_CONFIRM_KEY = "product_master_bulk_confirm"
+PRODUCT_BULK_CLEAR_PENDING_KEY = "product_master_bulk_clear_pending"
+PRODUCT_BULK_SUCCESS_KEY = "product_master_bulk_success"
 
 
 def clear_product_selection() -> None:
     st.session_state[PRODUCT_SELECTION_KEY] = set()
+    st.session_state.pop(PRODUCT_BULK_CONFIRM_KEY, None)
     for key in list(st.session_state):
         if str(key).startswith(PRODUCT_SELECTION_WIDGET_PREFIX):
             del st.session_state[key]
@@ -59,6 +64,38 @@ def update_product_selection(product_id: str, widget_key: str) -> None:
     else:
         selected_ids.discard(product_id)
     st.session_state[PRODUCT_SELECTION_KEY] = selected_ids
+    st.session_state.pop(PRODUCT_BULK_CONFIRM_KEY, None)
+
+
+def reset_product_bulk_confirmation() -> None:
+    st.session_state.pop(PRODUCT_BULK_CONFIRM_KEY, None)
+
+
+def selected_product_ids_for_bulk(
+    selected_ids: set[str],
+    page_product_ids: list[str],
+) -> list[int]:
+    normalized_selected_ids = {clean(product_id) for product_id in selected_ids if clean(product_id)}
+    current_page_ids = {clean(product_id) for product_id in page_product_ids if clean(product_id)}
+    if not normalized_selected_ids:
+        return []
+    if not normalized_selected_ids.issubset(current_page_ids):
+        raise ValueError("รายการที่เลือกไม่ตรงกับหน้าปัจจุบัน กรุณาเลือกสินค้าใหม่")
+
+    parsed_ids = []
+    for product_id in sorted(normalized_selected_ids):
+        if not product_id.isdigit() or int(product_id) <= 0:
+            raise ValueError("รหัสสินค้าที่เลือกไม่ถูกต้อง กรุณาเลือกสินค้าใหม่")
+        parsed_ids.append(int(product_id))
+    return parsed_ids
+
+
+def finalize_pending_product_bulk_action() -> None:
+    if st.session_state.pop(PRODUCT_BULK_CLEAR_PENDING_KEY, False):
+        clear_product_selection()
+    success_message = st.session_state.pop(PRODUCT_BULK_SUCCESS_KEY, "")
+    if success_message:
+        st.success(success_message)
 
 
 def reset_product_page() -> None:
@@ -121,6 +158,7 @@ def main() -> None:
             clean(query).casefold(),
         )
     )
+    finalize_pending_product_bulk_action()
     render_product_table(rows, auth_user, is_editor)
 
 
@@ -292,6 +330,7 @@ def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> 
         use_container_width=True,
     )
     summary_col.caption(f"เลือกแล้ว {len(selected_on_page):,} รายการในหน้านี้")
+    render_product_bulk_actions(selected_ids, page_product_ids, auth_user, is_editor)
 
     header = st.columns([0.55, 0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
     header[0].markdown("**เลือก**")
@@ -304,6 +343,68 @@ def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> 
 
     for row in rows:
         render_product_row(row, auth_user, is_editor)
+
+
+def render_product_bulk_actions(
+    selected_ids: set[str],
+    page_product_ids: list[str],
+    auth_user: dict,
+    is_editor: bool,
+) -> None:
+    if not is_editor or not selected_ids:
+        return
+
+    with st.container(border=True):
+        st.markdown(f"**จัดการสินค้าที่เลือก {len(selected_ids):,} รายการ**")
+        action = st.radio(
+            "การดำเนินการ",
+            options=["activate", "deactivate"],
+            format_func=lambda value: "เปิดใช้งาน" if value == "activate" else "ปิดใช้งาน",
+            horizontal=True,
+            key=PRODUCT_BULK_ACTION_KEY,
+            on_change=reset_product_bulk_confirmation,
+        )
+        is_activating = action == "activate"
+        if not is_activating:
+            st.warning(
+                "สินค้าที่ปิดใช้งานจะไม่แสดงใน dropdown เพิ่มคำสั่งซื้อ / Follow-up popup"
+            )
+
+        action_label = "เปิดใช้งาน" if is_activating else "ปิดใช้งาน"
+        confirmed = st.checkbox(
+            f"ยืนยันการ{action_label}รายการที่เลือก {len(selected_ids):,} รายการ",
+            key=PRODUCT_BULK_CONFIRM_KEY,
+        )
+        if not st.button(
+            f"{action_label}รายการที่เลือก",
+            key="product_master_bulk_submit",
+            type="primary",
+            disabled=not confirmed,
+        ):
+            return
+
+        try:
+            product_ids = selected_product_ids_for_bulk(selected_ids, page_product_ids)
+            if not product_ids:
+                st.error("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ")
+                return
+            updated_count = bulk_update_product_active(
+                product_ids,
+                is_activating,
+                clean(auth_user.get("email")) or None,
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        except Exception as exc:
+            st.error(f"อัปเดตสถานะสินค้าไม่สำเร็จ: {exc}")
+            return
+
+        st.session_state[PRODUCT_BULK_CLEAR_PENDING_KEY] = True
+        st.session_state[PRODUCT_BULK_SUCCESS_KEY] = (
+            f"{action_label}สินค้า {updated_count:,} รายการแล้ว"
+        )
+        st.rerun()
 
 
 def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:

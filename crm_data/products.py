@@ -24,6 +24,21 @@ def sku_sort_key(value) -> tuple[int, int, str]:
     return 1, 0, text.casefold()
 
 
+def validate_product_ids(product_ids: list[int]) -> list[int]:
+    if not isinstance(product_ids, list):
+        raise ValueError("product_ids must be a list of positive integers")
+
+    normalized_ids = []
+    seen_ids = set()
+    for product_id in product_ids:
+        if isinstance(product_id, bool) or not isinstance(product_id, int) or product_id <= 0:
+            raise ValueError("product_ids must contain only positive integers")
+        if product_id not in seen_ids:
+            normalized_ids.append(product_id)
+            seen_ids.add(product_id)
+    return normalized_ids
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_product_options() -> list[dict]:
     from neon_utils import ensure_crm_data_imports_schema, neon_connection
@@ -236,6 +251,42 @@ def update_product_option(option_id: str, payload: dict) -> None:
         except Exception:
             conn.rollback()
             raise
+
+
+def bulk_update_product_active(
+    product_ids: list[int],
+    is_active: bool,
+    updated_by: str | None = None,
+) -> int:
+    normalized_ids = validate_product_ids(product_ids)
+    if not normalized_ids:
+        return 0
+
+    from neon_utils import ensure_crm_data_imports_schema, neon_connection
+
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update public.crm_product_options
+                    set is_active = %s,
+                        updated_by = %s,
+                        updated_at = now()
+                    where id = any(%s::bigint[])
+                    """,
+                    [bool(is_active), updated_by, normalized_ids],
+                )
+                updated_count = int(cur.rowcount or 0)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    fetch_product_page.clear()
+    fetch_product_options.clear()
+    return updated_count
 
 
 def delete_product_option(option_id: str) -> None:
