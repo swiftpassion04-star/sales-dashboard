@@ -146,17 +146,53 @@ def _sales_report_where(user: dict | None, owner_filter: str) -> tuple[list[str]
     return clauses, params
 
 
+def summarize_sales_report_rows(rows: list[dict]) -> dict:
+    from neon_utils import clean
+
+    summary = {
+        "NEW_ORDER": {"sales_amount": 0.0, "order_count": 0, "aov": 0.0},
+        "UPSELL": {"sales_amount": 0.0, "order_count": 0, "aov": 0.0},
+    }
+    order_ids: dict[str, set[str]] = {"NEW_ORDER": set(), "UPSELL": set()}
+    for row in rows or []:
+        sale_type = clean(row.get("sale_type")) or "NEW_ORDER"
+        if sale_type not in summary:
+            summary[sale_type] = {"sales_amount": 0.0, "order_count": 0, "aov": 0.0}
+            order_ids[sale_type] = set()
+        summary[sale_type]["sales_amount"] += float(row.get("amount") or 0)
+        order_id = clean(row.get("order_id"))
+        if order_id:
+            order_ids[sale_type].add(order_id)
+
+    for sale_type, values in summary.items():
+        count = len(order_ids.get(sale_type, set()))
+        values["order_count"] = count
+        values["aov"] = values["sales_amount"] / count if count else 0.0
+
+    total_amount = sum(value["sales_amount"] for value in summary.values())
+    total_count = sum(value["order_count"] for value in summary.values())
+    summary["TOTAL"] = {
+        "sales_amount": total_amount,
+        "order_count": total_count,
+        "aov": total_amount / total_count if total_count else 0.0,
+    }
+    return summary
+
+
 def fetch_sales_report(
     user: dict | None,
     start_date: date,
     end_date: date,
     owner_filter: str = "ทั้งหมด",
 ) -> dict:
-    from neon_utils import BANGKOK_TZ, clean, ensure_crm_data_imports_schema, neon_connection
+    from neon_utils import BANGKOK_TZ, ensure_crm_data_imports_schema, neon_connection
 
     ensure_crm_data_imports_schema()
     if not crm_sales_report_ready():
-        return {"ready": False, "summary": {}, "daily": []}
+        return {"ready": False, "summary": {}, "daily": [], "rows": []}
+
+    rows = fetch_sales_report_rows(user, start_date, end_date, owner_filter)
+    summary = summarize_sales_report_rows(rows)
 
     start_ts = datetime.combine(start_date, datetime.min.time(), tzinfo=BANGKOK_TZ).astimezone(timezone.utc)
     end_ts = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=BANGKOK_TZ).astimezone(timezone.utc)
@@ -166,27 +202,6 @@ def fetch_sales_report(
 
     with neon_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                with base as (
-                  select
-                    coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') as sale_type,
-                    coalesce(d.amount, 0) as amount,
-                    coalesce(nullif(d.order_id, ''), d.id::text) as order_key
-                  from public.crm_data_imports d
-                  {where_sql}
-                )
-                select
-                  sale_type,
-                  coalesce(sum(amount), 0) as sales_amount,
-                  count(distinct order_key) as order_count
-                from base
-                group by sale_type
-                """,
-                params,
-            )
-            summary_rows = cur.fetchall()
-
             cur.execute(
                 f"""
                 select
@@ -202,29 +217,7 @@ def fetch_sales_report(
             )
             daily_rows = cur.fetchall()
 
-    summary = {
-        "NEW_ORDER": {"sales_amount": 0.0, "order_count": 0, "aov": 0.0},
-        "UPSELL": {"sales_amount": 0.0, "order_count": 0, "aov": 0.0},
-    }
-    for row in summary_rows:
-        key = clean(row.get("sale_type")) or "NEW_ORDER"
-        if key not in summary:
-            summary[key] = {"sales_amount": 0.0, "order_count": 0, "aov": 0.0}
-        amount = float(row.get("sales_amount") or 0)
-        count = int(row.get("order_count") or 0)
-        summary[key] = {
-            "sales_amount": amount,
-            "order_count": count,
-            "aov": amount / count if count else 0.0,
-        }
-    total_amount = sum(value["sales_amount"] for value in summary.values())
-    total_count = sum(value["order_count"] for value in summary.values())
-    summary["TOTAL"] = {
-        "sales_amount": total_amount,
-        "order_count": total_count,
-        "aov": total_amount / total_count if total_count else 0.0,
-    }
-    return {"ready": True, "summary": summary, "daily": daily_rows}
+    return {"ready": True, "summary": summary, "daily": daily_rows, "rows": rows}
 
 
 def fetch_sales_report_rows(

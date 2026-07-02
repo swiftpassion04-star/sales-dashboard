@@ -86,6 +86,7 @@ def render_sales_report(user: dict) -> None:
         )
         return
 
+    rows = report.get("rows") or []
     summary = report["summary"]
     new_order = summary.get("NEW_ORDER", {})
     upsell = summary.get("UPSELL", {})
@@ -109,7 +110,6 @@ def render_sales_report(user: dict) -> None:
     cols[1].metric("จำนวนออเดอร์รวม", f"{int(total.get('order_count') or 0):,}")
     cols[2].metric("AOV", format_money(total.get("aov")))
 
-    rows = fetch_sales_report_rows(user, start_date, end_date, owner_filter)
     render_sales_order_table(rows, total.get("sales_amount"), total.get("order_count"), user)
 
     daily = report.get("daily") or []
