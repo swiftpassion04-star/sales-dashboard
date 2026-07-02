@@ -9,6 +9,7 @@ ROLE_TELESELL_ALIASES = {ROLE_TELESELL, "TELESELL"}
 ROLE_STAFF_ALIASES = {ROLE_STAFF_READONLY, "STAFF"}
 ROLE_USER_ALIASES = {"USER"}
 SYSTEM_VIEW_ROLES = {ROLE_EDITOR}
+ORDER_DELETE_ROLES = {ROLE_EDITOR, ROLE_STAFF, "STAFF"}
 
 
 def clean(value) -> str:
@@ -67,6 +68,10 @@ def can_export_customers(user: dict | None) -> bool:
 
 def can_assign_customer_owner(user: dict | None) -> bool:
     return user_role(user) == ROLE_EDITOR
+
+
+def can_delete_order(user: dict | None) -> bool:
+    return user_role(user) in _normalized_roles(ORDER_DELETE_ROLES)
 
 
 def can_view_system_page(user: dict | None) -> bool:

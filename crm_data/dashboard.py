@@ -331,10 +331,10 @@ def delete_sales_report_records(record_ids: list[str], user: dict | None) -> int
         neon_connection,
         neon_table_exists,
     )
-    from permissions import ROLE_EDITOR, user_role
+    from permissions import can_delete_order
 
-    if user_role(user) != ROLE_EDITOR:
-        raise PermissionError("Only EDITOR can delete sales report records")
+    if not can_delete_order(user):
+        raise PermissionError("User cannot delete sales report records")
 
     clean_ids = [clean(record_id) for record_id in (record_ids or []) if clean(record_id)]
     if not clean_ids:

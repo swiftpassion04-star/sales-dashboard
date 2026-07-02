@@ -15,7 +15,7 @@ from neon_utils import (
     fetch_sales_report_owner_options,
     fetch_sales_report_rows,
 )
-from permissions import ROLE_EDITOR, user_role
+from permissions import can_delete_order
 
 
 st.set_page_config(page_title="Dashboard", layout="wide")
@@ -242,7 +242,7 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders, user:
 
 
 def render_sales_delete_controls(rows: list[dict], user: dict | None) -> None:
-    if user_role(user) != ROLE_EDITOR:
+    if not can_delete_order(user):
         return
 
     options: list[tuple[str, list[str]]] = []
