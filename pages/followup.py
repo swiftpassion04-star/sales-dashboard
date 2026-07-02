@@ -17,6 +17,7 @@ from neon_utils import (
     validate_phone_pair,
 )
 from permissions import can_manage_all, can_view_followup, can_view_followup_owner_filter
+from ui.manual_order_ui import parse_price_input
 from ui.pagination import get_pagination_state, render_pagination
 
 
@@ -576,13 +577,13 @@ def render_order_dialog(row: dict, user: dict) -> None:
         if st.session_state.pop(f"{prefix}_product_reset", False):
             st.session_state[f"{prefix}_product_select"] = PRODUCT_PLACEHOLDER
             st.session_state[f"{prefix}_product_qty"] = 1
-            st.session_state[f"{prefix}_product_amount"] = 0.0
+            st.session_state[f"{prefix}_product_amount"] = ""
         if st.session_state.get(f"{prefix}_product_select") not in product_labels:
             st.session_state[f"{prefix}_product_select"] = PRODUCT_PLACEHOLDER
         pc1, pc2, pc3, pc4 = st.columns([2.2, 0.7, 0.8, 1.1])
         selected_label = pc1.selectbox("สินค้า", product_labels, key=f"{prefix}_product_select")
         selected_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key=f"{prefix}_product_qty")
-        selected_amount = pc3.number_input("ราคา", min_value=0.0, value=0.0, step=1.0, key=f"{prefix}_product_amount")
+        selected_amount = pc3.text_input("ราคา", placeholder="กรอกราคา", key=f"{prefix}_product_amount")
         add_item = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
         delete_index = render_popup_order_items(prefix)
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
@@ -592,7 +593,11 @@ def render_order_dialog(row: dict, user: dict) -> None:
         if not product:
             st.error("กรุณาเลือกสินค้า")
             return
-        amount = 0.0 if sale_type == "FOLLOW" else float(selected_amount or 0)
+        price_ok, parsed_amount, price_error = parse_price_input(selected_amount)
+        if not price_ok:
+            st.error(price_error)
+            return
+        amount = 0.0 if sale_type == "FOLLOW" else parsed_amount
         add_popup_order_item(prefix, product, int(selected_qty or 1), amount)
         st.session_state[f"{prefix}_product_reset"] = True
         st.rerun()
@@ -713,7 +718,7 @@ def prepare_popup_order_state(prefix: str, row: dict) -> None:
     st.session_state[f"{prefix}_sale_type"] = "NEW_ORDER"
     st.session_state[f"{prefix}_product_select"] = PRODUCT_PLACEHOLDER
     st.session_state[f"{prefix}_product_qty"] = 1
-    st.session_state[f"{prefix}_product_amount"] = 0.0
+    st.session_state[f"{prefix}_product_amount"] = ""
     st.session_state[f"{prefix}_items"] = []
     st.session_state[f"{prefix}_ready"] = True
 

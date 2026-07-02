@@ -1,4 +1,5 @@
 from datetime import date
+from math import isfinite
 
 import streamlit as st
 
@@ -6,6 +7,19 @@ import neon_utils as neon
 
 
 PRODUCT_PLACEHOLDER = "เลือกสินค้า"
+
+
+def parse_price_input(value: str) -> tuple[bool, float, str]:
+    text = str(value or "").strip().replace(",", "")
+    if not text:
+        return True, 0.0, ""
+    try:
+        amount = float(text)
+    except ValueError:
+        return False, 0.0, "กรุณากรอกราคาเป็นตัวเลข เช่น 159, 159.50 หรือ 1,590"
+    if not isfinite(amount) or amount < 0:
+        return False, 0.0, "ราคาต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป"
+    return True, amount, ""
 
 
 def render_manual_order_form(user: dict, is_editor: bool) -> None:
@@ -49,13 +63,13 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         if st.session_state.pop("manual_product_reset_requested", False):
             st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
             st.session_state["manual_product_qty"] = 1
-            st.session_state["manual_product_amount"] = 0.0
+            st.session_state["manual_product_amount"] = ""
         if st.session_state.get("manual_product_select") not in product_labels:
             st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
         pc1, pc2, pc3, pc4 = st.columns([2.2, 0.6, 0.8, 1.1])
         selected_product_label = pc1.selectbox("สินค้า", product_labels, index=0, key="manual_product_select")
         selected_product_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key="manual_product_qty")
-        selected_product_amount = pc3.number_input("ราคา", min_value=0.0, value=0.0, step=1.0, key="manual_product_amount")
+        selected_product_amount = pc3.text_input("ราคา", placeholder="กรอกราคา", key="manual_product_amount")
         add_product_submitted = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
         delete_item_index = render_manual_order_items()
 
@@ -89,7 +103,11 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         if not product:
             st.error("กรุณาเลือกสินค้า")
             return
-        item_amount = 0.0 if sale_type == "FOLLOW" else float(selected_product_amount or 0)
+        price_ok, parsed_amount, price_error = parse_price_input(selected_product_amount)
+        if not price_ok:
+            st.error(price_error)
+            return
+        item_amount = 0.0 if sale_type == "FOLLOW" else parsed_amount
         add_manual_order_item(product, int(selected_product_qty or 1), item_amount)
         st.session_state["manual_product_reset_requested"] = True
         st.rerun()
@@ -208,7 +226,7 @@ def clear_manual_order_form_state() -> None:
     st.session_state["manual_owner_select"] = "เลือกผู้ดูแล"
     st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
     st.session_state["manual_product_qty"] = 1
-    st.session_state["manual_product_amount"] = 0.0
+    st.session_state["manual_product_amount"] = ""
     st.session_state["manual_sale_type"] = "NEW_ORDER"
     st.session_state["manual_order_items"] = []
     st.session_state.pop("manual_owner_disabled", None)
