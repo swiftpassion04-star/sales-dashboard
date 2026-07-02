@@ -16,18 +16,25 @@ from neon_utils import (
     fetch_sales_report_rows,
 )
 from permissions import can_delete_order
+from ui.perf import perf_trace
 
 
 st.set_page_config(page_title="Dashboard", layout="wide")
 
 
 def main() -> None:
+    with perf_trace("dashboard.page_render"):
+        _render_dashboard_page()
+
+
+def _render_dashboard_page() -> None:
     render_sidebar_nav()
     require_login()
     user = current_user() or {}
     render_page_header("Dashboard", "ภาพรวมงาน CRM รายวันสำหรับทีม Telesales")
     with st.spinner("กำลังโหลด KPI จาก Neon..."):
-        kpis = fetch_dashboard_kpis(user)
+        with perf_trace("dashboard.fetch_kpis", role=user.get("role")):
+            kpis = fetch_dashboard_kpis(user)
 
     cols = st.columns(6)
     cols[0].metric("ลูกค้าทั้งหมด", f"{kpis['total_customers']:,}")
@@ -78,7 +85,8 @@ def render_sales_report(user: dict) -> None:
         owner_col.caption("รายงานนี้แสดงเฉพาะข้อมูลของคุณ")
 
     with st.spinner("กำลังโหลดรายงานยอดขายจาก Neon..."):
-        report = fetch_sales_report(user, start_date, end_date, owner_filter)
+        with perf_trace("dashboard.fetch_chart_report_data", role=user.get("role")):
+            report = fetch_sales_report(user, start_date, end_date, owner_filter)
     if not report.get("ready"):
         st.warning(
             "ยังใช้งานรายงานยอดขายไม่ได้ กรุณารัน migration "
@@ -276,14 +284,28 @@ def render_sales_delete_controls(rows: list[dict], user: dict | None) -> None:
         disabled=not selected_ids or not confirm,
         type="secondary",
     ):
-        try:
-            deleted = delete_sales_report_records(selected_ids, user)
-        except Exception as exc:
-            st.error(f"ลบคำสั่งซื้อไม่สำเร็จ: {exc}")
-            return
-        clear_cached_data_functions(fetch_dashboard_kpis, fetch_sales_report, fetch_sales_report_rows)
-        st.success(f"ลบคำสั่งซื้อสำเร็จ {deleted:,} รายการ")
-        st.rerun()
+        with perf_trace(
+            "dashboard.delete_handler",
+            action="delete",
+            count=len(selected_ids),
+            role=(user or {}).get("role"),
+        ):
+            try:
+                with perf_trace(
+                    "dashboard.confirmed_delete",
+                    action="delete",
+                    count=len(selected_ids),
+                    role=(user or {}).get("role"),
+                ):
+                    deleted = delete_sales_report_records(selected_ids, user)
+            except Exception as exc:
+                st.error(f"ลบคำสั่งซื้อไม่สำเร็จ: {exc}")
+                return
+            with perf_trace("dashboard.clear_caches", action="delete"):
+                clear_cached_data_functions(fetch_dashboard_kpis, fetch_sales_report, fetch_sales_report_rows)
+            st.success(f"ลบคำสั่งซื้อสำเร็จ {deleted:,} รายการ")
+            with perf_trace("dashboard.rerun", action="delete"):
+                st.rerun()
 
 
 def resolve_sales_range(label: str) -> tuple[date, date]:

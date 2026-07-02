@@ -2,8 +2,15 @@ from datetime import date, datetime, timedelta, timezone
 
 import streamlit as st
 
+from ui.perf import perf_trace
+
 
 def fetch_dashboard_kpis(user: dict | None = None) -> dict:
+    with perf_trace("repo.dashboard.fetch_kpis", role=(user or {}).get("role")):
+        return _fetch_dashboard_kpis(user)
+
+
+def _fetch_dashboard_kpis(user: dict | None = None) -> dict:
     from neon_utils import clean, ensure_crm_data_imports_schema, neon_connection
 
     ensure_crm_data_imports_schema()
@@ -185,6 +192,16 @@ def fetch_sales_report(
     end_date: date,
     owner_filter: str = "ทั้งหมด",
 ) -> dict:
+    with perf_trace("repo.dashboard.fetch_sales_report", role=(user or {}).get("role")):
+        return _fetch_sales_report(user, start_date, end_date, owner_filter)
+
+
+def _fetch_sales_report(
+    user: dict | None,
+    start_date: date,
+    end_date: date,
+    owner_filter: str = "ทั้งหมด",
+) -> dict:
     from neon_utils import BANGKOK_TZ, ensure_crm_data_imports_schema, neon_connection
 
     ensure_crm_data_imports_schema()
@@ -221,6 +238,21 @@ def fetch_sales_report(
 
 
 def fetch_sales_report_rows(
+    user: dict | None,
+    start_date: date,
+    end_date: date,
+    owner_filter: str = "ทั้งหมด",
+    limit: int = 1000,
+) -> list[dict]:
+    with perf_trace(
+        "repo.dashboard.fetch_sales_report_rows",
+        count=int(limit),
+        role=(user or {}).get("role"),
+    ):
+        return _fetch_sales_report_rows(user, start_date, end_date, owner_filter, limit)
+
+
+def _fetch_sales_report_rows(
     user: dict | None,
     start_date: date,
     end_date: date,
@@ -317,6 +349,16 @@ def fetch_sales_report_rows(
 
 
 def delete_sales_report_records(record_ids: list[str], user: dict | None) -> int:
+    with perf_trace(
+        "repo.dashboard.delete_sales_report_records",
+        action="delete",
+        count=len(record_ids or []),
+        role=(user or {}).get("role"),
+    ):
+        return _delete_sales_report_records(record_ids, user)
+
+
+def _delete_sales_report_records(record_ids: list[str], user: dict | None) -> int:
     from neon_utils import (
         clean,
         ensure_crm_data_imports_schema,

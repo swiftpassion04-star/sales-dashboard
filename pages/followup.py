@@ -19,6 +19,7 @@ from neon_utils import (
 from permissions import can_manage_all, can_view_followup, can_view_followup_owner_filter
 from ui.manual_order_ui import parse_price_input
 from ui.pagination import get_pagination_state, render_pagination
+from ui.perf import perf_trace
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
@@ -71,6 +72,11 @@ st.set_page_config(page_title="Follow-up", layout="wide")
 
 
 def main() -> None:
+    with perf_trace("followup.page_render"):
+        _render_followup_page()
+
+
+def _render_followup_page() -> None:
     render_sidebar_nav()
     inject_followup_dialog_css()
     require_login()
@@ -90,7 +96,13 @@ def main() -> None:
     )
 
     with st.spinner("กำลังโหลดรายการติดตาม..."):
-        rows, total = fetch_followup_page(filters, user, page_size, page)
+        with perf_trace(
+            "followup.fetch_page",
+            page=page,
+            page_size=page_size,
+            role=user.get("role"),
+        ):
+            rows, total = fetch_followup_page(filters, user, page_size, page)
 
     page_size, page = render_pagination(
         total_rows=total,
@@ -269,7 +281,8 @@ def render_filters(user: dict) -> dict[str, str]:
     if st.session_state.pop('followup_filter_reset_requested', False):
         reset_followup_filter_state()
     try:
-        options = fetch_followup_filter_options(user)
+        with perf_trace("followup.fetch_filter_options", role=user.get("role")):
+            options = fetch_followup_filter_options(user)
     except Exception:
         options = {'owners': [], 'products': []}
     with st.form('followup_filters_v2'):
@@ -404,12 +417,19 @@ def render_detail(row: dict, user: dict) -> None:
             "updated_by": clean(user.get("email")),
             "updated_at": datetime.utcnow().isoformat() + "Z",
         }
-        upsert_lead_followup(payload)
+        with perf_trace(
+            "followup.save_followup",
+            action="save",
+            role=user.get("role"),
+        ):
+            upsert_lead_followup(payload)
         st.session_state.setdefault("followup_drafts_v2", {}).pop(key, None)
-        clear_cached_functions_safely(fetch_followup_filter_options)
+        with perf_trace("followup.clear_caches", action="save_followup"):
+            clear_cached_functions_safely(fetch_followup_filter_options)
         st.session_state.followup_page_success = "บันทึกสำเร็จแล้ว"
         close_followup_modal()
-        st.rerun()
+        with perf_trace("followup.rerun", action="save_followup"):
+            st.rerun()
 
 
 def prepare_followup_form_state(key: str, row: dict) -> None:
@@ -486,13 +506,15 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
         with st.container(key=f"followup_table_row_{row_tone}_{index}_{safe_key}"):
             cols = st.columns(FOLLOWUP_TABLE_COLUMNS)
         if cols[0].button("ติดตาม", key=f"followup_popup_{key}", use_container_width=True):
-            st.session_state.followup_modal_type = "followup"
-            st.session_state.followup_modal_row = dict(row)
-            st.rerun()
+            with perf_trace("followup.open_popup", action="followup", role=user.get("role")):
+                st.session_state.followup_modal_type = "followup"
+                st.session_state.followup_modal_row = dict(row)
+                st.rerun()
         if cols[1].button("เพิ่มคำสั่งซื้อ", key=f"order_popup_{key}", use_container_width=True):
-            st.session_state.followup_modal_type = "order"
-            st.session_state.followup_modal_row = dict(row)
-            st.rerun()
+            with perf_trace("followup.open_popup", action="order", role=user.get("role")):
+                st.session_state.followup_modal_type = "order"
+                st.session_state.followup_modal_row = dict(row)
+                st.rerun()
         cols[2].write(clean(row.get("next_followup_date")) or "ว่าง")
         cols[3].write(clean(row.get("customer_name")) or "-")
         cols[4].write(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")
@@ -538,12 +560,22 @@ def clear_cached_functions_safely(*functions) -> None:
 
 @st.dialog("ติดตามลูกค้า", width="large")
 def render_followup_dialog(row: dict, user: dict) -> None:
+    with perf_trace("followup.dialog_render", action="followup", role=user.get("role")):
+        _render_followup_dialog(row, user)
+
+
+def _render_followup_dialog(row: dict, user: dict) -> None:
     render_popup_customer_summary(row)
     render_detail(row, user)
 
 
 @st.dialog("เพิ่มคำสั่งซื้อ", width="large")
 def render_order_dialog(row: dict, user: dict) -> None:
+    with perf_trace("followup.dialog_render", action="order", role=user.get("role")):
+        _render_order_dialog(row, user)
+
+
+def _render_order_dialog(row: dict, user: dict) -> None:
     key = row_key(row)
     prefix = f"followup_order_{key}"
     owner = clean(row.get("owner"))
@@ -554,7 +586,8 @@ def render_order_dialog(row: dict, user: dict) -> None:
     prepare_popup_order_state(prefix, row)
 
     try:
-        product_options = fetch_popup_product_options()
+        with perf_trace("followup.load_product_options", action="order"):
+            product_options = fetch_popup_product_options()
     except Exception as exc:
         product_options = []
         st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
@@ -589,18 +622,20 @@ def render_order_dialog(row: dict, user: dict) -> None:
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
     if add_item:
-        product = popup_product_from_label(product_options, selected_label)
-        if not product:
-            st.error("กรุณาเลือกสินค้า")
-            return
-        price_ok, parsed_amount, price_error = parse_price_input(selected_amount)
-        if not price_ok:
-            st.error(price_error)
-            return
-        amount = 0.0 if sale_type == "FOLLOW" else parsed_amount
-        add_popup_order_item(prefix, product, int(selected_qty or 1), amount)
-        st.session_state[f"{prefix}_product_reset"] = True
-        st.rerun()
+        with perf_trace("followup.add_order_item", action="add_item", sale_type=sale_type):
+            product = popup_product_from_label(product_options, selected_label)
+            if not product:
+                st.error("กรุณาเลือกสินค้า")
+                return
+            price_ok, parsed_amount, price_error = parse_price_input(selected_amount)
+            if not price_ok:
+                st.error(price_error)
+                return
+            amount = 0.0 if sale_type == "FOLLOW" else parsed_amount
+            add_popup_order_item(prefix, product, int(selected_qty or 1), amount)
+            st.session_state[f"{prefix}_product_reset"] = True
+            with perf_trace("followup.rerun", action="add_item"):
+                st.rerun()
     if delete_index is not None:
         remove_popup_order_item(prefix, delete_index)
         st.rerun()
@@ -628,34 +663,42 @@ def render_order_dialog(row: dict, user: dict) -> None:
             return
 
     try:
-        result = upsert_manual_order_items(
-            {
-                "order_id": order_id,
-                "customer_name": customer_name,
-                "phone1": phone1,
-                "phone2": phone2,
-                "url": url,
-                "address": address,
-                "sale_type": sale_type,
-                "order_date": date.today().isoformat(),
-                "owner": owner,
-                "staff_code": staff_code,
-                "force_owner_update": False,
-                "uploaded_by": clean(user.get("email")),
-                "updated_by": clean(user.get("email")),
-            },
-            items,
-        )
+        with perf_trace(
+            "followup.save_order",
+            action="save",
+            count=len(items),
+            role=user.get("role"),
+            sale_type=sale_type,
+        ):
+            result = upsert_manual_order_items(
+                {
+                    "order_id": order_id,
+                    "customer_name": customer_name,
+                    "phone1": phone1,
+                    "phone2": phone2,
+                    "url": url,
+                    "address": address,
+                    "sale_type": sale_type,
+                    "order_date": date.today().isoformat(),
+                    "owner": owner,
+                    "staff_code": staff_code,
+                    "force_owner_update": False,
+                    "uploaded_by": clean(user.get("email")),
+                    "updated_by": clean(user.get("email")),
+                },
+                items,
+            )
     except Exception as exc:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
-    clear_cached_functions_safely(
-        fetch_followup_filter_options,
-        getattr(neon, "fetch_filter_options", None),
-        getattr(neon, "fetch_sales_report_owner_options", None),
-        getattr(neon, "fetch_crm_owner_options", None),
-    )
+    with perf_trace("followup.clear_caches", action="save_order"):
+        clear_cached_functions_safely(
+            fetch_followup_filter_options,
+            getattr(neon, "fetch_filter_options", None),
+            getattr(neon, "fetch_sales_report_owner_options", None),
+            getattr(neon, "fetch_crm_owner_options", None),
+        )
     clear_popup_order_state(prefix, row)
     actions = result.get("actions") or {}
     st.session_state.followup_page_success = (
@@ -664,7 +707,8 @@ def render_order_dialog(row: dict, user: dict) -> None:
         f"(เพิ่มใหม่ {actions.get('inserted', 0)}, อัปเดต {actions.get('updated', 0)})"
     )
     close_followup_modal()
-    st.rerun()
+    with perf_trace("followup.rerun", action="save_order"):
+        st.rerun()
 
 
 def find_popup_order_owner_conflict(phone1: str, phone2: str, user: dict, staff_code: str) -> dict:

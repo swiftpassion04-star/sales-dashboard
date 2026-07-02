@@ -4,6 +4,7 @@ from math import isfinite
 import streamlit as st
 
 import neon_utils as neon
+from ui.perf import perf_trace
 
 
 PRODUCT_PLACEHOLDER = "เลือกสินค้า"
@@ -23,6 +24,11 @@ def parse_price_input(value: str) -> tuple[bool, float, str]:
 
 
 def render_manual_order_form(user: dict, is_editor: bool) -> None:
+    with perf_trace("manual_order.render_form", role=user.get("role")):
+        _render_manual_order_form(user, is_editor)
+
+
+def _render_manual_order_form(user: dict, is_editor: bool) -> None:
     st.subheader("เพิ่มคำสั่งซื้อ")
     st.markdown(
         '<div class="crm-manual-meta">พนักงานเพิ่มคำสั่งซื้อได้ทีละรายการ ส่วนการนำเข้า Excel ใช้ได้เฉพาะ EDITOR</div>',
@@ -36,11 +42,13 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
     staff_options = []
     if is_editor:
         try:
-            staff_options = neon.fetch_owner_user_options(active_only=True)
+            with perf_trace("manual_order.load_owner_options", role=user.get("role")):
+                staff_options = neon.fetch_owner_user_options(active_only=True)
         except Exception as exc:
             st.warning(f"โหลดรายชื่อพนักงานไม่สำเร็จ: {exc}")
     try:
-        product_options = fetch_manual_product_options()
+        with perf_trace("manual_order.load_product_options", role=user.get("role")):
+            product_options = fetch_manual_product_options()
     except Exception as exc:
         product_options = []
         st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
@@ -99,18 +107,20 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
     if add_product_submitted:
-        product = manual_product_from_label(product_options, selected_product_label)
-        if not product:
-            st.error("กรุณาเลือกสินค้า")
-            return
-        price_ok, parsed_amount, price_error = parse_price_input(selected_product_amount)
-        if not price_ok:
-            st.error(price_error)
-            return
-        item_amount = 0.0 if sale_type == "FOLLOW" else parsed_amount
-        add_manual_order_item(product, int(selected_product_qty or 1), item_amount)
-        st.session_state["manual_product_reset_requested"] = True
-        st.rerun()
+        with perf_trace("manual_order.add_item", action="add_item", sale_type=sale_type):
+            product = manual_product_from_label(product_options, selected_product_label)
+            if not product:
+                st.error("กรุณาเลือกสินค้า")
+                return
+            price_ok, parsed_amount, price_error = parse_price_input(selected_product_amount)
+            if not price_ok:
+                st.error(price_error)
+                return
+            item_amount = 0.0 if sale_type == "FOLLOW" else parsed_amount
+            add_manual_order_item(product, int(selected_product_qty or 1), item_amount)
+            st.session_state["manual_product_reset_requested"] = True
+            with perf_trace("manual_order.rerun", action="add_item"):
+                st.rerun()
 
     if delete_item_index is not None:
         remove_manual_order_item(delete_item_index)
@@ -146,39 +156,48 @@ def render_manual_order_form(user: dict, is_editor: bool) -> None:
             return
 
     try:
-        result = neon.upsert_manual_order_items(
-            {
-                "order_id": order_id,
-                "customer_name": customer_name,
-                "phone1": phone1,
-                "phone2": phone2,
-                "url": url,
-                "address": address,
-                "sale_type": sale_type,
-                "order_date": order_date,
-                "owner": owner,
-                "staff_code": staff_code,
-                "force_owner_update": bool(is_editor),
-                "uploaded_by": neon.clean(user.get("email")),
-                "updated_by": neon.clean(user.get("email")),
-            },
-            manual_items,
-        )
+        with perf_trace(
+            "manual_order.save_order",
+            action="save",
+            count=len(manual_items),
+            role=user.get("role"),
+            sale_type=sale_type,
+        ):
+            result = neon.upsert_manual_order_items(
+                {
+                    "order_id": order_id,
+                    "customer_name": customer_name,
+                    "phone1": phone1,
+                    "phone2": phone2,
+                    "url": url,
+                    "address": address,
+                    "sale_type": sale_type,
+                    "order_date": order_date,
+                    "owner": owner,
+                    "staff_code": staff_code,
+                    "force_owner_update": bool(is_editor),
+                    "uploaded_by": neon.clean(user.get("email")),
+                    "updated_by": neon.clean(user.get("email")),
+                },
+                manual_items,
+            )
     except Exception as exc:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
     actions = result.get("actions") or {}
     action_text = f"สินค้า {result.get('item_count', 0)} รายการ (เพิ่มใหม่ {actions.get('inserted', 0)}, อัปเดต {actions.get('updated', 0)})"
-    neon.clear_cached_data_functions(
-        neon.fetch_followup_filter_options,
-        neon.fetch_filter_options,
-        neon.fetch_sales_report_owner_options,
-        neon.fetch_crm_owner_options,
-    )
+    with perf_trace("manual_order.clear_caches", action="save"):
+        neon.clear_cached_data_functions(
+            neon.fetch_followup_filter_options,
+            neon.fetch_filter_options,
+            neon.fetch_sales_report_owner_options,
+            neon.fetch_crm_owner_options,
+        )
     st.session_state.manual_order_success_message = f"บันทึกสำเร็จ: {action_text}"
     st.session_state.manual_order_clear_requested = True
-    st.rerun()
+    with perf_trace("manual_order.rerun", action="save"):
+        st.rerun()
 
 
 def staff_label(row: dict) -> str:
