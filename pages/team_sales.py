@@ -1,0 +1,189 @@
+from datetime import date
+
+import pandas as pd
+import streamlit as st
+
+from auth_utils import current_user, require_login
+from crm_data.team_sales import (
+    fetch_team_assignment_users,
+    fetch_team_sales_summary,
+    fetch_team_top_products,
+)
+from crm_theme import render_page_header
+from nav_utils import render_sidebar_nav
+from permissions import can_manage_all
+
+
+TEAM_OPTIONS = {
+    "ทั้งหมด": None,
+    "CRM Team": "CRM_TEAM",
+    "Upsell Team": "UPSELL_TEAM",
+}
+SALE_TYPE_OPTIONS = {
+    "ทั้งหมด": None,
+    "NEW_ORDER": "NEW_ORDER",
+    "UPSELL": "UPSELL",
+}
+
+
+st.set_page_config(page_title="ยอดขายทีม", layout="wide")
+
+
+def _format_money(value) -> str:
+    return f"฿{float(value or 0):,.2f}"
+
+
+def _team_rows_by_code(summary: dict) -> dict[str, dict]:
+    return {
+        str(item.get("team_code") or ""): item
+        for item in summary.get("teams", [])
+    }
+
+
+def _render_team_card(team: dict) -> None:
+    with st.container(border=True):
+        st.subheader(str(team.get("team_name") or "-"))
+        metrics = st.columns(3)
+        metrics[0].metric("จำนวนออเดอร์", f"{int(team.get('order_count') or 0):,}")
+        metrics[1].metric("ยอดขายรวม", _format_money(team.get("sales_amount")))
+        metrics[2].metric("จำนวนรายการ", f"{int(team.get('row_count') or 0):,}")
+
+
+def _render_top_products(rows: list[dict]) -> None:
+    st.subheader("Top 10 สินค้าขายดี")
+    st.caption("เรียงตามจำนวนสินค้าที่ขายได้")
+    if not rows:
+        st.info("ยังไม่มีข้อมูลสินค้าขายดีในทีม เพราะยังไม่ได้จัด User เข้าทีม")
+        return
+
+    table_rows = []
+    for rank, row in enumerate(rows, start=1):
+        table_rows.append(
+            {
+                "อันดับ": rank,
+                "SKU": row.get("sku") or "-",
+                "สินค้า": row.get("product_name") or "-",
+                "จำนวนขาย": float(row.get("total_quantity") or 0),
+                "ออเดอร์": int(row.get("order_count") or 0),
+            }
+        )
+    st.dataframe(
+        pd.DataFrame(table_rows),
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "อันดับ": st.column_config.NumberColumn(format="%d"),
+            "จำนวนขาย": st.column_config.NumberColumn(format="%.2f"),
+            "ออเดอร์": st.column_config.NumberColumn(format="%d"),
+        },
+    )
+
+
+def _render_assignment_users(users: list[dict]) -> None:
+    st.subheader("สถานะการจัดทีม User")
+    if not users:
+        st.info("ยังไม่พบ User ที่เปิดใช้งาน")
+        return
+
+    table_rows = [
+        {
+            "Email": row.get("email") or "-",
+            "ชื่อพนักงาน": row.get("staff_name") or "-",
+            "Role": row.get("role") or "-",
+            "ทีมปัจจุบัน": row.get("current_team_name") or "ยังไม่เลือกทีม",
+        }
+        for row in users
+    ]
+    st.dataframe(
+        pd.DataFrame(table_rows),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+
+def main() -> None:
+    render_sidebar_nav()
+    auth_user = require_login()
+    user = current_user() or auth_user or {}
+    if not can_manage_all(user):
+        st.warning("คุณไม่มีสิทธิ์เข้าดูหน้ายอดขายทีม")
+        st.stop()
+
+    render_page_header(
+        "🎖️ยอดขายทีม",
+        "แสดงยอดรวมคำสั่งซื้อที่เพิ่ม แยกตามทีม",
+    )
+
+    today = date.today()
+    month_start = today.replace(day=1)
+    filter_cols = st.columns([1, 1, 1, 1])
+    start_date = filter_cols[0].date_input(
+        "วันที่เริ่มต้น",
+        value=month_start,
+        key="team_sales_start_date",
+    )
+    end_date = filter_cols[1].date_input(
+        "วันที่สิ้นสุด",
+        value=today,
+        key="team_sales_end_date",
+    )
+    sale_type_label = filter_cols[2].selectbox(
+        "ประเภทออเดอร์",
+        list(SALE_TYPE_OPTIONS),
+        key="team_sales_sale_type",
+    )
+    team_label = filter_cols[3].selectbox(
+        "ทีม",
+        list(TEAM_OPTIONS),
+        key="team_sales_team",
+    )
+
+    if start_date > end_date:
+        st.warning("วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด")
+        return
+
+    sale_type_filter = SALE_TYPE_OPTIONS[sale_type_label]
+    team_code_filter = TEAM_OPTIONS[team_label]
+    try:
+        with st.spinner("กำลังโหลดยอดขายทีมจาก Neon..."):
+            summary = fetch_team_sales_summary(
+                start_date,
+                end_date,
+                sale_type_filter=sale_type_filter,
+            )
+            top_products = fetch_team_top_products(
+                start_date,
+                end_date,
+                team_code=team_code_filter,
+                sale_type_filter=sale_type_filter,
+                limit=10,
+            )
+            users = fetch_team_assignment_users()
+    except Exception:
+        st.error("โหลดข้อมูลยอดขายทีมไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
+        return
+
+    summary_col, products_col = st.columns([1.45, 1], gap="large")
+    with summary_col:
+        st.subheader("ยอดรวมระดับทีม")
+        teams_by_code = _team_rows_by_code(summary)
+        visible_codes = [team_code_filter] if team_code_filter else list(TEAM_OPTIONS.values())[1:]
+        for team_code in visible_codes:
+            _render_team_card(teams_by_code.get(team_code, {}))
+
+        unassigned = summary.get("unassigned") or {}
+        if int(unassigned.get("row_count") or 0) > 0:
+            st.warning(
+                "ยังมีรายการที่ยังไม่ถูกจัดทีม: "
+                f"{int(unassigned.get('row_count') or 0):,} รายการ / "
+                f"{int(unassigned.get('order_count') or 0):,} ออเดอร์"
+            )
+
+    with products_col:
+        _render_top_products(top_products)
+
+    st.divider()
+    _render_assignment_users(users)
+
+
+main()
