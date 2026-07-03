@@ -7,9 +7,11 @@ import neon_utils as neon
 from auth_utils import require_login
 from crm_data.products import (
     PRODUCT_PAGE_SIZE,
+    archive_products,
     bulk_update_product_active,
     fetch_product_delete_readiness,
     fetch_product_page,
+    restore_archived_products,
 )
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
@@ -23,6 +25,7 @@ PRODUCT_STATUS_OPTIONS = {
     "สินค้าที่เปิดใช้งาน": "active",
     "สินค้าที่ปิดใช้งาน": "inactive",
     "สินค้าทั้งหมด": "all",
+    "สินค้าที่เก็บถาวร": "archived",
 }
 PRODUCT_SORT_OPTIONS = {
     "SP น้อยไปมาก": "sku_asc",
@@ -39,6 +42,15 @@ PRODUCT_BULK_CLEAR_PENDING_KEY = "product_master_bulk_clear_pending"
 PRODUCT_BULK_SUCCESS_KEY = "product_master_bulk_success"
 PRODUCT_DELETE_READINESS_KEY = "product_master_delete_readiness"
 PRODUCT_DELETE_READINESS_SELECTION_KEY = "product_master_delete_readiness_selection"
+PRODUCT_ARCHIVE_CONFIRM_KEY = "product_master_archive_confirm"
+PRODUCT_ARCHIVE_REASON_KEY = "product_master_archive_reason"
+PRODUCT_RESTORE_CONFIRM_KEY = "product_master_restore_confirm"
+
+
+def clear_product_archive_action_state() -> None:
+    st.session_state.pop(PRODUCT_ARCHIVE_CONFIRM_KEY, None)
+    st.session_state.pop(PRODUCT_ARCHIVE_REASON_KEY, None)
+    st.session_state.pop(PRODUCT_RESTORE_CONFIRM_KEY, None)
 
 
 def clear_product_delete_readiness() -> None:
@@ -49,6 +61,7 @@ def clear_product_delete_readiness() -> None:
 def clear_product_selection() -> None:
     st.session_state[PRODUCT_SELECTION_KEY] = set()
     st.session_state.pop(PRODUCT_BULK_CONFIRM_KEY, None)
+    clear_product_archive_action_state()
     clear_product_delete_readiness()
     for key in list(st.session_state):
         if str(key).startswith(PRODUCT_SELECTION_WIDGET_PREFIX):
@@ -78,6 +91,7 @@ def update_product_selection(product_id: str, widget_key: str) -> None:
         selected_ids.discard(product_id)
     st.session_state[PRODUCT_SELECTION_KEY] = selected_ids
     st.session_state.pop(PRODUCT_BULK_CONFIRM_KEY, None)
+    clear_product_archive_action_state()
     clear_product_delete_readiness()
 
 
@@ -173,7 +187,12 @@ def main() -> None:
         )
     )
     finalize_pending_product_bulk_action()
-    render_product_table(rows, auth_user, is_editor)
+    render_product_table(
+        rows,
+        auth_user,
+        is_editor,
+        PRODUCT_STATUS_OPTIONS[status_label],
+    )
 
 
 def render_create_product_form(auth_user: dict) -> None:
@@ -318,7 +337,12 @@ def build_product_import_preview(uploaded, existing_rows: list[dict], auth_user:
     return preview_rows, import_rows, summary
 
 
-def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> None:
+def render_product_table(
+    rows: list[dict],
+    auth_user: dict,
+    is_editor: bool,
+    status_filter: str,
+) -> None:
     if not rows:
         st.info("ยังไม่มีรายการสินค้า")
         return
@@ -344,7 +368,15 @@ def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> 
         use_container_width=True,
     )
     summary_col.caption(f"เลือกแล้ว {len(selected_on_page):,} รายการในหน้านี้")
-    render_product_bulk_actions(selected_ids, page_product_ids, auth_user, is_editor)
+    if status_filter != "archived":
+        render_product_bulk_actions(selected_ids, page_product_ids, auth_user, is_editor)
+    render_product_archive_actions(
+        selected_ids,
+        page_product_ids,
+        auth_user,
+        is_editor,
+        status_filter,
+    )
     render_product_delete_readiness(selected_ids, page_product_ids, is_editor)
 
     header = st.columns([0.55, 0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
@@ -358,6 +390,92 @@ def render_product_table(rows: list[dict], auth_user: dict, is_editor: bool) -> 
 
     for row in rows:
         render_product_row(row, auth_user, is_editor)
+
+
+def render_product_archive_actions(
+    selected_ids: set[str],
+    page_product_ids: list[str],
+    auth_user: dict,
+    is_editor: bool,
+    status_filter: str,
+) -> None:
+    if not is_editor or not selected_ids:
+        return
+
+    is_archived_filter = status_filter == "archived"
+    with st.container(border=True):
+        if is_archived_filter:
+            st.markdown(f"**Restore สินค้าที่เลือก {len(selected_ids):,} รายการ**")
+            st.warning(
+                "สินค้าที่ Restore จะกลับมาเป็นปิดใช้งานก่อนเสมอ "
+                "และจะยังไม่กลับไปอยู่ใน dropdown ขายจนกว่าจะเปิดใช้งานอีกครั้ง"
+            )
+            confirmed = st.checkbox(
+                f"ยืนยันการ Restore สินค้าที่เลือก {len(selected_ids):,} รายการ",
+                key=PRODUCT_RESTORE_CONFIRM_KEY,
+            )
+            submitted = st.button(
+                "Restore รายการที่เลือก",
+                key="product_master_restore_submit",
+                type="primary",
+                disabled=not confirmed,
+            )
+        else:
+            st.markdown(f"**เก็บถาวรสินค้าที่เลือก {len(selected_ids):,} รายการ**")
+            st.warning(
+                "สินค้าที่เก็บถาวรจะถูกปิดใช้งานและซ่อนจากรายการหลัก "
+                "แต่ข้อมูลประวัติจะยังอยู่"
+            )
+            reason = st.text_input(
+                "เหตุผลที่เก็บถาวร",
+                key=PRODUCT_ARCHIVE_REASON_KEY,
+                placeholder="Archived from Product Master",
+            )
+            confirmed = st.checkbox(
+                f"ยืนยันการเก็บถาวรสินค้าที่เลือก {len(selected_ids):,} รายการ",
+                key=PRODUCT_ARCHIVE_CONFIRM_KEY,
+            )
+            submitted = st.button(
+                "เก็บถาวรรายการที่เลือก",
+                key="product_master_archive_submit",
+                type="primary",
+                disabled=not confirmed,
+            )
+
+        if not submitted:
+            return
+
+        action_label = "Restore" if is_archived_filter else "เก็บถาวร"
+        try:
+            product_ids = selected_product_ids_for_bulk(selected_ids, page_product_ids)
+            if not product_ids:
+                st.error("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ")
+                return
+            current_user = clean(auth_user.get("email")) or None
+            if is_archived_filter:
+                result = restore_archived_products(product_ids, restored_by=current_user)
+            else:
+                archive_reason = clean(reason) or "Archived from Product Master"
+                result = archive_products(
+                    product_ids,
+                    archived_by=current_user,
+                    reason=archive_reason,
+                )
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        except Exception as exc:
+            st.error(f"{action_label}ไม่สำเร็จ: {exc}")
+            return
+
+        requested = int(result.get("requested") or 0)
+        updated = int(result.get("updated") or 0)
+        skipped = int(result.get("skipped") or 0)
+        clear_product_selection()
+        st.session_state[PRODUCT_BULK_SUCCESS_KEY] = (
+            f"{action_label}สำเร็จ: เลือก {requested:,} / อัปเดต {updated:,} / ข้าม {skipped:,} รายการ"
+        )
+        st.rerun()
 
 
 def render_product_bulk_actions(
@@ -510,6 +628,7 @@ def render_product_delete_readiness(
 
 def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
     row_id = clean(row.get("id"))
+    is_archived = bool(row.get("archived_at"))
     cols = st.columns([0.55, 0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
     if row_id:
         selection_widget_key = f"{PRODUCT_SELECTION_WIDGET_PREFIX}{row_id}"
@@ -525,7 +644,7 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
         )
     else:
         cols[0].write("-")
-    if is_editor:
+    if is_editor and not is_archived:
         sku = cols[1].text_input("SKU", value=clean(row.get("sku")), key=f"pm_sku_{row_id}", label_visibility="collapsed")
         product_name = cols[2].text_input(
             "ชื่อสินค้า",
@@ -584,7 +703,10 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
         cols[1].write(clean(row.get("sku")) or "-")
         cols[2].write(clean(row.get("product_name")) or "-")
         cols[3].write(clean(row.get("product_group")) or "-")
-        cols[4].write("เปิด" if row.get("is_active") else "ปิด")
+        if is_archived:
+            cols[4].write("เก็บถาวร")
+        else:
+            cols[4].write("เปิด" if row.get("is_active") else "ปิด")
         cols[5].write("-")
         cols[6].write("-")
 
