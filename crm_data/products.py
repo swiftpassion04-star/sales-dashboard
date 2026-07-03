@@ -4,8 +4,14 @@ import streamlit as st
 
 
 PRODUCT_PAGE_SIZE = 10
-PRODUCT_STATUS_FILTERS = {"all", "active", "inactive"}
+PRODUCT_STATUS_FILTERS = {"all", "active", "inactive", "archived"}
 PRODUCT_SORT_MODES = {"sku_asc", "sku_desc", "created_asc", "created_desc"}
+_PRODUCT_STATUS_CLAUSES = {
+    "active": ("is_active = true", "archived_at is null"),
+    "inactive": ("is_active = false", "archived_at is null"),
+    "all": ("archived_at is null",),
+    "archived": ("archived_at is not null",),
+}
 _SP_SKU_PATTERN = re.compile(r"^SP\s*0*(\d+)", re.IGNORECASE)
 _SKU_NUMBER_SQL = """
 case
@@ -239,12 +245,8 @@ def fetch_product_page(
     safe_page = max(int(page or 1), 1)
     safe_page_size = max(int(page_size or PRODUCT_PAGE_SIZE), 1)
     search_text = str(search or "").strip()
-    clauses = []
+    clauses = list(_PRODUCT_STATUS_CLAUSES[normalized_status])
     params = []
-    if normalized_status == "active":
-        clauses.append("is_active = true")
-    elif normalized_status == "inactive":
-        clauses.append("is_active = false")
     if search_text:
         clauses.append("(sku ilike %s or product_name ilike %s)")
         search_pattern = f"%{search_text}%"
@@ -275,6 +277,9 @@ def fetch_product_page(
                   product_group,
                   product_name,
                   is_active,
+                  archived_at,
+                  archived_by,
+                  archive_reason,
                   sort_order,
                   created_at,
                   updated_at
