@@ -53,6 +53,28 @@ from public.crm_product_options p
 where p.id = any(%s::bigint[])
 order by p.id
 """.strip()
+_ARCHIVE_PRODUCTS_SQL = """
+update public.crm_product_options
+set archived_at = now(),
+    archived_by = %s,
+    archive_reason = %s,
+    is_active = false,
+    updated_at = now(),
+    updated_by = %s
+where id = any(%s::bigint[])
+  and archived_at is null
+""".strip()
+_RESTORE_ARCHIVED_PRODUCTS_SQL = """
+update public.crm_product_options
+set archived_at = null,
+    archived_by = null,
+    archive_reason = null,
+    is_active = false,
+    updated_at = now(),
+    updated_by = %s
+where id = any(%s::bigint[])
+  and archived_at is not null
+""".strip()
 
 
 def sku_sort_key(value) -> tuple[int, int, str]:
@@ -421,6 +443,73 @@ def bulk_update_product_active(
     fetch_product_page.clear()
     fetch_product_options.clear()
     return updated_count
+
+
+def archive_products(
+    product_ids: list[int],
+    archived_by: str | None = None,
+    reason: str | None = None,
+) -> dict:
+    normalized_ids = validate_product_ids(product_ids)
+    if not normalized_ids:
+        return {"requested": 0, "updated": 0, "skipped": 0}
+
+    from neon_utils import neon_connection
+
+    actor = str(archived_by or "").strip() or None
+    archive_reason = str(reason or "").strip() or None
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    _ARCHIVE_PRODUCTS_SQL,
+                    [actor, archive_reason, actor, normalized_ids],
+                )
+                updated_count = int(cur.rowcount or 0)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    if updated_count:
+        fetch_product_page.clear()
+        fetch_product_options.clear()
+    return {
+        "requested": len(normalized_ids),
+        "updated": updated_count,
+        "skipped": len(normalized_ids) - updated_count,
+    }
+
+
+def restore_archived_products(
+    product_ids: list[int],
+    restored_by: str | None = None,
+) -> dict:
+    normalized_ids = validate_product_ids(product_ids)
+    if not normalized_ids:
+        return {"requested": 0, "updated": 0, "skipped": 0}
+
+    from neon_utils import neon_connection
+
+    actor = str(restored_by or "").strip() or None
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(_RESTORE_ARCHIVED_PRODUCTS_SQL, [actor, normalized_ids])
+                updated_count = int(cur.rowcount or 0)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    if updated_count:
+        fetch_product_page.clear()
+        fetch_product_options.clear()
+    return {
+        "requested": len(normalized_ids),
+        "updated": updated_count,
+        "skipped": len(normalized_ids) - updated_count,
+    }
 
 
 def delete_product_option(option_id: str) -> None:
