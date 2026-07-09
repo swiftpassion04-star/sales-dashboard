@@ -28,6 +28,27 @@ from crm_data.products import (
     upsert_product_options,
 )
 
+FOLLOWUP_PRIORITY_OPTIONS = ("Super VIP", "VIP", "Premium", "Economy", "NEW", "Dismiss")
+DEFAULT_FOLLOWUP_PRIORITY = "NEW"
+LEGACY_FOLLOWUP_PRIORITY_MAP = {
+    "urgent": "Super VIP",
+    "\u0e14\u0e48\u0e27\u0e19\u0e21\u0e32\u0e01": "Super VIP",
+    "high": "VIP",
+    "\u0e2a\u0e39\u0e07": "VIP",
+    "normal": "NEW",
+    "\u0e1b\u0e01\u0e15\u0e34": "NEW",
+    "low": "Economy",
+    "\u0e15\u0e48\u0e33": "Economy",
+}
+FOLLOWUP_PRIORITY_FILTER_ALIASES = {
+    "Super VIP": ("Super VIP", "urgent", "\u0e14\u0e48\u0e27\u0e19\u0e21\u0e32\u0e01"),
+    "VIP": ("VIP", "high", "\u0e2a\u0e39\u0e07"),
+    "Premium": ("Premium",),
+    "Economy": ("Economy", "low", "\u0e15\u0e48\u0e33"),
+    "NEW": ("NEW", "normal", "\u0e1b\u0e01\u0e15\u0e34"),
+    "Dismiss": ("Dismiss",),
+}
+
 try:
     import psycopg
     from psycopg.rows import dict_row
@@ -36,6 +57,18 @@ except ImportError:  # pragma: no cover - shown in the UI when dependency is mis
     psycopg = None
     dict_row = None
     Jsonb = None
+
+
+def normalize_followup_priority(value: str | None) -> str:
+    text = clean(value)
+    if text in FOLLOWUP_PRIORITY_OPTIONS:
+        return text
+    return LEGACY_FOLLOWUP_PRIORITY_MAP.get(text, DEFAULT_FOLLOWUP_PRIORITY)
+
+
+def followup_priority_filter_values(value: str | None) -> list[str]:
+    priority = normalize_followup_priority(value)
+    return list(FOLLOWUP_PRIORITY_FILTER_ALIASES.get(priority, (priority,)))
 
 CRM_DATA_IMPORTS_DDL = """
 create table if not exists public.crm_data_imports (
@@ -2247,6 +2280,8 @@ def fetch_lead_followups(limit: int = 100000) -> list[dict]:
 
 def upsert_lead_followup(payload: dict) -> None:
     ensure_crm_data_imports_schema()
+    payload = dict(payload)
+    payload["priority"] = normalize_followup_priority(payload.get("priority"))
     columns = [
         "customer_key",
         "crm_data_import_id",
@@ -2345,8 +2380,12 @@ def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list
 
     priority = clean(filters.get("priority"))
     if priority and priority != "ทั้งหมด":
-        clauses.append("coalesce(l.priority, 'normal') = %s")
-        params.append(priority)
+        normalized_priority = normalize_followup_priority(priority)
+        if normalized_priority == DEFAULT_FOLLOWUP_PRIORITY:
+            clauses.append("(l.priority = any(%s) or l.priority is null or btrim(l.priority) = '')")
+        else:
+            clauses.append("l.priority = any(%s)")
+        params.append(followup_priority_filter_values(normalized_priority))
 
     product = clean(filters.get("product"))
     if product and product != "ทั้งหมด":
@@ -2530,7 +2569,7 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                   d.staff_code,
                   coalesce(l.lead_status, 'new') as lead_status,
                   coalesce(l.followup_status, l.follow_up_status, 'none') as followup_status,
-                  coalesce(l.priority, 'normal') as priority,
+                  coalesce(l.priority, 'NEW') as priority,
                   coalesce(l.next_followup_date, l.follow_up_date)::text as next_followup_date,
                   coalesce(l.followup_note, l.follow_up_note, '') as followup_note,
                   l.updated_by,
@@ -2542,9 +2581,21 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                   and d.rn = 1
                 order by
                   coalesce(l.next_followup_date, l.follow_up_date) asc nulls last,
-                  case coalesce(l.priority, 'normal')
-                    when 'urgent' then 3
-                    when 'high' then 2
+                  case coalesce(l.priority, 'NEW')
+                    when 'Super VIP' then 6
+                    when 'urgent' then 6
+                    when 'เธ”เนเธงเธเธกเธฒเธ' then 6
+                    when 'VIP' then 5
+                    when 'high' then 5
+                    when 'เธชเธนเธ' then 5
+                    when 'Premium' then 4
+                    when 'Economy' then 3
+                    when 'low' then 3
+                    when 'เธ•เนเธณ' then 3
+                    when 'NEW' then 2
+                    when 'normal' then 2
+                    when 'เธเธเธ•เธด' then 2
+                    when 'Dismiss' then 0
                     else 1
                   end desc,
                   case coalesce(l.followup_status, l.follow_up_status, 'none')
@@ -2556,7 +2607,10 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                 """,
                 params + [limit, offset],
             )
-            return cur.fetchall(), total
+            rows = cur.fetchall()
+            for row in rows:
+                row["priority"] = normalize_followup_priority(row.get("priority"))
+            return rows, total
 
 
 def fetch_user_role_from_neon(email: str) -> dict | None:

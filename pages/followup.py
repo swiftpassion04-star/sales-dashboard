@@ -8,10 +8,12 @@ from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 import neon_utils as neon
 from neon_utils import (
+    FOLLOWUP_PRIORITY_OPTIONS,
     fetch_followup_filter_options,
     fetch_followup_page,
     fetch_existing_owner_rows_by_phones,
     fetch_product_options,
+    normalize_followup_priority,
     upsert_lead_followup,
     upsert_manual_order_items,
     validate_phone_pair,
@@ -45,12 +47,7 @@ FOLLOWUP_STATUS_OPTIONS = {
     "done": "ติดตามแล้ว",
     "missed": "เลยกำหนด",
 }
-PRIORITY_OPTIONS = {
-    "urgent": "ด่วนมาก",
-    "high": "สูง",
-    "normal": "ปกติ",
-    "low": "ต่ำ",
-}
+PRIORITY_OPTIONS = {priority: priority for priority in FOLLOWUP_PRIORITY_OPTIONS}
 
 DATE_FILTER_OPTIONS = {
     "all": ALL,
@@ -280,6 +277,9 @@ def resolve_followup_date_filter(date_mode: str) -> tuple[str, str]:
 def render_filters(user: dict) -> dict[str, str]:
     if st.session_state.pop('followup_filter_reset_requested', False):
         reset_followup_filter_state()
+    current_priority = st.session_state.get("followup_filter_priority")
+    if current_priority and current_priority != ALL:
+        st.session_state["followup_filter_priority"] = normalize_followup_priority(current_priority)
     try:
         with perf_trace("followup.fetch_filter_options", role=user.get("role")):
             options = fetch_followup_filter_options(user)
@@ -437,7 +437,7 @@ def prepare_followup_form_state(key: str, row: dict) -> None:
     defaults = {
         f"followup_lead_status_{key}": draft.get("lead_status", clean(row.get("lead_status")) or "new"),
         f"followup_status_{key}": draft.get("followup_status", clean(row.get("followup_status")) or "none"),
-        f"followup_priority_{key}": draft.get("priority", clean(row.get("priority")) or "normal"),
+        f"followup_priority_{key}": normalize_followup_priority(draft.get("priority", clean(row.get("priority")))),
         f"followup_next_date_{key}": draft.get("next_followup_date", parse_date(row.get("next_followup_date"))),
         f"followup_clear_date_{key}": draft.get("clear_date", False),
         f"followup_note_{key}": draft.get("followup_note", clean(row.get("followup_note"))),
@@ -448,8 +448,16 @@ def prepare_followup_form_state(key: str, row: dict) -> None:
 
 
 def priority_badge(value: str) -> str:
-    tones = {"urgent": "red", "high": "orange", "normal": "yellow", "low": "gray"}
-    return badge(priority_label(value), tones.get(value, "gray"))
+    priority = normalize_followup_priority(value)
+    tones = {
+        "Super VIP": "red",
+        "VIP": "orange",
+        "Premium": "blue",
+        "Economy": "gray",
+        "NEW": "yellow",
+        "Dismiss": "gray",
+    }
+    return badge(priority_label(priority), tones.get(priority, "gray"))
 
 
 def lead_label(value: str) -> str:
@@ -461,7 +469,7 @@ def followup_label(value: str) -> str:
 
 
 def priority_label(value: str) -> str:
-    return ALL if value == ALL else PRIORITY_OPTIONS.get(value, value)
+    return ALL if value == ALL else normalize_followup_priority(value)
 
 
 def row_key(row: dict) -> str:
@@ -522,7 +530,7 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
         cols[6].write(clean(row.get("product_name")) or "-")
         cols[7].markdown(badge(lead_label(clean(row.get("lead_status")) or "new"), "blue"), unsafe_allow_html=True)
         cols[8].markdown(badge(followup_label(clean(row.get("followup_status")) or "none"), "gray"), unsafe_allow_html=True)
-        cols[9].markdown(priority_badge(clean(row.get("priority")) or "normal"), unsafe_allow_html=True)
+        cols[9].markdown(priority_badge(row.get("priority")), unsafe_allow_html=True)
         if url:
             cols[10].markdown(f"[เปิดลิงก์]({url})")
         else:

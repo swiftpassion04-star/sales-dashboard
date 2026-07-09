@@ -7,6 +7,7 @@ from auth_utils import current_user, require_login
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 from neon_utils import (
+    FOLLOWUP_PRIORITY_OPTIONS,
     clear_cached_data_functions,
     clean,
     fetch_customer_360_base,
@@ -14,6 +15,7 @@ from neon_utils import (
     fetch_customer_360_products,
     fetch_followup_filter_options,
     neon_connection,
+    normalize_followup_priority,
     normalize_phone,
     upsert_lead_followup,
 )
@@ -39,12 +41,7 @@ FOLLOWUP_STATUS_OPTIONS = {
     "done": "ติดตามแล้ว",
     "missed": "เลยกำหนด",
 }
-PRIORITY_OPTIONS = {
-    "urgent": "ด่วนมาก",
-    "high": "สูง",
-    "normal": "ปกติ",
-    "low": "ต่ำ",
-}
+PRIORITY_OPTIONS = {priority: priority for priority in FOLLOWUP_PRIORITY_OPTIONS}
 
 
 st.set_page_config(page_title="Customer 360", layout="wide")
@@ -137,7 +134,7 @@ def fetch_customer_followup(customer: dict) -> dict:
                   owner,
                   coalesce(lead_status, 'new') as lead_status,
                   coalesce(followup_status, follow_up_status, 'none') as followup_status,
-                  coalesce(priority, 'normal') as priority,
+                  coalesce(priority, 'NEW') as priority,
                   coalesce(next_followup_date, follow_up_date)::text as next_followup_date,
                   coalesce(followup_note, follow_up_note, '') as followup_note,
                   updated_by,
@@ -181,7 +178,7 @@ def render_customer_profile(customer: dict, followup: dict) -> None:
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       {badge(lead_label(clean(followup.get("lead_status")) or "new"), "blue")}
       {badge(followup_label(clean(followup.get("followup_status")) or "none"), "gray")}
-      {priority_badge(clean(followup.get("priority")) or "normal")}
+      {priority_badge(followup.get("priority"))}
     </div>
   </div>
 </div>
@@ -253,7 +250,7 @@ def render_followup_form(customer: dict, followup: dict, user: dict) -> None:
             "ความสำคัญ",
             list(PRIORITY_OPTIONS.keys()),
             format_func=priority_label,
-            index=safe_index(list(PRIORITY_OPTIONS.keys()), clean(followup.get("priority")) or "normal"),
+            index=safe_index(list(PRIORITY_OPTIONS.keys()), normalize_followup_priority(followup.get("priority"))),
         )
         next_date = st.date_input("วันนัดติดตาม", value=parse_date(followup.get("next_followup_date")))
         clear_date = st.checkbox("ล้างวันที่")
@@ -385,8 +382,16 @@ def unique_orders(orders: list[dict]) -> list[dict]:
 
 
 def priority_badge(value: str) -> str:
-    tones = {"urgent": "red", "high": "orange", "normal": "yellow", "low": "gray"}
-    return badge(priority_label(value), tones.get(value, "gray"))
+    priority = normalize_followup_priority(value)
+    tones = {
+        "Super VIP": "red",
+        "VIP": "orange",
+        "Premium": "blue",
+        "Economy": "gray",
+        "NEW": "yellow",
+        "Dismiss": "gray",
+    }
+    return badge(priority_label(priority), tones.get(priority, "gray"))
 
 
 def lead_label(value: str) -> str:
@@ -398,7 +403,7 @@ def followup_label(value: str) -> str:
 
 
 def priority_label(value: str) -> str:
-    return PRIORITY_OPTIONS.get(value, value)
+    return normalize_followup_priority(value)
 
 
 def safe_index(options: list[str], value: str) -> int:

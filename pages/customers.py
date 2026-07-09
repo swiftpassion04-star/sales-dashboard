@@ -10,6 +10,7 @@ from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 import neon_utils as neon
 from neon_utils import (
+    DEFAULT_FOLLOWUP_PRIORITY,
     assign_owner_to_order_record,
     assign_url_to_phones,
     fetch_customer_export_rows,
@@ -463,7 +464,7 @@ def build_follow_marker_payload(row: dict, marker: str, updated_by: str) -> dict
         "follow_up_status": followup_status,
         "follow_up_date": None,
         "follow_up_note": note,
-        "priority": "normal",
+        "priority": DEFAULT_FOLLOWUP_PRIORITY,
         "updated_by": updated_by,
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
