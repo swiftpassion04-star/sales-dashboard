@@ -692,6 +692,9 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
+    duplicate_lock_warning = neon.clean(result.get("duplicate_lock_warning"))
+    if duplicate_lock_warning:
+        st.warning(duplicate_lock_warning)
     with perf_trace("followup.clear_caches", action="save_order"):
         clear_cached_functions_safely(
             fetch_followup_filter_options,

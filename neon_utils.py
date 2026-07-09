@@ -238,6 +238,12 @@ create index if not exists idx_crm_user_roles_staff_code
   on public.crm_user_roles (staff_code);
 """
 
+CRM_TEAM_CODE = "CRM_TEAM"
+CRM_TEAM_DUPLICATE_PHONE_LOCK_MESSAGE = (
+    "เบอร์นี้มีอยู่ในระบบแล้ว ทีม CRM ไม่สามารถเพิ่มคำสั่งซื้อซ้ำได้ "
+    "หากต้องการดำเนินการต่อ กรุณาให้หัวหน้าทีมหรือผู้มีสิทธิ์ตรวจสอบ"
+)
+
 
 CRM_COLUMNS = [
     "id",
@@ -721,6 +727,116 @@ def fetch_existing_owner_rows_by_phones(phone1, phone2, limit: int = 20) -> list
             return cur.fetchall()
 
 
+def fetch_current_user_team_code(user_email: str) -> str | None:
+    email = clean(user_email).lower()
+    if not email:
+        return None
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select team_code
+                from public.crm_user_team_assignments
+                where lower(btrim(user_email)) = lower(btrim(%s))
+                  and effective_to is null
+                order by effective_from desc
+                limit 1
+                """,
+                [email],
+            )
+            row = cur.fetchone()
+            return clean(row.get("team_code")).upper() if row else None
+
+
+def should_enforce_duplicate_phone_lock(team_code: str | None) -> bool:
+    return clean(team_code).upper() == CRM_TEAM_CODE
+
+
+def _valid_duplicate_lock_phones(phone1: str | None, phone2: str | None) -> list[str]:
+    phones: list[str] = []
+    for value in (phone1, phone2):
+        phone = normalize_phone(value)
+        if phone and len(phone) == 10 and phone.startswith("0") and phone not in phones:
+            phones.append(phone)
+    return phones
+
+
+def find_duplicate_valid_order_by_phones(phone1: str | None, phone2: str | None) -> dict | None:
+    phones = _valid_duplicate_lock_phones(phone1, phone2)
+    if not phones:
+        return None
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  id::text as id,
+                  order_id,
+                  owner,
+                  staff_code,
+                  uploaded_by,
+                  case
+                    when phone1 = any(%s) then phone1
+                    when phone2 = any(%s) then phone2
+                    else ''
+                  end as matched_phone
+                from public.crm_data_imports
+                where import_status = 'valid'
+                  and (phone1 = any(%s) or phone2 = any(%s))
+                order by order_date desc nulls last, updated_at desc nulls last, uploaded_at desc, id desc
+                limit 1
+                """,
+                [phones, phones, phones, phones],
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def check_crm_team_duplicate_phone_lock(user_email: str, phone1: str | None, phone2: str | None) -> dict:
+    try:
+        team_code = fetch_current_user_team_code(user_email)
+    except Exception as exc:
+        return {
+            "allowed": True,
+            "team_code": None,
+            "duplicate": None,
+            "warning": f"ตรวจสอบทีมไม่สำเร็จ จึงข้าม duplicate phone lock: {exc}",
+        }
+    if not should_enforce_duplicate_phone_lock(team_code):
+        return {
+            "allowed": True,
+            "team_code": team_code,
+            "duplicate": None,
+            "warning": "",
+        }
+    duplicate = find_duplicate_valid_order_by_phones(phone1, phone2)
+    return {
+        "allowed": duplicate is None,
+        "team_code": team_code,
+        "duplicate": duplicate,
+        "warning": "",
+    }
+
+
+def format_duplicate_phone_lock_error(duplicate: dict | None) -> str:
+    if not duplicate:
+        return CRM_TEAM_DUPLICATE_PHONE_LOCK_MESSAGE
+    details = []
+    order_id = clean(duplicate.get("order_id"))
+    owner = clean(duplicate.get("owner")) or clean(duplicate.get("staff_code")) or clean(duplicate.get("uploaded_by"))
+    matched_phone = clean(duplicate.get("matched_phone"))
+    if matched_phone:
+        details.append(f"เบอร์ที่พบ: {matched_phone}")
+    if order_id:
+        details.append(f"คำสั่งซื้อเดิม: {order_id}")
+    if owner:
+        details.append(f"ผู้ดูแลเดิม: {owner}")
+    if not details:
+        return CRM_TEAM_DUPLICATE_PHONE_LOCK_MESSAGE
+    return f"{CRM_TEAM_DUPLICATE_PHONE_LOCK_MESSAGE} ({' / '.join(details)})"
+
+
 def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     ensure_crm_data_imports_schema()
     order_id = clean(payload.get("order_id"))
@@ -771,6 +887,11 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
         errors.append("items ว่าง")
     if errors:
         raise ValueError("; ".join(errors))
+
+    lock_result = check_crm_team_duplicate_phone_lock(uploaded_by or updated_by, phone1, phone2)
+    if not lock_result.get("allowed", True):
+        raise ValueError(format_duplicate_phone_lock_error(lock_result.get("duplicate")))
+    duplicate_lock_warning = clean(lock_result.get("warning"))
 
     has_quantity = neon_column_exists("crm_data_imports", "quantity")
     has_amount = neon_column_exists("crm_data_imports", "amount")
@@ -1069,7 +1190,12 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
                             ],
                         )
             conn.commit()
-            return {"actions": actions, "ids": record_ids, "item_count": len(normalized_items)}
+            return {
+                "actions": actions,
+                "ids": record_ids,
+                "item_count": len(normalized_items),
+                "duplicate_lock_warning": duplicate_lock_warning,
+            }
         except Exception:
             conn.rollback()
             raise

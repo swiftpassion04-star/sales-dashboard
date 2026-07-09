@@ -185,6 +185,9 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
         return
 
+    duplicate_lock_warning = neon.clean(result.get("duplicate_lock_warning"))
+    if duplicate_lock_warning:
+        st.warning(duplicate_lock_warning)
     actions = result.get("actions") or {}
     action_text = f"สินค้า {result.get('item_count', 0)} รายการ (เพิ่มใหม่ {actions.get('inserted', 0)}, อัปเดต {actions.get('updated', 0)})"
     with perf_trace("manual_order.clear_caches", action="save"):
