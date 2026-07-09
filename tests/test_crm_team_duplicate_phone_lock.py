@@ -24,6 +24,16 @@ def duplicate_row():
     return {
         "id": "10",
         "order_id": "ORDER-10",
+        "owner": "Other Owner",
+        "staff_code": "OTHER01",
+        "matched_phone": "0812345678",
+    }
+
+
+def same_owner_duplicate_row():
+    return {
+        "id": "11",
+        "order_id": "ORDER-11",
         "owner": "CRM Owner",
         "staff_code": "CRM01",
         "matched_phone": "0812345678",
@@ -32,43 +42,57 @@ def duplicate_row():
 
 try:
     neon.fetch_current_user_team_code = lambda email: "CRM_TEAM"
-    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2: duplicate_row()
+    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2, owner=None, staff_code=None: duplicate_row()
     blocked = neon.check_crm_team_duplicate_phone_lock(
         "crm@example.com",
         "0812345678",
         "",
+        "CRM Owner",
+        "CRM01",
     )
     assert blocked["allowed"] is False
     assert blocked["team_code"] == "CRM_TEAM"
 
-    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2: None
+    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2, owner=None, staff_code=None: None
     allowed = neon.check_crm_team_duplicate_phone_lock(
         "crm@example.com",
         "0812345678",
         "",
+        "CRM Owner",
+        "CRM01",
     )
     assert allowed["allowed"] is True
 
     neon.fetch_current_user_team_code = lambda email: None
-    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2: duplicate_row()
-    assert neon.check_crm_team_duplicate_phone_lock("none@example.com", "0812345678", "")["allowed"] is True
+    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2, owner=None, staff_code=None: duplicate_row()
+    assert neon.check_crm_team_duplicate_phone_lock("none@example.com", "0812345678", "", "CRM Owner", "CRM01")["allowed"] is True
 
     neon.fetch_current_user_team_code = lambda email: "UPSELL_TEAM"
-    assert neon.check_crm_team_duplicate_phone_lock("upsell@example.com", "0812345678", "")["allowed"] is True
+    assert neon.check_crm_team_duplicate_phone_lock("upsell@example.com", "0812345678", "", "CRM Owner", "CRM01")["allowed"] is True
 
     neon.fetch_current_user_team_code = lambda email: "OTHER_TEAM"
-    assert neon.check_crm_team_duplicate_phone_lock("other@example.com", "0812345678", "")["allowed"] is True
+    assert neon.check_crm_team_duplicate_phone_lock("other@example.com", "0812345678", "", "CRM Owner", "CRM01")["allowed"] is True
 
     def raise_lookup_error(email):
         raise RuntimeError("team lookup unavailable")
 
     neon.fetch_current_user_team_code = raise_lookup_error
-    fail_open = neon.check_crm_team_duplicate_phone_lock("error@example.com", "0812345678", "")
+    fail_open = neon.check_crm_team_duplicate_phone_lock("error@example.com", "0812345678", "", "CRM Owner", "CRM01")
     assert fail_open["allowed"] is True
     assert "ตรวจสอบทีมไม่สำเร็จ" in fail_open["warning"]
 
     neon.fetch_current_user_team_code = lambda email: "CRM_TEAM"
-    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2: duplicate_row()
+    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2, owner=None, staff_code=None: None
+    same_owner_allowed = neon.check_crm_team_duplicate_phone_lock(
+        "crm@example.com",
+        "0812345678",
+        "",
+        "CRM Owner",
+        "CRM01",
+    )
+    assert same_owner_allowed["allowed"] is True
+
+    neon.find_duplicate_valid_order_by_phones = lambda phone1, phone2, owner=None, staff_code=None: duplicate_row()
     neon.ensure_crm_data_imports_schema = lambda: None
     neon.neon_column_exists = lambda table, column: (_ for _ in ()).throw(
         AssertionError("save-layer block should happen before column checks")
@@ -117,6 +141,9 @@ class FakeCursor:
     def fetchone(self):
         return duplicate_row()
 
+    def fetchall(self):
+        return [same_owner_duplicate_row(), duplicate_row()]
+
 
 class FakeConnection:
     def __init__(self):
@@ -139,7 +166,12 @@ def fake_neon_connection():
 try:
     neon.ensure_crm_data_imports_schema = lambda: None
     neon.neon_connection = fake_neon_connection
-    duplicate = neon.find_duplicate_valid_order_by_phones("0812345678", "0912345678")
+    duplicate = neon.find_duplicate_valid_order_by_phones(
+        "0812345678",
+        "0912345678",
+        "CRM Owner",
+        "CRM01",
+    )
 finally:
     neon.neon_connection = original_connection
     neon.ensure_crm_data_imports_schema = original_ensure_schema

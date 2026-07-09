@@ -761,7 +761,30 @@ def _valid_duplicate_lock_phones(phone1: str | None, phone2: str | None) -> list
     return phones
 
 
-def find_duplicate_valid_order_by_phones(phone1: str | None, phone2: str | None) -> dict | None:
+def _normalize_owner_compare(value: str | None) -> str:
+    return " ".join(clean(value).split()).casefold()
+
+
+def _is_same_order_owner(row: dict, owner: str | None, staff_code: str | None) -> bool:
+    current_staff_code = _normalize_owner_compare(staff_code)
+    existing_staff_code = _normalize_owner_compare(row.get("staff_code"))
+    if current_staff_code and existing_staff_code:
+        return current_staff_code == existing_staff_code
+
+    current_owner = _normalize_owner_compare(owner)
+    existing_owner = _normalize_owner_compare(row.get("owner"))
+    if current_owner and existing_owner:
+        return current_owner == existing_owner
+
+    return False
+
+
+def find_duplicate_valid_order_by_phones(
+    phone1: str | None,
+    phone2: str | None,
+    owner: str | None = None,
+    staff_code: str | None = None,
+) -> dict | None:
     phones = _valid_duplicate_lock_phones(phone1, phone2)
     if not phones:
         return None
@@ -785,15 +808,26 @@ def find_duplicate_valid_order_by_phones(phone1: str | None, phone2: str | None)
                 where import_status = 'valid'
                   and (phone1 = any(%s) or phone2 = any(%s))
                 order by order_date desc nulls last, updated_at desc nulls last, uploaded_at desc, id desc
-                limit 1
+                limit 50
                 """,
                 [phones, phones, phones, phones],
             )
-            row = cur.fetchone()
-            return dict(row) if row else None
+            rows = [dict(row) for row in cur.fetchall()]
+            if owner or staff_code:
+                for row in rows:
+                    if not _is_same_order_owner(row, owner, staff_code):
+                        return row
+                return None
+            return rows[0] if rows else None
 
 
-def check_crm_team_duplicate_phone_lock(user_email: str, phone1: str | None, phone2: str | None) -> dict:
+def check_crm_team_duplicate_phone_lock(
+    user_email: str,
+    phone1: str | None,
+    phone2: str | None,
+    owner: str | None = None,
+    staff_code: str | None = None,
+) -> dict:
     try:
         team_code = fetch_current_user_team_code(user_email)
     except Exception as exc:
@@ -810,7 +844,7 @@ def check_crm_team_duplicate_phone_lock(user_email: str, phone1: str | None, pho
             "duplicate": None,
             "warning": "",
         }
-    duplicate = find_duplicate_valid_order_by_phones(phone1, phone2)
+    duplicate = find_duplicate_valid_order_by_phones(phone1, phone2, owner, staff_code)
     return {
         "allowed": duplicate is None,
         "team_code": team_code,
@@ -888,7 +922,7 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     if errors:
         raise ValueError("; ".join(errors))
 
-    lock_result = check_crm_team_duplicate_phone_lock(uploaded_by or updated_by, phone1, phone2)
+    lock_result = check_crm_team_duplicate_phone_lock(uploaded_by or updated_by, phone1, phone2, owner, staff_code)
     if not lock_result.get("allowed", True):
         raise ValueError(format_duplicate_phone_lock_error(lock_result.get("duplicate")))
     duplicate_lock_warning = clean(lock_result.get("warning"))
