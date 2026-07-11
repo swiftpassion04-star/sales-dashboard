@@ -12,7 +12,7 @@ from neon_utils import (
     fetch_followup_filter_options,
     fetch_followup_page,
     fetch_existing_owner_rows_by_phones,
-    fetch_product_options,
+    fetch_order_product_options,
     normalize_followup_priority,
     upsert_lead_followup,
     upsert_manual_order_items,
@@ -817,8 +817,8 @@ def fetch_popup_product_options() -> list[dict]:
             "sku": clean(row.get("sku")),
             "product_name": clean(row.get("product_name")),
         }
-        for row in fetch_product_options()
-        if clean(row.get("sku")) and clean(row.get("product_name")) and bool(row.get("is_active"))
+        for row in fetch_order_product_options()
+        if clean(row.get("sku")) and clean(row.get("product_name"))
     ]
 
 

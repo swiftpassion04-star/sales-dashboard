@@ -1,0 +1,114 @@
+import inspect
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import neon_utils as neon
+
+
+rows = [
+    {
+        "sku": "SP001",
+        "product_group": "Group A",
+        "product_name": "Active Product",
+        "is_active": True,
+        "archived_at": None,
+    },
+    {
+        "sku": "SP002",
+        "product_group": "Group A",
+        "product_name": "Archived Product",
+        "is_active": True,
+        "archived_at": "2026-07-01T00:00:00+00:00",
+    },
+    {
+        "sku": "SP003",
+        "product_group": "Group B",
+        "product_name": "Inactive Product",
+        "is_active": False,
+        "archived_at": None,
+    },
+    {
+        "sku": "SP004",
+        "product_group": "Group B",
+        "product_name": "Inactive Archived Product",
+        "is_active": False,
+        "archived_at": "2026-07-01T00:00:00+00:00",
+    },
+]
+
+assert neon._order_product_options_from_rows(rows) == [
+    {
+        "sku": "SP001",
+        "product_name": "Active Product",
+        "product_group": "Group A",
+    }
+]
+
+
+class FakeCursor:
+    def __init__(self):
+        self.statement = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def execute(self, statement):
+        self.statement = " ".join(statement.split()).lower()
+
+    def fetchall(self):
+        return rows
+
+
+class FakeConnection:
+    def __init__(self):
+        self.cursor_instance = FakeCursor()
+
+    def cursor(self):
+        return self.cursor_instance
+
+
+fake_connection = FakeConnection()
+
+
+@contextmanager
+def fake_neon_connection():
+    yield fake_connection
+
+
+original_ensure_schema = neon.ensure_crm_data_imports_schema
+original_neon_connection = neon.neon_connection
+try:
+    neon.ensure_crm_data_imports_schema = lambda: True
+    neon.neon_connection = fake_neon_connection
+    assert neon.fetch_order_product_options() == [
+        {
+            "sku": "SP001",
+            "product_name": "Active Product",
+            "product_group": "Group A",
+        }
+    ]
+finally:
+    neon.ensure_crm_data_imports_schema = original_ensure_schema
+    neon.neon_connection = original_neon_connection
+
+assert "where is_active = true and archived_at is null" in fake_connection.cursor_instance.statement
+
+manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
+followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
+assert "neon.fetch_order_product_options()" in manual_source
+assert "fetch_order_product_options" in followup_source
+assert "for row in fetch_order_product_options()" in followup_source
+
+helper_source = inspect.getsource(neon.fetch_order_product_options).lower()
+assert "fetch_product_options(" not in helper_source
+assert "delete " not in helper_source
+assert "insert " not in helper_source
+assert "update " not in helper_source
+
+print("product order options safety OK")

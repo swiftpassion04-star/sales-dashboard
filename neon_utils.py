@@ -350,6 +350,49 @@ def ensure_crm_data_imports_schema() -> bool:
     return True
 
 
+def _order_product_options_from_rows(rows: list[dict]) -> list[dict]:
+    options = []
+    for row in rows:
+        sku = clean(row.get("sku"))
+        product_name = clean(row.get("product_name"))
+        if (
+            not sku
+            or not product_name
+            or not bool(row.get("is_active"))
+            or row.get("archived_at") is not None
+        ):
+            continue
+        options.append(
+            {
+                "sku": sku,
+                "product_name": product_name,
+                "product_group": clean(row.get("product_group")),
+            }
+        )
+    return options
+
+
+def fetch_order_product_options() -> list[dict]:
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  sku,
+                  product_group,
+                  product_name,
+                  is_active,
+                  archived_at
+                from public.crm_product_options
+                where is_active = true
+                  and archived_at is null
+                order by sku asc nulls last, sort_order asc, product_group asc, product_name asc
+                """
+            )
+            return _order_product_options_from_rows(cur.fetchall())
+
+
 def owner_to_staff_code(value) -> str:
     # Legacy/display-only helper. Never use this to write canonical staff_code.
     # Canonical staff_code must come from crm_user_roles/crm_staff_options.

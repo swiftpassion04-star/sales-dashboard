@@ -255,15 +255,7 @@ def clear_manual_order_form_state() -> None:
 
 
 def fetch_manual_product_options() -> list[dict]:
-    rows = neon.fetch_product_options()
-    options = []
-    for row in rows:
-        sku = neon.clean(row.get("sku"))
-        product_name = neon.clean(row.get("product_name"))
-        if not sku or not product_name or not bool(row.get("is_active")):
-            continue
-        options.append({"sku": sku, "product_name": product_name, "product_group": neon.clean(row.get("product_group"))})
-    return options
+    return neon.fetch_order_product_options()
 
 
 def manual_product_label(row: dict) -> str:
