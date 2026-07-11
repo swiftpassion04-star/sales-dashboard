@@ -48,6 +48,7 @@ FOLLOWUP_STATUS_OPTIONS = {
     "missed": "เลยกำหนด",
 }
 PRIORITY_OPTIONS = {priority: priority for priority in FOLLOWUP_PRIORITY_OPTIONS}
+FOLLOWUP_PRIORITY_TAB_OPTIONS = tuple(FOLLOWUP_PRIORITY_OPTIONS)
 
 DATE_FILTER_OPTIONS = {
     "all": ALL,
@@ -84,6 +85,7 @@ def _render_followup_page() -> None:
 
     render_page_header("ติดตามลูกค้า", "จัดการ Lead และ Follow-up จาก Neon เท่านั้น")
     render_followup_page_message()
+    render_priority_tabs()
     filters = render_filters(user)
     page_size, page = get_pagination_state(
         key_prefix="followup",
@@ -245,6 +247,30 @@ def reset_followup_filter_state() -> None:
     today = date.today()
     st.session_state['followup_filter_single_date'] = today
     st.session_state['followup_filter_date_range'] = (today, today)
+
+
+def render_priority_tabs() -> None:
+    st.markdown("#### ความสำคัญ")
+    cols = st.columns(len(FOLLOWUP_PRIORITY_TAB_OPTIONS))
+    current_priority = clean(st.session_state.get("followup_filter_priority"))
+    if current_priority and current_priority != ALL:
+        current_priority = normalize_followup_priority(current_priority)
+    for col, priority in zip(cols, FOLLOWUP_PRIORITY_TAB_OPTIONS):
+        button_type = "primary" if current_priority == priority else "secondary"
+        if col.button(
+            priority,
+            key=f"followup_priority_tab_{priority.lower().replace(' ', '_')}",
+            type=button_type,
+            use_container_width=True,
+        ):
+            set_followup_priority_filter_from_tab(priority)
+            st.rerun()
+
+
+def set_followup_priority_filter_from_tab(priority: str) -> None:
+    st.session_state["followup_filter_priority"] = normalize_followup_priority(priority)
+    st.session_state.followup_page_v2 = 1
+    close_followup_modal()
 
 
 def date_filter_label(value: str) -> str:

@@ -27,6 +27,11 @@ from ui.pagination import get_pagination_state, render_pagination
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
+OWNER_ASSIGNMENT_FOLLOWUP_FILTER_RESET_KEYS = (
+    "followup_filter_priority",
+    "followup_filter_lead_status",
+    "followup_filter_followup_status",
+)
 ALL = "ทั้งหมด"
 EXPORT_PERIOD_OPTIONS = ["ทั้งหมด", "รายวัน", "รายเดือน", "กำหนดช่วงวันที่"]
 CRM_EXPORT_HEADERS = [
@@ -55,6 +60,11 @@ CRM_EXPORT_HEADERS = [
 ]
 
 st.set_page_config(page_title="Customers", layout="wide")
+
+
+def reset_owner_assignment_followup_filters() -> None:
+    for key in OWNER_ASSIGNMENT_FOLLOWUP_FILTER_RESET_KEYS:
+        st.session_state.pop(key, None)
 
 
 def main() -> None:
@@ -390,6 +400,7 @@ def render_customer_actions(
                 getattr(neon, "fetch_sales_report_owner_options", None),
                 getattr(neon, "fetch_crm_owner_options", None),
             )
+            reset_owner_assignment_followup_filters()
             st.success(f"อัปเดตผู้ดูแลแล้ว {updated:,} แถว")
             st.rerun()
         except Exception as exc:
