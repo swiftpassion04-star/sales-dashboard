@@ -15,6 +15,7 @@ rows = [
         "product_name": "Active Product",
         "is_active": True,
         "archived_at": None,
+        "image_url": "https://example.com/active.jpg",
     },
     {
         "sku": "SP002",
@@ -22,6 +23,7 @@ rows = [
         "product_name": "Archived Product",
         "is_active": True,
         "archived_at": "2026-07-01T00:00:00+00:00",
+        "image_url": "https://example.com/archived.jpg",
     },
     {
         "sku": "SP003",
@@ -29,6 +31,7 @@ rows = [
         "product_name": "Inactive Product",
         "is_active": False,
         "archived_at": None,
+        "image_url": "https://example.com/inactive.jpg",
     },
     {
         "sku": "SP004",
@@ -36,6 +39,15 @@ rows = [
         "product_name": "Inactive Archived Product",
         "is_active": False,
         "archived_at": "2026-07-01T00:00:00+00:00",
+        "image_url": "https://example.com/inactive-archived.jpg",
+    },
+    {
+        "sku": "SP005",
+        "product_group": "Group C",
+        "product_name": "No Image Product",
+        "is_active": True,
+        "archived_at": None,
+        "image_url": None,
     },
 ]
 
@@ -44,8 +56,21 @@ assert neon._order_product_options_from_rows(rows) == [
         "sku": "SP001",
         "product_name": "Active Product",
         "product_group": "Group A",
+        "image_url": "https://example.com/active.jpg",
+    },
+    {
+        "sku": "SP005",
+        "product_name": "No Image Product",
+        "product_group": "Group C",
+        "image_url": "",
     }
 ]
+
+assert neon.product_image_preview_url({"image_url": "https://example.com/p.jpg"}) == "https://example.com/p.jpg"
+assert neon.product_image_preview_url({"image_url": "http://example.com/p.jpg"}) == "http://example.com/p.jpg"
+assert neon.product_image_preview_url({"image_url": ""}) == ""
+assert neon.product_image_preview_url({"image_url": None}) == ""
+assert neon.product_image_preview_url({"image_url": "ftp://example.com/p.jpg"}) == ""
 
 
 class FakeCursor:
@@ -91,6 +116,13 @@ try:
             "sku": "SP001",
             "product_name": "Active Product",
             "product_group": "Group A",
+            "image_url": "https://example.com/active.jpg",
+        },
+        {
+            "sku": "SP005",
+            "product_name": "No Image Product",
+            "product_group": "Group C",
+            "image_url": "",
         }
     ]
 finally:
@@ -102,10 +134,17 @@ assert "where is_active = true and archived_at is null" in fake_connection.curso
 manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
+assert "render_manual_product_preview" in manual_source
+assert "neon.product_image_preview_url(product)" in manual_source
+assert "st.image(image_url, width=120)" in manual_source
 assert "fetch_order_product_options" in followup_source
 assert "for row in fetch_order_product_options()" in followup_source
+assert "\"image_url\": clean(row.get(\"image_url\"))" in followup_source
+assert "render_popup_product_preview" in followup_source
+assert "neon.product_image_preview_url(product)" in followup_source
 
 helper_source = inspect.getsource(neon.fetch_order_product_options).lower()
+assert "image_url," in helper_source
 assert "fetch_product_options(" not in helper_source
 assert "delete " not in helper_source
 assert "insert " not in helper_source

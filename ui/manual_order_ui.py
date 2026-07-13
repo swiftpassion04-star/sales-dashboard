@@ -85,6 +85,8 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         selected_product_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key="manual_product_qty")
         selected_product_amount = pc3.text_input("ราคา", placeholder="กรอกราคา", key="manual_product_amount")
         add_product_submitted = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
+        selected_product = manual_product_from_label(product_options, selected_product_label)
+        render_manual_product_preview(selected_product)
         delete_item_index = render_manual_order_items()
 
         owner = neon.clean(user.get("staff_name"))
@@ -275,6 +277,12 @@ def manual_product_from_label(options: list[dict], label: str) -> dict:
         if manual_product_label(row) == label:
             return row
     return {}
+
+
+def render_manual_product_preview(product: dict) -> None:
+    image_url = neon.product_image_preview_url(product)
+    if image_url:
+        st.image(image_url, width=120)
 
 
 def add_manual_order_item(product: dict, qty: int, amount: float) -> None:

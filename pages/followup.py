@@ -652,6 +652,8 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         selected_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key=f"{prefix}_product_qty")
         selected_amount = pc3.text_input("ราคา", placeholder="กรอกราคา", key=f"{prefix}_product_amount")
         add_item = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
+        selected_product = popup_product_from_label(product_options, selected_label)
+        render_popup_product_preview(selected_product)
         delete_index = render_popup_order_items(prefix)
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
@@ -816,6 +818,7 @@ def fetch_popup_product_options() -> list[dict]:
         {
             "sku": clean(row.get("sku")),
             "product_name": clean(row.get("product_name")),
+            "image_url": clean(row.get("image_url")),
         }
         for row in fetch_order_product_options()
         if clean(row.get("sku")) and clean(row.get("product_name"))
@@ -833,6 +836,12 @@ def popup_product_from_label(options: list[dict], label: str) -> dict:
         if popup_product_label(row) == label:
             return row
     return {}
+
+
+def render_popup_product_preview(product: dict) -> None:
+    image_url = neon.product_image_preview_url(product)
+    if image_url:
+        st.image(image_url, width=120)
 
 
 def add_popup_order_item(prefix: str, product: dict, qty: int, amount: float) -> None:

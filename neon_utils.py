@@ -367,9 +367,17 @@ def _order_product_options_from_rows(rows: list[dict]) -> list[dict]:
                 "sku": sku,
                 "product_name": product_name,
                 "product_group": clean(row.get("product_group")),
+                "image_url": clean(row.get("image_url")),
             }
         )
     return options
+
+
+def product_image_preview_url(product: dict) -> str:
+    image_url = clean((product or {}).get("image_url"))
+    if image_url.lower().startswith(("http://", "https://")):
+        return image_url
+    return ""
 
 
 def fetch_order_product_options() -> list[dict]:
@@ -382,6 +390,7 @@ def fetch_order_product_options() -> list[dict]:
                   sku,
                   product_group,
                   product_name,
+                  image_url,
                   is_active,
                   archived_at
                 from public.crm_product_options
