@@ -671,15 +671,16 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
             key=f"pm_group_{row_id}",
             label_visibility="collapsed",
         )
+        image_widget_key = sync_product_image_widget_value(row_id, row.get("image_url"))
         image_url = cols[4].text_input(
             "ลิงก์รูปสินค้า",
             value=clean(row.get("image_url")),
-            key=f"pm_image_{row_id}",
+            key=image_widget_key,
             placeholder="https://...",
             label_visibility="collapsed",
         )
         image_ok, normalized_image_url, image_error = validate_product_image_url(image_url)
-        cols[4].caption("มีรูป" if normalized_image_url else "ไม่มีรูป")
+        cols[4].caption(product_image_status_label(normalized_image_url))
         if normalized_image_url and cols[4].button("ดูรูป", key=f"pm_preview_{row_id}", use_container_width=True):
             if image_ok:
                 render_product_image_preview(normalized_image_url, container=cols[4])
@@ -758,6 +759,20 @@ def filter_products(rows: list[dict], query: str) -> list[dict]:
 
 def normalize_product_image_url(value) -> str:
     return clean(value)
+
+
+def product_image_status_label(image_url) -> str:
+    return "มีรูป" if normalize_product_image_url(image_url) else "ไม่มีรูป"
+
+
+def sync_product_image_widget_value(row_id: str, image_url) -> str:
+    widget_key = f"pm_image_{row_id}"
+    row_value_key = f"{widget_key}_row_value"
+    row_value = normalize_product_image_url(image_url)
+    if st.session_state.get(row_value_key) != row_value:
+        st.session_state[widget_key] = row_value
+        st.session_state[row_value_key] = row_value
+    return widget_key
 
 
 def validate_product_image_url(value) -> tuple[bool, str, str]:

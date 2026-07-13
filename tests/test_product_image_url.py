@@ -37,8 +37,12 @@ assert "normalize_product_image_url" in update_source or "_product_record_value"
 products_page = Path("pages/products.py").read_text(encoding="utf-8")
 assert "validate_product_image_url" in products_page
 assert "normalize_product_image_url" in products_page
+assert "product_image_status_label" in products_page
+assert "sync_product_image_widget_value" in products_page
 assert "product_master_create_image_url" in products_page
 assert "pm_image_" in products_page
+assert "_row_value" in products_page
+assert "cols[4].caption(product_image_status_label(normalized_image_url))" in products_page
 assert "placeholder=\"https://...\"" in products_page
 assert "http://" in products_page and "https://" in products_page
 assert "st.image" in products_page or "container.image" in products_page
