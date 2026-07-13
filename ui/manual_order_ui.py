@@ -280,9 +280,21 @@ def manual_product_from_label(options: list[dict], label: str) -> dict:
 
 
 def render_manual_product_preview(product: dict) -> None:
-    image_url = neon.product_image_preview_url(product)
+    image_url = selected_product_image_preview_url(product)
     if image_url:
         st.image(image_url, width=120)
+
+
+def selected_product_image_preview_url(product: dict) -> str:
+    preview_url = getattr(neon, "product_image_preview_url", None)
+    if callable(preview_url):
+        return preview_url(product)
+    if not isinstance(product, dict):
+        return ""
+    image_url = neon.clean(product.get("image_url"))
+    if image_url.lower().startswith(("http://", "https://")):
+        return image_url
+    return ""
 
 
 def add_manual_order_item(product: dict, qty: int, amount: float) -> None:

@@ -71,6 +71,8 @@ assert neon.product_image_preview_url({"image_url": "http://example.com/p.jpg"})
 assert neon.product_image_preview_url({"image_url": ""}) == ""
 assert neon.product_image_preview_url({"image_url": None}) == ""
 assert neon.product_image_preview_url({"image_url": "ftp://example.com/p.jpg"}) == ""
+assert neon.product_image_preview_url(None) == ""
+assert neon.product_image_preview_url("https://example.com/p.jpg") == ""
 
 
 class FakeCursor:
@@ -135,13 +137,15 @@ manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
 assert "render_manual_product_preview" in manual_source
-assert "neon.product_image_preview_url(product)" in manual_source
+assert "selected_product_image_preview_url" in manual_source
+assert "getattr(neon, \"product_image_preview_url\", None)" in manual_source
 assert "st.image(image_url, width=120)" in manual_source
 assert "fetch_order_product_options" in followup_source
 assert "for row in fetch_order_product_options()" in followup_source
 assert "\"image_url\": clean(row.get(\"image_url\"))" in followup_source
 assert "render_popup_product_preview" in followup_source
-assert "neon.product_image_preview_url(product)" in followup_source
+assert "selected_product_image_preview_url" in followup_source
+assert "getattr(neon, \"product_image_preview_url\", None)" in followup_source
 
 helper_source = inspect.getsource(neon.fetch_order_product_options).lower()
 assert "image_url," in helper_source

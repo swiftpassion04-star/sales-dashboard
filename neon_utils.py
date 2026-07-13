@@ -374,7 +374,9 @@ def _order_product_options_from_rows(rows: list[dict]) -> list[dict]:
 
 
 def product_image_preview_url(product: dict) -> str:
-    image_url = clean((product or {}).get("image_url"))
+    if not isinstance(product, dict):
+        return ""
+    image_url = clean(product.get("image_url"))
     if image_url.lower().startswith(("http://", "https://")):
         return image_url
     return ""
