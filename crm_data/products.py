@@ -106,6 +106,17 @@ def validate_product_ids(product_ids: list[int]) -> list[int]:
     return normalized_ids
 
 
+def normalize_product_image_url(value) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _product_record_value(record: dict, column: str):
+    if column == "image_url":
+        return normalize_product_image_url(record.get(column))
+    return record.get(column)
+
+
 def build_product_delete_readiness(
     product_ids: list[int],
     rows: list[dict],
@@ -215,6 +226,7 @@ def fetch_product_options() -> list[dict]:
                   sku,
                   product_group,
                   product_name,
+                  image_url,
                   is_active,
                   sort_order,
                   updated_at
@@ -276,6 +288,7 @@ def fetch_product_page(
                   sku,
                   product_group,
                   product_name,
+                  image_url,
                   is_active,
                   archived_at,
                   archived_by,
@@ -306,6 +319,7 @@ def upsert_product_options(records: list[dict]) -> None:
         "sku",
         "product_group",
         "product_name",
+        "image_url",
         "sort_order",
         "is_active",
         "created_by",
@@ -333,6 +347,7 @@ def upsert_product_options(records: list[dict]) -> None:
                             """
                             update public.crm_product_options
                             set sort_order = %s,
+                                image_url = %s,
                                 is_active = %s,
                                 updated_by = %s,
                                 updated_at = %s
@@ -340,6 +355,7 @@ def upsert_product_options(records: list[dict]) -> None:
                             """,
                             [
                                 record.get("sort_order"),
+                                normalize_product_image_url(record.get("image_url")),
                                 record.get("is_active"),
                                 record.get("updated_by"),
                                 record.get("updated_at"),
@@ -352,7 +368,7 @@ def upsert_product_options(records: list[dict]) -> None:
                             insert into public.crm_product_options ({', '.join(columns)})
                             values ({', '.join(['%s'] * len(columns))})
                             """,
-                            tuple(record.get(column) for column in columns),
+                            tuple(_product_record_value(record, column) for column in columns),
                         )
             conn.commit()
         except Exception:
@@ -370,6 +386,7 @@ def insert_product_options(records: list[dict]) -> None:
         "sku",
         "product_group",
         "product_name",
+        "image_url",
         "sort_order",
         "is_active",
         "created_by",
@@ -384,7 +401,7 @@ def insert_product_options(records: list[dict]) -> None:
                     insert into public.crm_product_options ({', '.join(columns)})
                     values ({', '.join(['%s'] * len(columns))})
                     """,
-                    [tuple(record.get(column) for column in columns) for record in records],
+                    [tuple(_product_record_value(record, column) for column in columns) for record in records],
                 )
             conn.commit()
         except Exception:
@@ -396,7 +413,7 @@ def update_product_option(option_id: str, payload: dict) -> None:
     from neon_utils import ensure_crm_data_imports_schema, neon_connection
 
     ensure_crm_data_imports_schema()
-    fields = ["sku", "product_group", "product_name", "sort_order", "is_active", "updated_by", "updated_at"]
+    fields = ["sku", "product_group", "product_name", "image_url", "sort_order", "is_active", "updated_by", "updated_at"]
     with neon_connection() as conn:
         try:
             with conn.cursor() as cur:
@@ -406,7 +423,7 @@ def update_product_option(option_id: str, payload: dict) -> None:
                     set {', '.join([f'{field} = %s' for field in fields])}
                     where id = %s
                     """,
-                    [payload.get(field) for field in fields] + [option_id],
+                    [_product_record_value(payload, field) for field in fields] + [option_id],
                 )
             conn.commit()
         except Exception:

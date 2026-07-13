@@ -201,11 +201,22 @@ def render_create_product_form(auth_user: dict) -> None:
         sku = c1.text_input("SKU")
         product_name = c2.text_input("ชื่อสินค้า")
         product_group = c3.text_input("กลุ่มสินค้า", value="ทั่วไป")
+        image_url = st.text_input(
+            "ลิงก์รูปสินค้า",
+            placeholder="https://...",
+            key="product_master_create_image_url",
+        )
+        image_ok, normalized_image_url, image_error = validate_product_image_url(image_url)
+        if normalized_image_url and image_ok:
+            render_product_image_preview(normalized_image_url)
         submitted = st.form_submit_button("เพิ่มสินค้า", use_container_width=True)
     if not submitted:
         return
     if not clean(sku) or not clean(product_name):
         st.error("กรุณากรอก SKU และชื่อสินค้า")
+        return
+    if not image_ok:
+        st.error(image_error)
         return
     neon.upsert_product_options(
         [
@@ -213,6 +224,7 @@ def render_create_product_form(auth_user: dict) -> None:
                 "sku": normalize_sku(sku),
                 "product_group": clean(product_group) or "ทั่วไป",
                 "product_name": clean(product_name),
+                "image_url": normalized_image_url,
                 "sort_order": sku_sort_value(sku),
                 "is_active": True,
                 "created_by": clean(auth_user.get("email")),
@@ -379,14 +391,15 @@ def render_product_table(
     )
     render_product_delete_readiness(selected_ids, page_product_ids, is_editor)
 
-    header = st.columns([0.55, 0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
+    header = st.columns([0.55, 0.9, 2.25, 1.25, 1.25, 0.7, 0.9, 0.9])
     header[0].markdown("**เลือก**")
     header[1].markdown("**SKU**")
     header[2].markdown("**ชื่อสินค้า**")
     header[3].markdown("**กลุ่มสินค้า**")
-    header[4].markdown("**Active**")
-    header[5].markdown("**บันทึก**")
-    header[6].markdown("**ปิดใช้งาน**")
+    header[4].markdown("**รูป**")
+    header[5].markdown("**Active**")
+    header[6].markdown("**บันทึก**")
+    header[7].markdown("**ปิดใช้งาน**")
 
     for row in rows:
         render_product_row(row, auth_user, is_editor)
@@ -629,7 +642,7 @@ def render_product_delete_readiness(
 def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
     row_id = clean(row.get("id"))
     is_archived = bool(row.get("archived_at"))
-    cols = st.columns([0.55, 0.9, 2.5, 1.4, 0.7, 0.9, 0.9])
+    cols = st.columns([0.55, 0.9, 2.25, 1.25, 1.25, 0.7, 0.9, 0.9])
     if row_id:
         selection_widget_key = f"{PRODUCT_SELECTION_WIDGET_PREFIX}{row_id}"
         if selection_widget_key not in st.session_state:
@@ -658,15 +671,32 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
             key=f"pm_group_{row_id}",
             label_visibility="collapsed",
         )
-        is_active = cols[4].checkbox(
+        image_url = cols[4].text_input(
+            "ลิงก์รูปสินค้า",
+            value=clean(row.get("image_url")),
+            key=f"pm_image_{row_id}",
+            placeholder="https://...",
+            label_visibility="collapsed",
+        )
+        image_ok, normalized_image_url, image_error = validate_product_image_url(image_url)
+        cols[4].caption("มีรูป" if normalized_image_url else "ไม่มีรูป")
+        if normalized_image_url and cols[4].button("ดูรูป", key=f"pm_preview_{row_id}", use_container_width=True):
+            if image_ok:
+                render_product_image_preview(normalized_image_url, container=cols[4])
+            else:
+                cols[4].warning(image_error)
+        is_active = cols[5].checkbox(
             "Active",
             value=bool(row.get("is_active")),
             key=f"pm_active_{row_id}",
             label_visibility="collapsed",
         )
-        if cols[5].button("บันทึก", key=f"pm_save_{row_id}", use_container_width=True):
+        if cols[6].button("บันทึก", key=f"pm_save_{row_id}", use_container_width=True):
             if not clean(sku) or not clean(product_name):
                 st.error("กรุณากรอก SKU และชื่อสินค้า")
+                return
+            if not image_ok:
+                st.error(image_error)
                 return
             neon.update_product_option(
                 row_id,
@@ -674,6 +704,7 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
                     "sku": normalize_sku(sku),
                     "product_group": clean(product_group) or "ทั่วไป",
                     "product_name": clean(product_name),
+                    "image_url": normalized_image_url,
                     "sort_order": sku_sort_value(sku),
                     "is_active": bool(is_active),
                     "updated_by": clean(auth_user.get("email")),
@@ -683,13 +714,14 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
             st.cache_data.clear()
             st.success("บันทึกสินค้าแล้ว")
             st.rerun()
-        if cols[6].button("ปิดใช้งาน", key=f"pm_disable_{row_id}", disabled=not bool(row.get("is_active")), use_container_width=True):
+        if cols[7].button("ปิดใช้งาน", key=f"pm_disable_{row_id}", disabled=not bool(row.get("is_active")), use_container_width=True):
             neon.update_product_option(
                 row_id,
                 {
                     "sku": normalize_sku(row.get("sku")),
                     "product_group": clean(row.get("product_group")) or "ทั่วไป",
                     "product_name": clean(row.get("product_name")),
+                    "image_url": normalize_product_image_url(row.get("image_url")),
                     "sort_order": int(row.get("sort_order") or 0),
                     "is_active": False,
                     "updated_by": clean(auth_user.get("email")),
@@ -703,12 +735,13 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
         cols[1].write(clean(row.get("sku")) or "-")
         cols[2].write(clean(row.get("product_name")) or "-")
         cols[3].write(clean(row.get("product_group")) or "-")
+        cols[4].write("มีรูป" if clean(row.get("image_url")) else "ไม่มีรูป")
         if is_archived:
-            cols[4].write("เก็บถาวร")
+            cols[5].write("เก็บถาวร")
         else:
-            cols[4].write("เปิด" if row.get("is_active") else "ปิด")
-        cols[5].write("-")
+            cols[5].write("เปิด" if row.get("is_active") else "ปิด")
         cols[6].write("-")
+        cols[7].write("-")
 
 
 def filter_products(rows: list[dict], query: str) -> list[dict]:
@@ -721,6 +754,26 @@ def filter_products(rows: list[dict], query: str) -> list[dict]:
         if text in clean(row.get("sku")).casefold()
         or text in clean(row.get("product_name")).casefold()
     ]
+
+
+def normalize_product_image_url(value) -> str:
+    return clean(value)
+
+
+def validate_product_image_url(value) -> tuple[bool, str, str]:
+    image_url = normalize_product_image_url(value)
+    if not image_url:
+        return True, "", ""
+    if image_url.lower().startswith(("http://", "https://")):
+        return True, image_url, ""
+    return False, image_url, "ลิงก์รูปสินค้าต้องขึ้นต้นด้วย http:// หรือ https://"
+
+
+def render_product_image_preview(image_url: str, container=st) -> None:
+    safe_url = normalize_product_image_url(image_url)
+    if not safe_url:
+        return
+    container.image(safe_url, width=140)
 
 
 def clean(value) -> str:

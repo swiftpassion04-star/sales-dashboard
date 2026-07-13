@@ -29,6 +29,7 @@ assert "delete " not in page_source
 assert "archived_at," in page_source
 assert "archived_by," in page_source
 assert "archive_reason," in page_source
+assert "image_url," in page_source
 assert page_source.count("{where_sql}") == 2
 assert "(sku ilike %s or product_name ilike %s)" in page_source
 assert "limit %s offset %s" in page_source
@@ -36,6 +37,7 @@ assert "sku_number asc nulls last" in page_source
 assert "sku_number desc nulls last" in page_source
 
 options_source = inspect.getsource(fetch_product_options).lower()
+assert "image_url," in options_source
 assert "archived_at" not in options_source
 assert "archived_by" not in options_source
 assert "archive_reason" not in options_source
