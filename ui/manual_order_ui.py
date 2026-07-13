@@ -7,7 +7,7 @@ import neon_utils as neon
 from ui.perf import perf_trace
 
 
-PRODUCT_PLACEHOLDER = "เลือกสินค้า"
+PRODUCT_PLACEHOLDER = None
 
 
 def parse_price_input(value: str) -> tuple[bool, float, str]:
@@ -67,7 +67,7 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
 
         st.markdown("#### รายการสินค้า")
-        product_labels = [PRODUCT_PLACEHOLDER, *[manual_product_label(row) for row in product_options]]
+        product_labels = [manual_product_label(row) for row in product_options]
         if st.session_state.pop("manual_product_reset_requested", False):
             st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
             st.session_state["manual_product_qty"] = 1
@@ -75,7 +75,13 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         if st.session_state.get("manual_product_select") not in product_labels:
             st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
         pc1, pc2, pc3, pc4 = st.columns([2.2, 0.6, 0.8, 1.1])
-        selected_product_label = pc1.selectbox("สินค้า", product_labels, index=0, key="manual_product_select")
+        selected_product_label = pc1.selectbox(
+            "สินค้า",
+            product_labels,
+            index=None,
+            placeholder="",
+            key="manual_product_select",
+        )
         selected_product_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key="manual_product_qty")
         selected_product_amount = pc3.text_input("ราคา", placeholder="กรอกราคา", key="manual_product_amount")
         add_product_submitted = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
@@ -263,7 +269,7 @@ def manual_product_label(row: dict) -> str:
 
 
 def manual_product_from_label(options: list[dict], label: str) -> dict:
-    if label == PRODUCT_PLACEHOLDER:
+    if not label:
         return {}
     for row in options:
         if manual_product_label(row) == label:
