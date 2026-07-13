@@ -140,12 +140,20 @@ assert "render_manual_product_preview" in manual_source
 assert "selected_product_image_preview_url" in manual_source
 assert "getattr(neon, \"product_image_preview_url\", None)" in manual_source
 assert "st.image(image_url, width=120)" in manual_source
+assert "render_manual_order_item_preview(cols[1], item)" in manual_source
+assert "\"image_url\": image_url" in manual_source
 assert "fetch_order_product_options" in followup_source
 assert "for row in fetch_order_product_options()" in followup_source
 assert "\"image_url\": clean(row.get(\"image_url\"))" in followup_source
 assert "render_popup_product_preview" in followup_source
 assert "selected_product_image_preview_url" in followup_source
 assert "getattr(neon, \"product_image_preview_url\", None)" in followup_source
+assert "product_labels = [popup_product_label(item) for item in product_options]" in followup_source
+assert "[PRODUCT_PLACEHOLDER," not in followup_source
+assert "placeholder=\"\"" in followup_source
+assert "if not label:" in followup_source
+assert "render_popup_order_item_preview(cols[1], item)" in followup_source
+assert "\"image_url\": image_url" in followup_source
 
 helper_source = inspect.getsource(neon.fetch_order_product_options).lower()
 assert "image_url," in helper_source

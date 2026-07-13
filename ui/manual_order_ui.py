@@ -303,13 +303,16 @@ def add_manual_order_item(product: dict, qty: int, amount: float) -> None:
     product_name = neon.clean(product.get("product_name"))
     qty = max(1, int(qty or 1))
     amount = max(0.0, float(amount or 0))
+    image_url = neon.clean(product.get("image_url"))
     for item in items:
         if neon.clean(item.get("sku")) == sku and neon.clean(item.get("product_name")) == product_name:
             item["qty"] = int(item.get("qty") or 0) + qty
             item["amount"] = float(item.get("amount") or 0) + amount
+            if image_url and not neon.clean(item.get("image_url")):
+                item["image_url"] = image_url
             st.session_state["manual_order_items"] = items
             return
-    items.append({"sku": sku, "product_name": product_name, "qty": qty, "amount": amount})
+    items.append({"sku": sku, "product_name": product_name, "qty": qty, "amount": amount, "image_url": image_url})
     st.session_state["manual_order_items"] = items
 
 
@@ -318,6 +321,12 @@ def remove_manual_order_item(index: int) -> None:
     if 0 <= index < len(items):
         items.pop(index)
     st.session_state["manual_order_items"] = items
+
+
+def render_manual_order_item_preview(container, item: dict) -> None:
+    image_url = selected_product_image_preview_url(item)
+    if image_url:
+        container.image(image_url, width=120)
 
 
 def render_manual_order_items() -> int | None:
@@ -337,6 +346,7 @@ def render_manual_order_items() -> int | None:
         cols = st.columns([0.8, 2.3, 0.6, 0.8, 0.6])
         cols[0].write(neon.clean(item.get("sku")) or "-")
         cols[1].write(neon.clean(item.get("product_name")) or "-")
+        render_manual_order_item_preview(cols[1], item)
         cols[2].write(int(item.get("qty") or 0))
         cols[3].write(f"{float(item.get('amount') or 0):,.2f}")
         if cols[4].form_submit_button("ลบ", key=f"manual_item_delete_{index}", use_container_width=True):

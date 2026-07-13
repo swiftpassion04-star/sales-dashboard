@@ -26,7 +26,7 @@ from ui.perf import perf_trace
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
 FOLLOWUP_TABLE_COLUMNS = [0.85, 1.1, 1.0, 2.25, 1.15, 0.75, 1.5, 1.6, 1.7, 0.9, 0.85]
-PRODUCT_PLACEHOLDER = "เลือกสินค้า"
+PRODUCT_PLACEHOLDER = None
 ALL = "ทั้งหมด"
 LEAD_STATUS_OPTIONS = {
     "new": "ลูกค้าใหม่",
@@ -640,7 +640,7 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {date.today().isoformat()}")
 
         st.markdown("#### รายการสินค้า")
-        product_labels = [PRODUCT_PLACEHOLDER, *[popup_product_label(item) for item in product_options]]
+        product_labels = [popup_product_label(item) for item in product_options]
         if st.session_state.pop(f"{prefix}_product_reset", False):
             st.session_state[f"{prefix}_product_select"] = PRODUCT_PLACEHOLDER
             st.session_state[f"{prefix}_product_qty"] = 1
@@ -648,7 +648,13 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         if st.session_state.get(f"{prefix}_product_select") not in product_labels:
             st.session_state[f"{prefix}_product_select"] = PRODUCT_PLACEHOLDER
         pc1, pc2, pc3, pc4 = st.columns([2.2, 0.7, 0.8, 1.1])
-        selected_label = pc1.selectbox("สินค้า", product_labels, key=f"{prefix}_product_select")
+        selected_label = pc1.selectbox(
+            "สินค้า",
+            product_labels,
+            index=None,
+            placeholder="",
+            key=f"{prefix}_product_select",
+        )
         selected_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key=f"{prefix}_product_qty")
         selected_amount = pc3.text_input("ราคา", placeholder="กรอกราคา", key=f"{prefix}_product_amount")
         add_item = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
@@ -830,7 +836,7 @@ def popup_product_label(row: dict) -> str:
 
 
 def popup_product_from_label(options: list[dict], label: str) -> dict:
-    if label == PRODUCT_PLACEHOLDER:
+    if not label:
         return {}
     for row in options:
         if popup_product_label(row) == label:
@@ -862,13 +868,16 @@ def add_popup_order_item(prefix: str, product: dict, qty: int, amount: float) ->
     product_name = clean(product.get("product_name"))
     qty = max(1, int(qty or 1))
     amount = max(0.0, float(amount or 0))
+    image_url = clean(product.get("image_url"))
     for item in items:
         if clean(item.get("sku")) == sku and clean(item.get("product_name")) == product_name:
             item["qty"] = int(item.get("qty") or 0) + qty
             item["amount"] = float(item.get("amount") or 0) + amount
+            if image_url and not clean(item.get("image_url")):
+                item["image_url"] = image_url
             st.session_state[f"{prefix}_items"] = items
             return
-    items.append({"sku": sku, "product_name": product_name, "qty": qty, "amount": amount})
+    items.append({"sku": sku, "product_name": product_name, "qty": qty, "amount": amount, "image_url": image_url})
     st.session_state[f"{prefix}_items"] = items
 
 
@@ -877,6 +886,12 @@ def remove_popup_order_item(prefix: str, index: int) -> None:
     if 0 <= index < len(items):
         items.pop(index)
     st.session_state[f"{prefix}_items"] = items
+
+
+def render_popup_order_item_preview(container, item: dict) -> None:
+    image_url = selected_product_image_preview_url(item)
+    if image_url:
+        container.image(image_url, width=120)
 
 
 def render_popup_order_items(prefix: str) -> int | None:
@@ -892,6 +907,7 @@ def render_popup_order_items(prefix: str) -> int | None:
         cols = st.columns([0.8, 2.2, 0.6, 0.8, 0.6])
         cols[0].write(clean(item.get("sku")) or "-")
         cols[1].write(clean(item.get("product_name")) or "-")
+        render_popup_order_item_preview(cols[1], item)
         cols[2].write(int(item.get("qty") or 0))
         cols[3].write(f"{float(item.get('amount') or 0):,.2f}")
         if cols[4].form_submit_button("ลบ", key=f"{prefix}_delete_{index}", use_container_width=True):
