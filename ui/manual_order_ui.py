@@ -55,8 +55,6 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         product_options = []
         st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
 
-    render_manual_product_picker(product_options)
-
     with st.form("manual_order_form", clear_on_submit=False):
         col1, col2 = st.columns(2)
         order_id = col1.text_input("หมายเลขคำสั่งซื้อ", key="manual_order_id")
@@ -116,6 +114,8 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
     if open_product_selector_submitted:
         st.session_state["manual_product_selector_open"] = True
         st.rerun()
+
+    render_manual_product_picker(product_options)
 
     if add_product_submitted:
         with perf_trace("manual_order.add_item", action="add_item", sale_type=sale_type):
