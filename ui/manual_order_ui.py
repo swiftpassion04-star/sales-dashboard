@@ -70,7 +70,12 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         order_date = date.today().isoformat()
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
 
-        st.markdown("#### รายการสินค้า")
+        product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
+        product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+        open_product_selector_submitted = product_action.form_submit_button(
+            "+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32",
+            use_container_width=True,
+        )
         if st.session_state.pop("manual_product_reset_requested", False):
             st.session_state["manual_product_qty"] = 1
             st.session_state["manual_product_amount"] = ""
@@ -107,6 +112,10 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
             st.text_input("ผู้ดูแล", value=owner or "-", disabled=True, key="manual_owner_disabled")
 
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
+
+    if open_product_selector_submitted:
+        st.session_state["manual_product_selector_open"] = True
+        st.rerun()
 
     if add_product_submitted:
         with perf_trace("manual_order.add_item", action="add_item", sale_type=sale_type):
@@ -390,17 +399,6 @@ def render_product_picker_thumbnail(container, product: dict, width: int = 48) -
 
 
 def render_manual_product_picker(product_options: list[dict]) -> None:
-    st.markdown("#### \u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
-    selected = selected_manual_product(product_options)
-    if selected:
-        st.caption(
-            f"\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e41\u0e25\u0e49\u0e27: {neon.clean(selected.get('sku')) or '-'} - "
-            f"{neon.clean(selected.get('product_name')) or '-'}"
-        )
-    else:
-        st.caption("\u0e01\u0e14 + \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32 \u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e04\u0e49\u0e19\u0e2b\u0e32\u0e41\u0e25\u0e30\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
-    if st.button("+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", key="manual_product_selector_open_button", use_container_width=False):
-        st.session_state["manual_product_selector_open"] = True
     if st.session_state.get("manual_product_selector_open"):
         render_manual_product_selector_dialog(product_options)
 
