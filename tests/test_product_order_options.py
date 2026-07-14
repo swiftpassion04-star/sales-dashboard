@@ -197,10 +197,24 @@ assert "\"image_url\": clean(row.get(\"image_url\"))" in followup_source
 assert "render_popup_product_preview" in followup_source
 assert "selected_product_image_preview_url" in followup_source
 assert "getattr(neon, \"product_image_preview_url\", None)" in followup_source
-assert "product_labels = [popup_product_label(item) for item in product_options]" in followup_source
-assert "[PRODUCT_PLACEHOLDER," not in followup_source
-assert "placeholder=\"\"" in followup_source
-assert "if not label:" in followup_source
+assert "POPUP_PRODUCT_PICKER_LIMIT = 10" in followup_source
+assert "def popup_product_picker_state_key(row_key: str, name: str) -> str:" in followup_source
+assert "return f\"{row_key}_product_picker_{name}\"" in followup_source
+assert "def filter_popup_product_picker_options(" in followup_source
+assert "if not tokens:" in followup_source
+assert "return []" in followup_source
+assert "if len(matches) >= limit:" in followup_source
+assert "render_popup_product_picker(product_options, prefix)" in followup_source
+assert "selected_product = selected_popup_product(product_options, prefix)" in followup_source
+assert "product = selected_popup_product(product_options, prefix)" in followup_source
+assert "select_popup_product(row_key, product, clean_query)" in followup_source
+assert "st.session_state[popup_product_picker_state_key(row_key, \"selected_product\")]" in followup_source
+assert "st.session_state[popup_product_picker_state_key(row_key, \"selected_product_sku\")]" in followup_source
+assert "st.session_state[popup_product_picker_state_key(row_key, \"hide_results\")]" in followup_source
+assert "st.session_state[popup_product_picker_state_key(row_key, \"query\")] = \"\"" not in followup_source
+assert "f\"{prefix}_product_select\"" not in followup_source
+assert "pc1.selectbox(" not in followup_source
+assert "\"product_group\": clean(row.get(\"product_group\"))" in followup_source
 assert "render_popup_order_item_preview(cols[1], item)" in followup_source
 assert "\"image_url\": image_url" in followup_source
 
