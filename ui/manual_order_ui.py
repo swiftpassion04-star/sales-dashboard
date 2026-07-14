@@ -8,6 +8,7 @@ from ui.perf import perf_trace
 
 
 PRODUCT_PLACEHOLDER = None
+PRODUCT_PICKER_LIMIT = 20
 
 
 def parse_price_input(value: str) -> tuple[bool, float, str]:
@@ -53,6 +54,8 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         product_options = []
         st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
 
+    render_manual_product_picker(product_options)
+
     with st.form("manual_order_form", clear_on_submit=False):
         col1, col2 = st.columns(2)
         order_id = col1.text_input("หมายเลขคำสั่งซื้อ", key="manual_order_id")
@@ -67,26 +70,16 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
 
         st.markdown("#### รายการสินค้า")
-        product_labels = [manual_product_label(row) for row in product_options]
         if st.session_state.pop("manual_product_reset_requested", False):
-            st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
             st.session_state["manual_product_qty"] = 1
             st.session_state["manual_product_amount"] = ""
-        if st.session_state.get("manual_product_select") not in product_labels:
-            st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
+        selected_product = selected_manual_product(product_options)
         pc1, pc2, pc3, pc4 = st.columns([2.2, 0.6, 0.8, 1.1])
-        selected_product_label = pc1.selectbox(
-            "สินค้า",
-            product_labels,
-            index=None,
-            placeholder="",
-            key="manual_product_select",
-        )
-        selected_product_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key="manual_product_qty")
-        selected_product_amount = pc3.text_input("ราคา", placeholder="กรอกราคา", key="manual_product_amount")
-        add_product_submitted = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
-        selected_product = manual_product_from_label(product_options, selected_product_label)
-        render_manual_product_preview(selected_product)
+        with pc1:
+            render_manual_selected_product(selected_product)
+        selected_product_qty = pc2.number_input("\u0e08\u0e33\u0e19\u0e27\u0e19", min_value=1, value=1, step=1, key="manual_product_qty")
+        selected_product_amount = pc3.text_input("\u0e23\u0e32\u0e04\u0e32", placeholder="\u0e01\u0e23\u0e2d\u0e01\u0e23\u0e32\u0e04\u0e32", key="manual_product_amount")
+        add_product_submitted = pc4.form_submit_button("\u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e2d\u0e35\u0e01 1 \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23", use_container_width=True)
         delete_item_index = render_manual_order_items()
 
         owner = neon.clean(user.get("staff_name"))
@@ -116,7 +109,7 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
 
     if add_product_submitted:
         with perf_trace("manual_order.add_item", action="add_item", sale_type=sale_type):
-            product = manual_product_from_label(product_options, selected_product_label)
+            product = selected_manual_product(product_options)
             if not product:
                 st.error("กรุณาเลือกสินค้า")
                 return
@@ -255,6 +248,8 @@ def clear_manual_order_form_state() -> None:
         st.session_state[key] = ""
     st.session_state["manual_owner_select"] = "เลือกผู้ดูแล"
     st.session_state["manual_product_select"] = PRODUCT_PLACEHOLDER
+    st.session_state["manual_selected_product"] = {}
+    st.session_state["manual_selected_product_sku"] = ""
     st.session_state["manual_product_qty"] = 1
     st.session_state["manual_product_amount"] = ""
     st.session_state["manual_sale_type"] = "NEW_ORDER"
@@ -277,6 +272,119 @@ def manual_product_from_label(options: list[dict], label: str) -> dict:
         if manual_product_label(row) == label:
             return row
     return {}
+
+
+def product_picker_search_text(product: dict) -> str:
+    return " ".join(
+        part
+        for part in (
+            neon.clean(product.get("sku")),
+            neon.clean(product.get("product_name")),
+            neon.clean(product.get("product_group")),
+        )
+        if part
+    ).casefold()
+
+
+def selected_product_key(product: dict) -> str:
+    if not isinstance(product, dict):
+        return ""
+    sku = neon.clean(product.get("sku"))
+    product_name = neon.clean(product.get("product_name"))
+    return f"{sku}::{product_name}" if sku or product_name else ""
+
+
+def filter_product_picker_options(products: list[dict], query: str, limit: int = PRODUCT_PICKER_LIMIT) -> list[dict]:
+    limit = max(1, int(limit or PRODUCT_PICKER_LIMIT))
+    tokens = [token.casefold() for token in neon.clean(query).split() if token]
+    matches = []
+    for product in products:
+        if not selected_product_key(product):
+            continue
+        search_text = product_picker_search_text(product)
+        if tokens and not all(token in search_text for token in tokens):
+            continue
+        matches.append(product)
+        if len(matches) >= limit:
+            break
+    return matches
+
+
+def product_from_key(options: list[dict], key: str) -> dict:
+    if not key:
+        return {}
+    for product in options:
+        if selected_product_key(product) == key:
+            return dict(product)
+    return {}
+
+
+def select_manual_product(product: dict) -> None:
+    selected = dict(product)
+    st.session_state["manual_selected_product"] = selected
+    st.session_state["manual_selected_product_sku"] = neon.clean(selected.get("sku"))
+
+
+def selected_manual_product(product_options: list[dict]) -> dict:
+    selected = st.session_state.get("manual_selected_product")
+    selected_key = selected_product_key(selected) if isinstance(selected, dict) else ""
+    product = product_from_key(product_options, selected_key)
+    if product:
+        return product
+    if selected_key:
+        st.session_state["manual_selected_product"] = {}
+        st.session_state["manual_selected_product_sku"] = ""
+    return {}
+
+
+def render_product_picker_thumbnail(container, product: dict, width: int = 56) -> None:
+    image_url = selected_product_image_preview_url(product)
+    if image_url:
+        container.image(image_url, width=width)
+    else:
+        container.caption("\u0e44\u0e21\u0e48\u0e21\u0e35\u0e23\u0e39\u0e1b")
+
+
+def render_manual_product_picker(product_options: list[dict]) -> None:
+    st.markdown("#### \u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+    query = st.text_input("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU / \u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", key="manual_product_query")
+    matches = filter_product_picker_options(product_options, query, PRODUCT_PICKER_LIMIT)
+    if not matches:
+        st.info("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+        return
+
+    header = st.columns([0.6, 0.9, 2.0, 1.2, 0.7])
+    for col, label in zip(header, ["\u0e23\u0e39\u0e1b", "SKU", "\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", "\u0e01\u0e25\u0e38\u0e48\u0e21", ""]):
+        col.markdown(f"**{label}**")
+
+    current_key = selected_product_key(st.session_state.get("manual_selected_product") or {})
+    for index, product in enumerate(matches):
+        product_key = selected_product_key(product)
+        cols = st.columns([0.6, 0.9, 2.0, 1.2, 0.7])
+        render_product_picker_thumbnail(cols[0], product)
+        cols[1].write(neon.clean(product.get("sku")) or "-")
+        cols[2].write(neon.clean(product.get("product_name")) or "-")
+        cols[3].write(neon.clean(product.get("product_group")) or "-")
+        button_label = "\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e41\u0e25\u0e49\u0e27" if product_key == current_key else "\u0e40\u0e25\u0e37\u0e2d\u0e01"
+        if cols[4].button(
+            button_label,
+            key=f"manual_product_picker_{index}_{product_key}",
+            disabled=product_key == current_key,
+            use_container_width=True,
+        ):
+            select_manual_product(product)
+            st.rerun()
+
+
+def render_manual_selected_product(product: dict) -> None:
+    if not product:
+        st.info("\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e44\u0e14\u0e49\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+        return
+    st.write(f"{neon.clean(product.get('sku'))} - {neon.clean(product.get('product_name'))}")
+    product_group = neon.clean(product.get("product_group"))
+    if product_group:
+        st.caption(product_group)
+    render_manual_product_preview(product)
 
 
 def render_manual_product_preview(product: dict) -> None:

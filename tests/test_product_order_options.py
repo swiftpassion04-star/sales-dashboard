@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import neon_utils as neon
+import ui.manual_order_ui as manual_ui
 
 
 rows = [
@@ -133,9 +134,53 @@ finally:
 
 assert "where is_active = true and archived_at is null" in fake_connection.cursor_instance.statement
 
+
+picker_products = [
+    {
+        "sku": "SP680",
+        "product_name": "Coffee Premium",
+        "product_group": "Drink",
+        "image_url": "https://example.com/sp680.jpg",
+    },
+    {
+        "sku": "SP681",
+        "product_name": "Tea Economy",
+        "product_group": "Drink",
+        "image_url": "",
+    },
+    {
+        "sku": "AB100",
+        "product_name": "Snack Box",
+        "product_group": "Food",
+        "image_url": "ftp://example.com/not-used.jpg",
+    },
+]
+
+assert manual_ui.product_picker_search_text(picker_products[0]) == "sp680 coffee premium drink"
+assert manual_ui.filter_product_picker_options(picker_products, "SP680") == [picker_products[0]]
+assert manual_ui.filter_product_picker_options(picker_products, "coffee") == [picker_products[0]]
+assert manual_ui.filter_product_picker_options(picker_products, "drink", limit=10) == picker_products[:2]
+assert manual_ui.filter_product_picker_options(picker_products, "missing") == []
+assert manual_ui.filter_product_picker_options(picker_products, "", limit=2) == picker_products[:2]
+assert manual_ui.filter_product_picker_options(picker_products, "", limit=20) == picker_products
+assert manual_ui.selected_product_key(picker_products[0]) == "SP680::Coffee Premium"
+assert manual_ui.product_from_key(picker_products, "SP680::Coffee Premium") == picker_products[0]
+assert manual_ui.product_from_key(picker_products, "missing") == {}
+assert manual_ui.selected_product_image_preview_url(picker_products[0]) == "https://example.com/sp680.jpg"
+assert manual_ui.selected_product_image_preview_url(picker_products[1]) == ""
+assert manual_ui.selected_product_image_preview_url(picker_products[2]) == ""
+
 manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
+assert "PRODUCT_PICKER_LIMIT = 20" in manual_source
+assert "render_manual_product_picker(product_options)" in manual_source
+assert "manual_selected_product" in manual_source
+assert "manual_selected_product_sku" in manual_source
+assert "filter_product_picker_options" in manual_source
+assert "product_picker_search_text" in manual_source
+assert "selected_product = selected_manual_product(product_options)" in manual_source
+assert "add_manual_order_item(product, int(selected_product_qty or 1), item_amount)" in manual_source
 assert "render_manual_product_preview" in manual_source
 assert "selected_product_image_preview_url" in manual_source
 assert "getattr(neon, \"product_image_preview_url\", None)" in manual_source
