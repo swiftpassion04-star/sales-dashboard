@@ -325,7 +325,7 @@ def select_manual_product(product: dict) -> None:
     selected = dict(product)
     st.session_state["manual_selected_product"] = selected
     st.session_state["manual_selected_product_sku"] = neon.clean(selected.get("sku"))
-    st.session_state["manual_product_query"] = ""
+    st.session_state["manual_product_picker_hide_results"] = True
 
 
 def selected_manual_product(product_options: list[dict]) -> dict:
@@ -353,8 +353,11 @@ def render_manual_product_picker(product_options: list[dict]) -> None:
     query = st.text_input("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU / \u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", key="manual_product_query")
     clean_query = neon.clean(query)
     if not clean_query:
+        st.session_state["manual_product_picker_hide_results"] = False
         if not selected_product_key(st.session_state.get("manual_selected_product") or {}):
             st.caption("\u0e1e\u0e34\u0e21\u0e1e\u0e4c SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e04\u0e49\u0e19\u0e2b\u0e32")
+        return
+    if st.session_state.pop("manual_product_picker_hide_results", False):
         return
 
     matches = filter_product_picker_options(product_options, clean_query, PRODUCT_PICKER_LIMIT)

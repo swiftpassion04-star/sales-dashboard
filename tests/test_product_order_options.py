@@ -177,6 +177,8 @@ assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
 assert "render_manual_product_picker(product_options)" in manual_source
 assert "if not clean_query:" in manual_source
 assert "manual_product_query" in manual_source
+assert "st.session_state[\"manual_product_query\"] = \"\"" not in manual_source
+assert "manual_product_picker_hide_results" in manual_source
 assert "manual_selected_product" in manual_source
 assert "manual_selected_product_sku" in manual_source
 assert "filter_product_picker_options" in manual_source
