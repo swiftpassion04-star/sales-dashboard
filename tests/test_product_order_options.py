@@ -161,8 +161,8 @@ assert manual_ui.filter_product_picker_options(picker_products, "SP680") == [pic
 assert manual_ui.filter_product_picker_options(picker_products, "coffee") == [picker_products[0]]
 assert manual_ui.filter_product_picker_options(picker_products, "drink", limit=10) == picker_products[:2]
 assert manual_ui.filter_product_picker_options(picker_products, "missing") == []
-assert manual_ui.filter_product_picker_options(picker_products, "", limit=2) == picker_products[:2]
-assert manual_ui.filter_product_picker_options(picker_products, "", limit=20) == picker_products
+assert manual_ui.filter_product_picker_options(picker_products, "", limit=2) == []
+assert manual_ui.filter_product_picker_options(picker_products, "", limit=20) == []
 assert manual_ui.selected_product_key(picker_products[0]) == "SP680::Coffee Premium"
 assert manual_ui.product_from_key(picker_products, "SP680::Coffee Premium") == picker_products[0]
 assert manual_ui.product_from_key(picker_products, "missing") == {}
@@ -173,8 +173,10 @@ assert manual_ui.selected_product_image_preview_url(picker_products[2]) == ""
 manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
-assert "PRODUCT_PICKER_LIMIT = 20" in manual_source
+assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
 assert "render_manual_product_picker(product_options)" in manual_source
+assert "if not clean_query:" in manual_source
+assert "manual_product_query" in manual_source
 assert "manual_selected_product" in manual_source
 assert "manual_selected_product_sku" in manual_source
 assert "filter_product_picker_options" in manual_source

@@ -8,7 +8,7 @@ from ui.perf import perf_trace
 
 
 PRODUCT_PLACEHOLDER = None
-PRODUCT_PICKER_LIMIT = 20
+PRODUCT_PICKER_LIMIT = 10
 
 
 def parse_price_input(value: str) -> tuple[bool, float, str]:
@@ -297,6 +297,8 @@ def selected_product_key(product: dict) -> str:
 def filter_product_picker_options(products: list[dict], query: str, limit: int = PRODUCT_PICKER_LIMIT) -> list[dict]:
     limit = max(1, int(limit or PRODUCT_PICKER_LIMIT))
     tokens = [token.casefold() for token in neon.clean(query).split() if token]
+    if not tokens:
+        return []
     matches = []
     for product in products:
         if not selected_product_key(product):
@@ -323,6 +325,7 @@ def select_manual_product(product: dict) -> None:
     selected = dict(product)
     st.session_state["manual_selected_product"] = selected
     st.session_state["manual_selected_product_sku"] = neon.clean(selected.get("sku"))
+    st.session_state["manual_product_query"] = ""
 
 
 def selected_manual_product(product_options: list[dict]) -> dict:
@@ -337,7 +340,7 @@ def selected_manual_product(product_options: list[dict]) -> dict:
     return {}
 
 
-def render_product_picker_thumbnail(container, product: dict, width: int = 56) -> None:
+def render_product_picker_thumbnail(container, product: dict, width: int = 48) -> None:
     image_url = selected_product_image_preview_url(product)
     if image_url:
         container.image(image_url, width=width)
@@ -348,19 +351,25 @@ def render_product_picker_thumbnail(container, product: dict, width: int = 56) -
 def render_manual_product_picker(product_options: list[dict]) -> None:
     st.markdown("#### \u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
     query = st.text_input("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU / \u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", key="manual_product_query")
-    matches = filter_product_picker_options(product_options, query, PRODUCT_PICKER_LIMIT)
+    clean_query = neon.clean(query)
+    if not clean_query:
+        if not selected_product_key(st.session_state.get("manual_selected_product") or {}):
+            st.caption("\u0e1e\u0e34\u0e21\u0e1e\u0e4c SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e04\u0e49\u0e19\u0e2b\u0e32")
+        return
+
+    matches = filter_product_picker_options(product_options, clean_query, PRODUCT_PICKER_LIMIT)
     if not matches:
         st.info("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
         return
 
-    header = st.columns([0.6, 0.9, 2.0, 1.2, 0.7])
+    header = st.columns([0.45, 0.75, 1.8, 1.0, 0.6])
     for col, label in zip(header, ["\u0e23\u0e39\u0e1b", "SKU", "\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", "\u0e01\u0e25\u0e38\u0e48\u0e21", ""]):
         col.markdown(f"**{label}**")
 
     current_key = selected_product_key(st.session_state.get("manual_selected_product") or {})
     for index, product in enumerate(matches):
         product_key = selected_product_key(product)
-        cols = st.columns([0.6, 0.9, 2.0, 1.2, 0.7])
+        cols = st.columns([0.45, 0.75, 1.8, 1.0, 0.6])
         render_product_picker_thumbnail(cols[0], product)
         cols[1].write(neon.clean(product.get("sku")) or "-")
         cols[2].write(neon.clean(product.get("product_name")) or "-")
