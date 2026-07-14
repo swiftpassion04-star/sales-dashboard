@@ -112,11 +112,11 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
 
             submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
-    if open_product_selector_submitted:
-        st.session_state["manual_product_selector_open"] = True
-        st.rerun()
+        if open_product_selector_submitted:
+            st.session_state["manual_product_selector_open"] = True
+            st.rerun()
 
-    render_manual_product_picker(product_options)
+        render_manual_product_picker(product_options)
 
     if add_product_submitted:
         with perf_trace("manual_order.add_item", action="add_item", sale_type=sale_type):
