@@ -55,61 +55,62 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         product_options = []
         st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
 
-    with st.form("manual_order_form", clear_on_submit=False):
-        col1, col2 = st.columns(2)
-        order_id = col1.text_input("หมายเลขคำสั่งซื้อ", key="manual_order_id")
-        customer_name = col2.text_input("ชื่อลูกค้า", key="manual_customer_name")
-        phone_col1, phone_col2 = st.columns(2)
-        phone1 = phone_col1.text_input("เบอร์โทร", key="manual_phone1")
-        phone2 = phone_col2.text_input("เบอร์สำรอง", key="manual_phone2")
-        url = st.text_input("URL", key="manual_url")
-        address = st.text_area("ที่อยู่", key="manual_address", height=90)
-        sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW"], key="manual_sale_type")
-        order_date = date.today().isoformat()
-        st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
+    with st.container(border=True):
+        with st.form("manual_order_form", clear_on_submit=False, border=False):
+            col1, col2 = st.columns(2)
+            order_id = col1.text_input("หมายเลขคำสั่งซื้อ", key="manual_order_id")
+            customer_name = col2.text_input("ชื่อลูกค้า", key="manual_customer_name")
+            phone_col1, phone_col2 = st.columns(2)
+            phone1 = phone_col1.text_input("เบอร์โทร", key="manual_phone1")
+            phone2 = phone_col2.text_input("เบอร์สำรอง", key="manual_phone2")
+            url = st.text_input("URL", key="manual_url")
+            address = st.text_area("ที่อยู่", key="manual_address", height=90)
+            sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW"], key="manual_sale_type")
+            order_date = date.today().isoformat()
+            st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
 
-        product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
-        product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
-        open_product_selector_submitted = product_action.form_submit_button(
-            "+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32",
-            use_container_width=True,
-        )
-        if st.session_state.pop("manual_product_reset_requested", False):
-            st.session_state["manual_product_qty"] = 1
-            st.session_state["manual_product_amount"] = ""
-        selected_product = selected_manual_product(product_options)
-        pc1, pc2, pc3, pc4 = st.columns([2.2, 0.6, 0.8, 1.1])
-        with pc1:
-            render_manual_selected_product(selected_product)
-        selected_product_qty = pc2.number_input("\u0e08\u0e33\u0e19\u0e27\u0e19", min_value=1, value=1, step=1, key="manual_product_qty")
-        selected_product_amount = pc3.text_input("\u0e23\u0e32\u0e04\u0e32", placeholder="\u0e01\u0e23\u0e2d\u0e01\u0e23\u0e32\u0e04\u0e32", key="manual_product_amount")
-        add_product_submitted = pc4.form_submit_button("\u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e2d\u0e35\u0e01 1 \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23", use_container_width=True)
-        delete_item_index = render_manual_order_items()
+            product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
+            product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+            open_product_selector_submitted = product_action.form_submit_button(
+                "+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32",
+                use_container_width=True,
+            )
+            if st.session_state.pop("manual_product_reset_requested", False):
+                st.session_state["manual_product_qty"] = 1
+                st.session_state["manual_product_amount"] = ""
+            selected_product = selected_manual_product(product_options)
+            pc1, pc2, pc3, pc4 = st.columns([2.2, 0.6, 0.8, 1.1])
+            with pc1:
+                render_manual_selected_product(selected_product)
+            selected_product_qty = pc2.number_input("\u0e08\u0e33\u0e19\u0e27\u0e19", min_value=1, value=1, step=1, key="manual_product_qty")
+            selected_product_amount = pc3.text_input("\u0e23\u0e32\u0e04\u0e32", placeholder="\u0e01\u0e23\u0e2d\u0e01\u0e23\u0e32\u0e04\u0e32", key="manual_product_amount")
+            add_product_submitted = pc4.form_submit_button("\u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e2d\u0e35\u0e01 1 \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23", use_container_width=True)
+            delete_item_index = render_manual_order_items()
 
-        owner = neon.clean(user.get("staff_name"))
-        staff_code = neon.clean(user.get("staff_code"))
-        if is_editor:
-            staff_choices = build_staff_choices(staff_options)
-            if staff_choices:
-                labels = ["เลือกผู้ดูแล", *[label for label, _row in staff_choices]]
-                selected_label = st.selectbox("ผู้ดูแล", labels, index=0, key="manual_owner_select")
-                if selected_label == "เลือกผู้ดูแล":
-                    owner = ""
-                    staff_code = ""
+            owner = neon.clean(user.get("staff_name"))
+            staff_code = neon.clean(user.get("staff_code"))
+            if is_editor:
+                staff_choices = build_staff_choices(staff_options)
+                if staff_choices:
+                    labels = ["เลือกผู้ดูแล", *[label for label, _row in staff_choices]]
+                    selected_label = st.selectbox("ผู้ดูแล", labels, index=0, key="manual_owner_select")
+                    if selected_label == "เลือกผู้ดูแล":
+                        owner = ""
+                        staff_code = ""
+                    else:
+                        selected_index = labels.index(selected_label) - 1
+                        selected_staff = dict(staff_choices[selected_index][1])
+                        owner = display_staff_name(selected_staff)
+                        staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code")))
                 else:
-                    selected_index = labels.index(selected_label) - 1
-                    selected_staff = dict(staff_choices[selected_index][1])
-                    owner = display_staff_name(selected_staff)
-                    staff_code = normalize_staff_code(neon.clean(selected_staff.get("staff_code")))
+                    owner = st.text_input("ผู้ดูแล", key="manual_owner_text")
+                    staff_code = ""
             else:
-                owner = st.text_input("ผู้ดูแล", key="manual_owner_text")
-                staff_code = ""
-        else:
-            staff_code = normalize_staff_code(staff_code)
-            owner = strip_duplicate_staff_suffix(owner or staff_code, staff_code)
-            st.text_input("ผู้ดูแล", value=owner or "-", disabled=True, key="manual_owner_disabled")
+                staff_code = normalize_staff_code(staff_code)
+                owner = strip_duplicate_staff_suffix(owner or staff_code, staff_code)
+                st.text_input("ผู้ดูแล", value=owner or "-", disabled=True, key="manual_owner_disabled")
 
-        submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
+            submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
     if open_product_selector_submitted:
         st.session_state["manual_product_selector_open"] = True
