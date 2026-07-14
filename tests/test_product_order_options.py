@@ -163,6 +163,35 @@ assert manual_ui.filter_product_picker_options(picker_products, "drink", limit=1
 assert manual_ui.filter_product_picker_options(picker_products, "missing") == []
 assert manual_ui.filter_product_picker_options(picker_products, "", limit=2) == []
 assert manual_ui.filter_product_picker_options(picker_products, "", limit=20) == []
+selector_products = [
+    {
+        "sku": "SP999",
+        "product_name": f"Variant {index:02d}",
+        "product_group": "Bundle",
+        "image_url": "https://example.com/variant.jpg" if index == 0 else "",
+    }
+    for index in range(30)
+]
+selector_matches = manual_ui.filter_product_selector_options(selector_products, "SP999")
+assert len(selector_matches) == 30
+assert manual_ui.filter_product_selector_options(selector_products, "") == []
+assert manual_ui.filter_product_selector_options(selector_products, "variant 05") == [selector_products[5]]
+assert manual_ui.normalize_product_selector_page_size(10) == 10
+assert manual_ui.normalize_product_selector_page_size(25) == 25
+assert manual_ui.normalize_product_selector_page_size(50) == 50
+assert manual_ui.normalize_product_selector_page_size(99) == 10
+page_items, page, total_pages = manual_ui.paginate_product_selector_options(selector_matches, 1, 10)
+assert page_items == selector_products[:10]
+assert page == 1
+assert total_pages == 3
+page_items, page, total_pages = manual_ui.paginate_product_selector_options(selector_matches, 2, 25)
+assert page_items == selector_products[25:30]
+assert page == 2
+assert total_pages == 2
+page_items, page, total_pages = manual_ui.paginate_product_selector_options(selector_matches, 99, 50)
+assert page_items == selector_products
+assert page == 1
+assert total_pages == 1
 assert manual_ui.selected_product_key(picker_products[0]) == "SP680::Coffee Premium"
 assert manual_ui.product_from_key(picker_products, "SP680::Coffee Premium") == picker_products[0]
 assert manual_ui.product_from_key(picker_products, "missing") == {}
@@ -174,10 +203,23 @@ manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
 assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
+assert "PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]" in manual_source
 assert "render_manual_product_picker(product_options)" in manual_source
-assert "if not clean_query:" in manual_source
-assert "manual_product_query" in manual_source
+assert "render_manual_product_selector_dialog(product_options)" in manual_source
+assert "@st.dialog(" in manual_source
+assert "manual_product_selector_open" in manual_source
+assert "manual_product_selector_query" in manual_source
+assert "manual_product_selector_page" in manual_source
+assert "manual_product_selector_page_size" in manual_source
+assert "manual_product_selector_selected_product" in manual_source
+assert "manual_product_selector_selected_product_sku" in manual_source
+assert "filter_product_selector_options" in manual_source
+assert "paginate_product_selector_options" in manual_source
+assert "PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS" in manual_source
+assert "page_items, page, total_pages = paginate_product_selector_options" in manual_source
+assert "manual_product_query" not in manual_source
 assert "st.session_state[\"manual_product_query\"] = \"\"" not in manual_source
+assert "manual_product_selector_query" not in inspect.getsource(manual_ui.select_manual_product)
 assert "manual_product_picker_hide_results" in manual_source
 assert "manual_selected_product" in manual_source
 assert "manual_selected_product_sku" in manual_source
@@ -185,6 +227,7 @@ assert "filter_product_picker_options" in manual_source
 assert "product_picker_search_text" in manual_source
 assert "selected_product = selected_manual_product(product_options)" in manual_source
 assert "add_manual_order_item(product, int(selected_product_qty or 1), item_amount)" in manual_source
+assert "neon.upsert_manual_order_items(" in manual_source
 assert "render_manual_product_preview" in manual_source
 assert "selected_product_image_preview_url" in manual_source
 assert "getattr(neon, \"product_image_preview_url\", None)" in manual_source
