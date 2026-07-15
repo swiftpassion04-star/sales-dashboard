@@ -211,6 +211,7 @@ assert invalid_error
 
 manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
+dashboard_source = Path("pages/dashboard.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
 assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
 assert "PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]" in manual_source
@@ -430,5 +431,16 @@ assert "fetch_product_options(" not in helper_source
 assert "delete " not in helper_source
 assert "insert " not in helper_source
 assert "update " not in helper_source
+
+assert "sales-sheet-row-highlight" in dashboard_source
+assert "background: #e86a00;" in dashboard_source
+assert "color: #ffffff;" in dashboard_source
+assert ".sales-sheet-head {\n  background: #fff200;" not in dashboard_source
+assert 'if sale_type in {"NEW_ORDER", "UPSELL"}' in dashboard_source
+assert '"sales-sheet-row-highlight"' in dashboard_source
+assert "def _sales_report_where" not in dashboard_source
+assert "def fetch_sales_report(" not in dashboard_source
+assert "def fetch_sales_report_rows(" not in dashboard_source
+assert "def upsert_manual_order_items" not in dashboard_source
 
 print("product order options safety OK")

@@ -162,10 +162,13 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders, user:
   align-items: center;
 }
 .sales-sheet-head {
-  background: #fff200;
-  color: #111827;
+  background: #e86a00;
+  color: #ffffff;
   font-weight: 800;
   justify-content: center;
+}
+.sales-sheet-row-highlight {
+  background: #fff3b0;
 }
 .sales-sheet-row-alt {
   background: #fff7ed;
@@ -220,7 +223,11 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders, user:
         html_parts.append(f'<div class="sales-sheet-cell sales-sheet-head">{html.escape(label)}</div>')
     for index, row in enumerate(rows, start=1):
         sale_type = str(row.get("sale_type") or "").strip()
-        row_class = "sales-sheet-row-alt" if index % 2 == 0 else ""
+        row_class = (
+            "sales-sheet-row-highlight"
+            if sale_type in {"NEW_ORDER", "UPSELL"}
+            else "sales-sheet-row-alt" if index % 2 == 0 else ""
+        )
         product = " ".join(part for part in [str(row.get("sku") or "").strip(), str(row.get("product_name") or "").strip()] if part)
         cells = [
             (str(index), "sales-sheet-center"),
