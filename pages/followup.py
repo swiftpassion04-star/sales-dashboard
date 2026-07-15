@@ -934,13 +934,23 @@ def render_popup_picker_thumbnail(container, product: dict, width: int = 48) -> 
 
 
 def render_popup_product_picker(product_options: list[dict], row_key: str) -> None:
-    if st.session_state.get(popup_product_picker_state_key(row_key, "open")):
-        render_popup_product_selector_dialog(product_options, row_key)
+    if not st.session_state.get(popup_product_picker_state_key(row_key, "open")):
+        return
+    render_popup_product_selector_panel(product_options, row_key)
 
 
-@st.dialog("\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", width="large")
-def render_popup_product_selector_dialog(product_options: list[dict], row_key: str) -> None:
-    st.caption("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32 \u0e41\u0e25\u0e49\u0e27\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e08\u0e32\u0e01\u0e15\u0e32\u0e23\u0e32\u0e07\u0e14\u0e49\u0e32\u0e19\u0e25\u0e48\u0e32\u0e07")
+def render_popup_product_selector_panel(product_options: list[dict], row_key: str) -> None:
+    with st.container(border=True):
+        header_col, close_col = st.columns([3.0, 1.0], vertical_alignment="center")
+        header_col.markdown("#### \u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+        if close_col.button("\u0e1b\u0e34\u0e14", key=popup_product_picker_state_key(row_key, "close_top"), use_container_width=True):
+            st.session_state[popup_product_picker_state_key(row_key, "open")] = False
+            st.rerun()
+        st.caption("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32 \u0e41\u0e25\u0e49\u0e27\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e08\u0e32\u0e01\u0e15\u0e32\u0e23\u0e32\u0e07\u0e14\u0e49\u0e32\u0e19\u0e25\u0e48\u0e32\u0e07")
+        render_popup_product_selector_panel_body(product_options, row_key)
+
+
+def render_popup_product_selector_panel_body(product_options: list[dict], row_key: str) -> None:
     query_key = popup_product_picker_state_key(row_key, "query")
     query = st.text_input("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU / \u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", key=query_key)
     clean_query = clean(query)

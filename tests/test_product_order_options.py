@@ -261,8 +261,10 @@ assert "f\"{prefix}_product_select\"" not in followup_source
 assert "pc1.selectbox(" not in followup_source
 assert "product_action.form_submit_button" in followup_source
 assert "open_product_selector" in followup_source
-assert "render_popup_product_selector_dialog(product_options, row_key)" in followup_source
-assert "@st.dialog(" in followup_source
+assert "render_popup_product_selector_panel(product_options, row_key)" in followup_source
+assert "def render_popup_product_selector_panel" in followup_source
+assert "st.container(border=True)" in followup_source
+assert "@st.dialog(" not in followup_source.split("def render_popup_product_picker", 1)[1]
 assert "popup_product_picker_state_key(prefix, \"open\")" in followup_source
 assert "popup_product_picker_state_key(row_key, \"query\")" in followup_source
 assert "popup_product_picker_state_key(row_key, \"page\")" in followup_source
