@@ -504,6 +504,61 @@ def followup_option_or_default(value: str, options: dict, default: str) -> str:
     return text if text in options else default
 
 
+def serialize_popup_followup_date(value) -> tuple[str | None, str]:
+    if value in (None, ""):
+        return None, ""
+    if isinstance(value, date):
+        return value.isoformat(), ""
+    parsed = parse_date(value)
+    if parsed:
+        return parsed.isoformat(), ""
+    return None, "\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48\u0e19\u0e31\u0e14\u0e44\u0e21\u0e48\u0e16\u0e39\u0e01\u0e15\u0e49\u0e2d\u0e07"
+
+
+def build_popup_followup_payload(row: dict, user: dict, prefix: str) -> tuple[dict, list[str]]:
+    lead_status = clean(st.session_state.get(f"{prefix}_lead_status"))
+    followup_status = clean(st.session_state.get(f"{prefix}_followup_status"))
+    priority = clean(st.session_state.get(f"{prefix}_priority"))
+    next_followup_date, date_error = serialize_popup_followup_date(
+        st.session_state.get(f"{prefix}_next_followup_date")
+    )
+    errors = []
+    if lead_status not in LEAD_STATUS_OPTIONS:
+        errors.append("\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32\u0e44\u0e21\u0e48\u0e16\u0e39\u0e01\u0e15\u0e49\u0e2d\u0e07")
+    if followup_status not in FOLLOWUP_STATUS_OPTIONS:
+        errors.append("\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e44\u0e21\u0e48\u0e16\u0e39\u0e01\u0e15\u0e49\u0e2d\u0e07")
+    if priority not in FOLLOWUP_PRIORITY_OPTIONS:
+        errors.append("\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e33\u0e04\u0e31\u0e0d\u0e44\u0e21\u0e48\u0e16\u0e39\u0e01\u0e15\u0e49\u0e2d\u0e07")
+    if date_error:
+        errors.append(date_error)
+    phone1 = clean(st.session_state.get(f"{prefix}_phone1"))
+    phone2 = clean(st.session_state.get(f"{prefix}_phone2"))
+    payload = {
+        "customer_key": clean(row.get("customer_key")),
+        "crm_data_import_id": clean(row.get("crm_data_import_id")),
+        "order_id": clean(row.get("order_id")),
+        "customer_id": clean(row.get("crm_data_import_id")),
+        "customer_name": clean(st.session_state.get(f"{prefix}_customer_name")),
+        "phone_key": phone1 or phone2,
+        "phone1": phone1,
+        "phone2": phone2,
+        "product_name": clean(row.get("product_name")),
+        "sku": clean(row.get("sku")),
+        "url": clean(st.session_state.get(f"{prefix}_url")),
+        "staff_code": clean(row.get("staff_code")),
+        "owner": clean(row.get("owner")),
+        "lead_status": lead_status,
+        "followup_status": followup_status,
+        "next_followup_date": next_followup_date,
+        "follow_up_status": followup_status,
+        "follow_up_date": next_followup_date,
+        "priority": priority,
+        "updated_by": clean(user.get("email")),
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+    return payload, errors
+
+
 def row_key(row: dict) -> str:
     return clean(row.get("crm_data_import_id")) or clean(row.get("customer_key")) or clean(row.get("order_id")) or clean(row.get("phone1")) or clean(row.get("phone2"))
 
@@ -751,6 +806,21 @@ def _render_order_dialog(row: dict, user: dict) -> None:
     duplicate_lock_warning = neon.clean(result.get("duplicate_lock_warning"))
     if duplicate_lock_warning:
         st.warning(duplicate_lock_warning)
+
+    followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)
+    if followup_update_errors:
+        st.error(
+            "\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e04\u0e33\u0e2a\u0e31\u0e48\u0e07\u0e0b\u0e37\u0e49\u0e2d\u0e41\u0e25\u0e49\u0e27 \u0e41\u0e15\u0e48\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e44\u0e21\u0e48\u0e16\u0e39\u0e01\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15: "
+            + " / ".join(followup_update_errors)
+        )
+        return
+    try:
+        with perf_trace("followup.update_after_order", action="save_order"):
+            upsert_lead_followup(followup_payload)
+    except Exception as exc:
+        st.error(f"\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e04\u0e33\u0e2a\u0e31\u0e48\u0e07\u0e0b\u0e37\u0e49\u0e2d\u0e41\u0e25\u0e49\u0e27 \u0e41\u0e15\u0e48\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08: {exc}")
+        return
+
     with perf_trace("followup.clear_caches", action="save_order"):
         clear_cached_functions_safely(
             fetch_followup_filter_options,

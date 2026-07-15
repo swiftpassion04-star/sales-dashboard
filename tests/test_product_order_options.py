@@ -333,7 +333,46 @@ order_dialog_source = followup_source.split("def _render_order_dialog", 1)[1].sp
     "def find_popup_order_owner_conflict",
     1,
 )[0]
-assert "upsert_lead_followup(" not in order_dialog_source
+assert "def build_popup_followup_payload(row: dict, user: dict, prefix: str)" in followup_source
+assert "def serialize_popup_followup_date(value)" in followup_source
+assert "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)" in order_dialog_source
+assert "upsert_lead_followup(followup_payload)" in order_dialog_source
+assert order_dialog_source.index("result = upsert_manual_order_items(") < order_dialog_source.index(
+    "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)"
+)
+assert order_dialog_source.index(
+    "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)"
+) < order_dialog_source.index("upsert_lead_followup(followup_payload)")
+assert order_dialog_source.index("upsert_lead_followup(followup_payload)") < order_dialog_source.index(
+    "clear_popup_order_state(prefix, row)"
+)
+validate_fail_source = order_dialog_source.split("if errors:", 1)[1].split("if not can_manage_all(user):", 1)[0]
+assert "upsert_lead_followup(" not in validate_fail_source
+save_fail_source = order_dialog_source.split("except Exception as exc:", 1)[1].split(
+    'duplicate_lock_warning = neon.clean(result.get("duplicate_lock_warning"))',
+    1,
+)[0]
+assert "upsert_lead_followup(" not in save_fail_source
+for field in (
+    '"customer_name"',
+    '"phone1"',
+    '"phone2"',
+    '"url"',
+    '"lead_status"',
+    '"followup_status"',
+    '"follow_up_status"',
+    '"next_followup_date"',
+    '"follow_up_date"',
+    '"priority"',
+):
+    assert field in followup_source
+assert "lead_status not in LEAD_STATUS_OPTIONS" in followup_source
+assert "followup_status not in FOLLOWUP_STATUS_OPTIONS" in followup_source
+assert "priority not in FOLLOWUP_PRIORITY_OPTIONS" in followup_source
+assert "if isinstance(value, date):" in followup_source
+assert "return value.isoformat(), """ in followup_source
+assert "clear_popup_order_state(prefix, row)" in order_dialog_source
+assert "def upsert_manual_order_items" not in followup_source
 
 followup_tree = ast.parse(followup_source)
 needed_followup_defs = {
