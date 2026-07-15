@@ -227,7 +227,12 @@ assert "manual_selected_product_sku" in manual_source
 assert "filter_product_picker_options" in manual_source
 assert "product_picker_search_text" in manual_source
 assert "selected_product = selected_manual_product(product_options)" in manual_source
+assert "add_manual_order_item(product, 1, 0.0)" in manual_source
 assert "add_manual_order_item(product, int(selected_product_qty or 1), item_amount)" in manual_source
+assert "key=f\"manual_item_qty_{index}\"" in manual_source
+assert "key=f\"manual_item_amount_{index}\"" in manual_source
+assert "item[\"qty\"] = int(qty_value or 1)" in manual_source
+assert "item[\"amount\"] = float(amount_value or 0)" in manual_source
 assert "neon.upsert_manual_order_items(" in manual_source
 assert "render_manual_product_preview" in manual_source
 assert "selected_product_image_preview_url" in manual_source
@@ -252,6 +257,8 @@ assert "render_popup_product_picker(product_options, prefix)" in followup_source
 assert "selected_product = selected_popup_product(product_options, prefix)" in followup_source
 assert "product = selected_popup_product(product_options, prefix)" in followup_source
 assert "select_popup_product(row_key, product, clean_query)" in followup_source
+assert "add_popup_order_item(row_key, product, 1, 0.0)" in followup_source
+assert "add_popup_order_item(prefix, product, int(selected_qty or 1), amount)" in followup_source
 assert "st.session_state[popup_product_picker_state_key(row_key, \"selected_product\")]" in followup_source
 assert "st.session_state[popup_product_picker_state_key(row_key, \"selected_product_sku\")]" in followup_source
 assert "st.session_state[popup_product_picker_state_key(row_key, \"hide_results\")]" in followup_source
@@ -275,6 +282,10 @@ assert "POPUP_PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS" in followup_source
 assert "\"product_group\": clean(row.get(\"product_group\"))" in followup_source
 assert "render_popup_order_item_preview(cols[1], item)" in followup_source
 assert "\"image_url\": image_url" in followup_source
+assert "key=f\"{prefix}_item_qty_{index}\"" in followup_source
+assert "key=f\"{prefix}_item_amount_{index}\"" in followup_source
+assert "item[\"qty\"] = int(qty_value or 1)" in followup_source
+assert "item[\"amount\"] = float(amount_value or 0)" in followup_source
 assert "upsert_manual_order_items(" in followup_source
 assert "result = upsert_manual_order_items(" in followup_source
 assert "items," in followup_source

@@ -453,15 +453,13 @@ def render_manual_product_selector_dialog(product_options: list[dict]) -> None:
         cols[1].write(neon.clean(product.get("sku")) or "-")
         cols[2].write(neon.clean(product.get("product_name")) or "-")
         cols[3].write(neon.clean(product.get("product_group")) or "-")
-        selected = product_key == current_key
         if cols[4].button(
-            "\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e41\u0e25\u0e49\u0e27" if selected else "\u0e40\u0e25\u0e37\u0e2d\u0e01",
+            "\u0e40\u0e25\u0e37\u0e2d\u0e01",
             key=f"manual_product_selector_pick_{page}_{index}_{product_key}",
-            disabled=selected,
             use_container_width=True,
         ):
             select_manual_product(product)
-            st.session_state["manual_product_selector_open"] = False
+            add_manual_order_item(product, 1, 0.0)
             st.rerun()
 
     nav_prev, nav_status, nav_next, nav_close = st.columns([0.9, 1.4, 0.9, 0.9])
@@ -556,8 +554,24 @@ def render_manual_order_items() -> int | None:
         cols[0].write(neon.clean(item.get("sku")) or "-")
         cols[1].write(neon.clean(item.get("product_name")) or "-")
         render_manual_order_item_preview(cols[1], item)
-        cols[2].write(int(item.get("qty") or 0))
-        cols[3].write(f"{float(item.get('amount') or 0):,.2f}")
+        qty_value = cols[2].number_input(
+            "\u0e08\u0e33\u0e19\u0e27\u0e19",
+            min_value=1,
+            value=max(1, int(item.get("qty") or 1)),
+            step=1,
+            key=f"manual_item_qty_{index}",
+            label_visibility="collapsed",
+        )
+        amount_value = cols[3].number_input(
+            "\u0e23\u0e32\u0e04\u0e32",
+            min_value=0.0,
+            value=max(0.0, float(item.get("amount") or 0)),
+            step=1.0,
+            key=f"manual_item_amount_{index}",
+            label_visibility="collapsed",
+        )
+        item["qty"] = int(qty_value or 1)
+        item["amount"] = float(amount_value or 0)
         if cols[4].form_submit_button("ลบ", key=f"manual_item_delete_{index}", use_container_width=True):
             delete_index = index
     return delete_index
