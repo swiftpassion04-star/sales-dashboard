@@ -19,7 +19,7 @@ from neon_utils import (
     validate_phone_pair,
 )
 from permissions import can_manage_all, can_view_followup, can_view_followup_owner_filter
-from ui.manual_order_ui import parse_price_input
+from ui.manual_order_ui import parse_price_input, parse_required_price_input
 from ui.pagination import get_pagination_state, render_pagination
 from ui.perf import perf_trace
 
@@ -643,16 +643,6 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
         product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
         open_product_selector = product_action.form_submit_button("+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", use_container_width=True)
-        if st.session_state.pop(f"{prefix}_product_reset", False):
-            st.session_state[f"{prefix}_product_qty"] = 1
-            st.session_state[f"{prefix}_product_amount"] = ""
-        selected_product = selected_popup_product(product_options, prefix)
-        pc1, pc2, pc3, pc4 = st.columns([2.2, 0.7, 0.8, 1.1])
-        with pc1:
-            render_popup_selected_product(selected_product)
-        selected_qty = pc2.number_input("จำนวน", min_value=1, value=1, step=1, key=f"{prefix}_product_qty")
-        selected_amount = pc3.text_input("ราคา", placeholder="กรอกราคา", key=f"{prefix}_product_amount")
-        add_item = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
         delete_index = render_popup_order_items(prefix)
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
@@ -662,21 +652,6 @@ def _render_order_dialog(row: dict, user: dict) -> None:
 
     render_popup_product_picker(product_options, prefix)
 
-    if add_item:
-        with perf_trace("followup.add_order_item", action="add_item", sale_type=sale_type):
-            product = selected_popup_product(product_options, prefix)
-            if not product:
-                st.error("กรุณาเลือกสินค้า")
-                return
-            price_ok, parsed_amount, price_error = parse_price_input(selected_amount)
-            if not price_ok:
-                st.error(price_error)
-                return
-            amount = 0.0 if sale_type == "FOLLOW" else parsed_amount
-            add_popup_order_item(prefix, product, int(selected_qty or 1), amount)
-            st.session_state[f"{prefix}_product_reset"] = True
-            with perf_trace("followup.rerun", action="add_item"):
-                st.rerun()
     if delete_index is not None:
         remove_popup_order_item(prefix, delete_index)
         st.rerun()
@@ -692,6 +667,15 @@ def _render_order_dialog(row: dict, user: dict) -> None:
     errors.extend(validate_phone_pair(phone1, phone2))
     if not items:
         errors.append("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ")
+    price_error = False
+    for item in items:
+        price_ok, parsed_amount, _price_error = parse_required_price_input(item.get("amount"))
+        if not price_ok:
+            price_error = True
+            break
+        item["amount"] = parsed_amount
+    if price_error:
+        errors.append("\u0e01\u0e23\u0e38\u0e13\u0e32\u0e01\u0e23\u0e2d\u0e01\u0e23\u0e32\u0e04\u0e32\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e43\u0e2b\u0e49\u0e04\u0e23\u0e1a\u0e17\u0e38\u0e01\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23")
     if errors:
         st.error(" / ".join(errors))
         return
@@ -1005,7 +989,7 @@ def render_popup_product_selector_panel_body(product_options: list[dict], row_ke
             use_container_width=True,
         ):
             select_popup_product(row_key, product, clean_query)
-            add_popup_order_item(row_key, product, 1, 0.0)
+            add_popup_order_item(row_key, product, 1, None)
             st.rerun()
 
     nav_prev, nav_status, nav_next, nav_close = st.columns([0.9, 1.4, 0.9, 0.9])
@@ -1050,22 +1034,34 @@ def selected_product_image_preview_url(product: dict) -> str:
     return ""
 
 
-def add_popup_order_item(prefix: str, product: dict, qty: int, amount: float) -> None:
+def add_popup_order_item(prefix: str, product: dict, qty: int, amount=None) -> None:
     items = list(st.session_state.get(f"{prefix}_items", []))
     sku = clean(product.get("sku"))
     product_name = clean(product.get("product_name"))
+    product_group = clean(product.get("product_group"))
     qty = max(1, int(qty or 1))
-    amount = max(0.0, float(amount or 0))
+    amount_value = "" if amount in (None, "") else amount
     image_url = clean(product.get("image_url"))
     for item in items:
         if clean(item.get("sku")) == sku and clean(item.get("product_name")) == product_name:
             item["qty"] = int(item.get("qty") or 0) + qty
-            item["amount"] = float(item.get("amount") or 0) + amount
+            if amount_value != "":
+                current_amount = item.get("amount")
+                item["amount"] = float(current_amount or 0) + float(amount_value or 0)
+            if product_group and not clean(item.get("product_group")):
+                item["product_group"] = product_group
             if image_url and not clean(item.get("image_url")):
                 item["image_url"] = image_url
             st.session_state[f"{prefix}_items"] = items
             return
-    items.append({"sku": sku, "product_name": product_name, "qty": qty, "amount": amount, "image_url": image_url})
+    items.append({
+        "sku": sku,
+        "product_name": product_name,
+        "product_group": product_group,
+        "qty": qty,
+        "amount": amount_value,
+        "image_url": image_url,
+    })
     st.session_state[f"{prefix}_items"] = items
 
 
@@ -1104,16 +1100,15 @@ def render_popup_order_items(prefix: str) -> int | None:
             key=f"{prefix}_item_qty_{index}",
             label_visibility="collapsed",
         )
-        amount_value = cols[3].number_input(
+        amount_text = "" if item.get("amount") in (None, "") else str(item.get("amount"))
+        amount_value = cols[3].text_input(
             "\u0e23\u0e32\u0e04\u0e32",
-            min_value=0.0,
-            value=max(0.0, float(item.get("amount") or 0)),
-            step=1.0,
+            value=amount_text,
             key=f"{prefix}_item_amount_{index}",
             label_visibility="collapsed",
         )
         item["qty"] = int(qty_value or 1)
-        item["amount"] = float(amount_value or 0)
+        item["amount"] = str(amount_value or "").strip()
         if cols[4].form_submit_button("ลบ", key=f"{prefix}_delete_{index}", use_container_width=True):
             delete_index = index
     return delete_index

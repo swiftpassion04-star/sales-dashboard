@@ -25,6 +25,13 @@ def parse_price_input(value: str) -> tuple[bool, float, str]:
     return True, amount, ""
 
 
+def parse_required_price_input(value: str) -> tuple[bool, float, str]:
+    text = str(value or "").strip()
+    if not text:
+        return False, 0.0, "\u0e01\u0e23\u0e38\u0e13\u0e32\u0e01\u0e23\u0e2d\u0e01\u0e23\u0e32\u0e04\u0e32\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e43\u0e2b\u0e49\u0e04\u0e23\u0e1a\u0e17\u0e38\u0e01\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23"
+    return parse_price_input(text)
+
+
 def render_manual_order_form(user: dict, is_editor: bool) -> None:
     with perf_trace("manual_order.render_form", role=user.get("role")):
         _render_manual_order_form(user, is_editor)
@@ -75,16 +82,6 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
                 "+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32",
                 use_container_width=True,
             )
-            if st.session_state.pop("manual_product_reset_requested", False):
-                st.session_state["manual_product_qty"] = 1
-                st.session_state["manual_product_amount"] = ""
-            selected_product = selected_manual_product(product_options)
-            pc1, pc2, pc3, pc4 = st.columns([2.2, 0.6, 0.8, 1.1])
-            with pc1:
-                render_manual_selected_product(selected_product)
-            selected_product_qty = pc2.number_input("\u0e08\u0e33\u0e19\u0e27\u0e19", min_value=1, value=1, step=1, key="manual_product_qty")
-            selected_product_amount = pc3.text_input("\u0e23\u0e32\u0e04\u0e32", placeholder="\u0e01\u0e23\u0e2d\u0e01\u0e23\u0e32\u0e04\u0e32", key="manual_product_amount")
-            add_product_submitted = pc4.form_submit_button("\u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e2d\u0e35\u0e01 1 \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23", use_container_width=True)
             delete_item_index = render_manual_order_items()
 
             owner = neon.clean(user.get("staff_name"))
@@ -118,22 +115,6 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
 
         render_manual_product_picker(product_options)
 
-    if add_product_submitted:
-        with perf_trace("manual_order.add_item", action="add_item", sale_type=sale_type):
-            product = selected_manual_product(product_options)
-            if not product:
-                st.error("กรุณาเลือกสินค้า")
-                return
-            price_ok, parsed_amount, price_error = parse_price_input(selected_product_amount)
-            if not price_ok:
-                st.error(price_error)
-                return
-            item_amount = 0.0 if sale_type == "FOLLOW" else parsed_amount
-            add_manual_order_item(product, int(selected_product_qty or 1), item_amount)
-            st.session_state["manual_product_reset_requested"] = True
-            with perf_trace("manual_order.rerun", action="add_item"):
-                st.rerun()
-
     if delete_item_index is not None:
         remove_manual_order_item(delete_item_index)
         st.rerun()
@@ -152,6 +133,15 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         errors.append("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ")
     if any(int(item.get("qty") or 0) <= 0 for item in manual_items):
         errors.append("จำนวนสินค้าต้องมากกว่า 0")
+    price_error = False
+    for item in manual_items:
+        price_ok, parsed_amount, _price_error = parse_required_price_input(item.get("amount"))
+        if not price_ok:
+            price_error = True
+            break
+        item["amount"] = parsed_amount
+    if price_error:
+        errors.append("\u0e01\u0e23\u0e38\u0e13\u0e32\u0e01\u0e23\u0e2d\u0e01\u0e23\u0e32\u0e04\u0e32\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e43\u0e2b\u0e49\u0e04\u0e23\u0e1a\u0e17\u0e38\u0e01\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23")
     if not owner:
         errors.append("กรุณาระบุผู้ดูแล")
     if not staff_code:
@@ -459,7 +449,7 @@ def render_manual_product_selector_dialog(product_options: list[dict]) -> None:
             use_container_width=True,
         ):
             select_manual_product(product)
-            add_manual_order_item(product, 1, 0.0)
+            add_manual_order_item(product, 1, None)
             st.rerun()
 
     nav_prev, nav_status, nav_next, nav_close = st.columns([0.9, 1.4, 0.9, 0.9])
@@ -504,22 +494,34 @@ def selected_product_image_preview_url(product: dict) -> str:
     return ""
 
 
-def add_manual_order_item(product: dict, qty: int, amount: float) -> None:
+def add_manual_order_item(product: dict, qty: int, amount=None) -> None:
     items = list(st.session_state.get("manual_order_items", []))
     sku = neon.clean(product.get("sku"))
     product_name = neon.clean(product.get("product_name"))
+    product_group = neon.clean(product.get("product_group"))
     qty = max(1, int(qty or 1))
-    amount = max(0.0, float(amount or 0))
+    amount_value = "" if amount in (None, "") else amount
     image_url = neon.clean(product.get("image_url"))
     for item in items:
         if neon.clean(item.get("sku")) == sku and neon.clean(item.get("product_name")) == product_name:
             item["qty"] = int(item.get("qty") or 0) + qty
-            item["amount"] = float(item.get("amount") or 0) + amount
+            if amount_value != "":
+                current_amount = item.get("amount")
+                item["amount"] = float(current_amount or 0) + float(amount_value or 0)
+            if product_group and not neon.clean(item.get("product_group")):
+                item["product_group"] = product_group
             if image_url and not neon.clean(item.get("image_url")):
                 item["image_url"] = image_url
             st.session_state["manual_order_items"] = items
             return
-    items.append({"sku": sku, "product_name": product_name, "qty": qty, "amount": amount, "image_url": image_url})
+    items.append({
+        "sku": sku,
+        "product_name": product_name,
+        "product_group": product_group,
+        "qty": qty,
+        "amount": amount_value,
+        "image_url": image_url,
+    })
     st.session_state["manual_order_items"] = items
 
 
@@ -562,16 +564,15 @@ def render_manual_order_items() -> int | None:
             key=f"manual_item_qty_{index}",
             label_visibility="collapsed",
         )
-        amount_value = cols[3].number_input(
+        amount_text = "" if item.get("amount") in (None, "") else str(item.get("amount"))
+        amount_value = cols[3].text_input(
             "\u0e23\u0e32\u0e04\u0e32",
-            min_value=0.0,
-            value=max(0.0, float(item.get("amount") or 0)),
-            step=1.0,
+            value=amount_text,
             key=f"manual_item_amount_{index}",
             label_visibility="collapsed",
         )
         item["qty"] = int(qty_value or 1)
-        item["amount"] = float(amount_value or 0)
+        item["amount"] = str(amount_value or "").strip()
         if cols[4].form_submit_button("ลบ", key=f"manual_item_delete_{index}", use_container_width=True):
             delete_index = index
     return delete_index

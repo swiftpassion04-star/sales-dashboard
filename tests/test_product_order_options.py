@@ -199,6 +199,15 @@ assert manual_ui.product_from_key(picker_products, "missing") == {}
 assert manual_ui.selected_product_image_preview_url(picker_products[0]) == "https://example.com/sp680.jpg"
 assert manual_ui.selected_product_image_preview_url(picker_products[1]) == ""
 assert manual_ui.selected_product_image_preview_url(picker_products[2]) == ""
+assert manual_ui.parse_required_price_input("")[0] is False
+assert manual_ui.parse_required_price_input(None)[0] is False
+zero_ok, zero_amount, zero_error = manual_ui.parse_required_price_input("0")
+assert zero_ok is True
+assert zero_amount == 0.0
+assert zero_error == ""
+invalid_ok, _invalid_amount, invalid_error = manual_ui.parse_required_price_input("abc")
+assert invalid_ok is False
+assert invalid_error
 
 manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
@@ -226,13 +235,20 @@ assert "manual_selected_product" in manual_source
 assert "manual_selected_product_sku" in manual_source
 assert "filter_product_picker_options" in manual_source
 assert "product_picker_search_text" in manual_source
-assert "selected_product = selected_manual_product(product_options)" in manual_source
-assert "add_manual_order_item(product, 1, 0.0)" in manual_source
-assert "add_manual_order_item(product, int(selected_product_qty or 1), item_amount)" in manual_source
+assert "add_manual_order_item(product, 1, None)" in manual_source
+assert "add_product_submitted" not in manual_source
+assert "selected_product_qty" not in manual_source
+assert "selected_product_amount" not in manual_source
+assert "parse_required_price_input" in manual_source
+assert "amount_value = \"\" if amount in (None, \"\") else amount" in manual_source
+assert "key=f\"manual_item_amount_{index}\"" in manual_source
+assert "cols[3].text_input(" in manual_source
+assert "price_ok, parsed_amount, _price_error = parse_required_price_input(item.get(\"amount\"))" in manual_source
+assert "item[\"amount\"] = parsed_amount" in manual_source
 assert "key=f\"manual_item_qty_{index}\"" in manual_source
 assert "key=f\"manual_item_amount_{index}\"" in manual_source
 assert "item[\"qty\"] = int(qty_value or 1)" in manual_source
-assert "item[\"amount\"] = float(amount_value or 0)" in manual_source
+assert "item[\"amount\"] = str(amount_value or \"\").strip()" in manual_source
 assert "neon.upsert_manual_order_items(" in manual_source
 assert "render_manual_product_preview" in manual_source
 assert "selected_product_image_preview_url" in manual_source
@@ -254,11 +270,16 @@ assert "if not tokens:" in followup_source
 assert "return []" in followup_source
 assert "def paginate_popup_product_selector_options(" in followup_source
 assert "render_popup_product_picker(product_options, prefix)" in followup_source
-assert "selected_product = selected_popup_product(product_options, prefix)" in followup_source
-assert "product = selected_popup_product(product_options, prefix)" in followup_source
 assert "select_popup_product(row_key, product, clean_query)" in followup_source
-assert "add_popup_order_item(row_key, product, 1, 0.0)" in followup_source
-assert "add_popup_order_item(prefix, product, int(selected_qty or 1), amount)" in followup_source
+assert "add_popup_order_item(row_key, product, 1, None)" in followup_source
+assert "parse_required_price_input" in followup_source
+assert "add_item = pc4.form_submit_button" not in followup_source
+assert "selected_amount" not in followup_source
+assert "selected_qty" not in followup_source
+assert "amount_value = \"\" if amount in (None, \"\") else amount" in followup_source
+assert "cols[3].text_input(" in followup_source
+assert "price_ok, parsed_amount, _price_error = parse_required_price_input(item.get(\"amount\"))" in followup_source
+assert "item[\"amount\"] = parsed_amount" in followup_source
 assert "st.session_state[popup_product_picker_state_key(row_key, \"selected_product\")]" in followup_source
 assert "st.session_state[popup_product_picker_state_key(row_key, \"selected_product_sku\")]" in followup_source
 assert "st.session_state[popup_product_picker_state_key(row_key, \"hide_results\")]" in followup_source
@@ -285,7 +306,7 @@ assert "\"image_url\": image_url" in followup_source
 assert "key=f\"{prefix}_item_qty_{index}\"" in followup_source
 assert "key=f\"{prefix}_item_amount_{index}\"" in followup_source
 assert "item[\"qty\"] = int(qty_value or 1)" in followup_source
-assert "item[\"amount\"] = float(amount_value or 0)" in followup_source
+assert "item[\"amount\"] = str(amount_value or \"\").strip()" in followup_source
 assert "upsert_manual_order_items(" in followup_source
 assert "result = upsert_manual_order_items(" in followup_source
 assert "items," in followup_source
