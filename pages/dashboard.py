@@ -225,7 +225,7 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders, user:
         sale_type = str(row.get("sale_type") or "").strip()
         row_class = (
             "sales-sheet-row-highlight"
-            if sale_type in {"NEW_ORDER", "UPSELL"}
+            if sale_type in {"⭐NEW_ORDER", "⭐UPSELL"}
             else "sales-sheet-row-alt" if index % 2 == 0 else ""
         )
         product = " ".join(part for part in [str(row.get("sku") or "").strip(), str(row.get("product_name") or "").strip()] if part)

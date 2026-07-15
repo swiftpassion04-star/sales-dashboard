@@ -212,6 +212,7 @@ assert invalid_error
 manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
 dashboard_source = Path("pages/dashboard.py").read_text(encoding="utf-8")
+dashboard_data_source = Path("crm_data/dashboard.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
 assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
 assert "PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]" in manual_source
@@ -432,15 +433,27 @@ assert "delete " not in helper_source
 assert "insert " not in helper_source
 assert "update " not in helper_source
 
+sale_type_options_source = '["NEW_ORDER", "UPSELL", "FOLLOW", "\u2b50NEW_ORDER", "\u2b50UPSELL"]'
+assert sale_type_options_source in manual_source
+assert sale_type_options_source in followup_source
+
+sales_report_types_source = "('NEW_ORDER', 'UPSELL', '\u2b50NEW_ORDER', '\u2b50UPSELL')"
+assert sales_report_types_source in dashboard_data_source
+assert "('NEW_ORDER', 'UPSELL')" not in dashboard_data_source
+where_source = dashboard_data_source.split("def _sales_report_where", 1)[1].split("return clauses, params", 1)[0]
+assert "'FOLLOW'" not in where_source
+
 assert "sales-sheet-row-highlight" in dashboard_source
 assert "background: #e86a00;" in dashboard_source
 assert "color: #ffffff;" in dashboard_source
 assert ".sales-sheet-head {\n  background: #fff200;" not in dashboard_source
-assert 'if sale_type in {"NEW_ORDER", "UPSELL"}' in dashboard_source
+assert 'if sale_type in {"\u2b50NEW_ORDER", "\u2b50UPSELL"}' in dashboard_source
+assert 'if sale_type in {"NEW_ORDER", "UPSELL"}' not in dashboard_source
 assert '"sales-sheet-row-highlight"' in dashboard_source
 assert "def _sales_report_where" not in dashboard_source
 assert "def fetch_sales_report(" not in dashboard_source
 assert "def fetch_sales_report_rows(" not in dashboard_source
 assert "def upsert_manual_order_items" not in dashboard_source
+assert "def upsert_manual_order_items" not in dashboard_data_source
 
 print("product order options safety OK")

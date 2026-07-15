@@ -72,7 +72,7 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
             phone2 = phone_col2.text_input("เบอร์สำรอง", key="manual_phone2")
             url = st.text_input("URL", key="manual_url")
             address = st.text_area("ที่อยู่", key="manual_address", height=90)
-            sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW"], key="manual_sale_type")
+            sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW", "⭐NEW_ORDER", "⭐UPSELL"], key="manual_sale_type")
             order_date = date.today().isoformat()
             st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
 

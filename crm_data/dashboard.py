@@ -120,7 +120,7 @@ def fetch_sales_report_owner_options(user: dict | None = None) -> list[str]:
                   and owner is not null
                   and owner <> ''
                   and amount is not null
-                  and coalesce(nullif(sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL')
+                  and coalesce(nullif(sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')
                 order by owner
                 """
             )
@@ -135,7 +135,7 @@ def _sales_report_where(user: dict | None, owner_filter: str) -> tuple[list[str]
         "d.created_at >= %s",
         "d.created_at < %s",
         "d.amount is not null",
-        "coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL')",
+        "coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')",
     ]
     params: list = []
     if _can_view_all_sales(user):

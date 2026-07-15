@@ -696,7 +696,7 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         phone2 = p2.text_input("เบอร์สำรอง", key=f"{prefix}_phone2")
         url = st.text_input("URL", key=f"{prefix}_url")
         address = st.text_area("ที่อยู่", key=f"{prefix}_address", height=90)
-        sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW"], key=f"{prefix}_sale_type")
+        sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW", "⭐NEW_ORDER", "⭐UPSELL"], key=f"{prefix}_sale_type")
         st.text_input("ผู้ดูแล", value=owner, disabled=True, key=f"{prefix}_owner_locked")
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {date.today().isoformat()}")
 
