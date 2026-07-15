@@ -499,6 +499,11 @@ def priority_label(value: str) -> str:
     return ALL if value == ALL else normalize_followup_priority(value)
 
 
+def followup_option_or_default(value: str, options: dict, default: str) -> str:
+    text = clean(value)
+    return text if text in options else default
+
+
 def row_key(row: dict) -> str:
     return clean(row.get("crm_data_import_id")) or clean(row.get("customer_key")) or clean(row.get("order_id")) or clean(row.get("phone1")) or clean(row.get("phone2"))
 
@@ -639,6 +644,32 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW"], key=f"{prefix}_sale_type")
         st.text_input("ผู้ดูแล", value=owner, disabled=True, key=f"{prefix}_owner_locked")
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {date.today().isoformat()}")
+
+        st.markdown("#### \u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32")
+        followup_status_cols = st.columns(2)
+        followup_status_cols[0].selectbox(
+            "\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32",
+            list(LEAD_STATUS_OPTIONS.keys()),
+            format_func=lead_label,
+            key=f"{prefix}_lead_status",
+        )
+        followup_status_cols[1].selectbox(
+            "\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21",
+            list(FOLLOWUP_STATUS_OPTIONS.keys()),
+            format_func=followup_label,
+            key=f"{prefix}_followup_status",
+        )
+        followup_meta_cols = st.columns(2)
+        followup_meta_cols[0].selectbox(
+            "\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e33\u0e04\u0e31\u0e0d",
+            list(PRIORITY_OPTIONS.keys()),
+            format_func=priority_label,
+            key=f"{prefix}_priority",
+        )
+        followup_meta_cols[1].date_input("\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48\u0e19\u0e31\u0e14", key=f"{prefix}_next_followup_date")
+        st.caption(
+            "\u0e2b\u0e32\u0e01\u0e41\u0e01\u0e49\u0e44\u0e02\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e43\u0e19\u0e2a\u0e48\u0e27\u0e19\u0e19\u0e35\u0e49 \u0e23\u0e30\u0e1a\u0e1a\u0e08\u0e30\u0e43\u0e0a\u0e49\u0e2a\u0e33\u0e2b\u0e23\u0e31\u0e1a\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e2b\u0e25\u0e31\u0e07\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e04\u0e33\u0e2a\u0e31\u0e48\u0e07\u0e0b\u0e37\u0e49\u0e2d\u0e43\u0e19\u0e40\u0e1f\u0e2a\u0e16\u0e31\u0e14\u0e44\u0e1b"
+        )
 
         product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
         product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
@@ -788,6 +819,18 @@ def prepare_popup_order_state(prefix: str, row: dict) -> None:
     st.session_state[f"{prefix}_url"] = clean(row.get("url"))
     st.session_state[f"{prefix}_address"] = clean(row.get("address"))
     st.session_state[f"{prefix}_sale_type"] = "NEW_ORDER"
+    st.session_state[f"{prefix}_lead_status"] = followup_option_or_default(
+        row.get("lead_status"),
+        LEAD_STATUS_OPTIONS,
+        "new",
+    )
+    st.session_state[f"{prefix}_followup_status"] = followup_option_or_default(
+        row.get("followup_status"),
+        FOLLOWUP_STATUS_OPTIONS,
+        "none",
+    )
+    st.session_state[f"{prefix}_priority"] = normalize_followup_priority(row.get("priority"))
+    st.session_state[f"{prefix}_next_followup_date"] = parse_date(row.get("next_followup_date"))
     st.session_state[popup_product_picker_state_key(prefix, "selected_product")] = {}
     st.session_state[popup_product_picker_state_key(prefix, "selected_product_sku")] = ""
     st.session_state[f"{prefix}_product_qty"] = 1

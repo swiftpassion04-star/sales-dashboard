@@ -310,6 +310,30 @@ assert "item[\"amount\"] = str(amount_value or \"\").strip()" in followup_source
 assert "upsert_manual_order_items(" in followup_source
 assert "result = upsert_manual_order_items(" in followup_source
 assert "items," in followup_source
+assert "def followup_option_or_default(value: str, options: dict, default: str) -> str:" in followup_source
+assert "st.session_state[f\"{prefix}_lead_status\"]" in followup_source
+assert "st.session_state[f\"{prefix}_followup_status\"]" in followup_source
+assert "st.session_state[f\"{prefix}_priority\"]" in followup_source
+assert "st.session_state[f\"{prefix}_next_followup_date\"]" in followup_source
+assert "row.get(\"lead_status\")" in followup_source
+assert "row.get(\"followup_status\")" in followup_source
+assert "row.get(\"priority\")" in followup_source
+assert "row.get(\"next_followup_date\")" in followup_source
+assert "list(LEAD_STATUS_OPTIONS.keys())" in followup_source
+assert "list(FOLLOWUP_STATUS_OPTIONS.keys())" in followup_source
+assert "list(PRIORITY_OPTIONS.keys())" in followup_source
+assert "key=f\"{prefix}_lead_status\"" in followup_source
+assert "key=f\"{prefix}_followup_status\"" in followup_source
+assert "key=f\"{prefix}_priority\"" in followup_source
+assert "date_input(" in followup_source
+assert "key=f\"{prefix}_next_followup_date\"" in followup_source
+assert neon.FOLLOWUP_PRIORITY_OPTIONS == ("Super VIP", "VIP", "Premium", "Economy", "NEW", "Dismiss")
+
+order_dialog_source = followup_source.split("def _render_order_dialog", 1)[1].split(
+    "def find_popup_order_owner_conflict",
+    1,
+)[0]
+assert "upsert_lead_followup(" not in order_dialog_source
 
 followup_tree = ast.parse(followup_source)
 needed_followup_defs = {
