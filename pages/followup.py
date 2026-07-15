@@ -27,7 +27,7 @@ from ui.perf import perf_trace
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
 FOLLOWUP_TABLE_COLUMNS = [0.85, 1.1, 1.0, 2.25, 1.15, 0.75, 1.5, 1.6, 1.7, 0.9, 0.85]
 PRODUCT_PLACEHOLDER = None
-POPUP_PRODUCT_PICKER_LIMIT = 10
+POPUP_PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]
 ALL = "ทั้งหมด"
 LEAD_STATUS_OPTIONS = {
     "new": "ลูกค้าใหม่",
@@ -627,8 +627,6 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         product_options = []
         st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
 
-    render_popup_product_picker(product_options, prefix)
-
     with st.form(f"{prefix}_form", clear_on_submit=False):
         c1, c2 = st.columns(2)
         order_id = c1.text_input("หมายเลขคำสั่งซื้อ", key=f"{prefix}_order_id")
@@ -642,7 +640,9 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         st.text_input("ผู้ดูแล", value=owner, disabled=True, key=f"{prefix}_owner_locked")
         st.caption(f"วันที่สร้างคำสั่งซื้อ: {date.today().isoformat()}")
 
-        st.markdown("#### รายการสินค้า")
+        product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
+        product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+        open_product_selector = product_action.form_submit_button("+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", use_container_width=True)
         if st.session_state.pop(f"{prefix}_product_reset", False):
             st.session_state[f"{prefix}_product_qty"] = 1
             st.session_state[f"{prefix}_product_amount"] = ""
@@ -655,6 +655,12 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         add_item = pc4.form_submit_button("เพิ่มสินค้าอีก 1 รายการ", use_container_width=True)
         delete_index = render_popup_order_items(prefix)
         submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
+
+    if open_product_selector:
+        st.session_state[popup_product_picker_state_key(prefix, "open")] = True
+        st.rerun()
+
+    render_popup_product_picker(product_options, prefix)
 
     if add_item:
         with perf_trace("followup.add_order_item", action="add_item", sale_type=sale_type):
@@ -859,11 +865,7 @@ def popup_selected_product_key(product: dict) -> str:
     return f"{clean(product.get('sku'))}::{clean(product.get('product_name'))}"
 
 
-def filter_popup_product_picker_options(
-    products: list[dict],
-    query: str,
-    limit: int = POPUP_PRODUCT_PICKER_LIMIT,
-) -> list[dict]:
+def filter_popup_product_picker_options(products: list[dict], query: str) -> list[dict]:
     tokens = [token for token in clean(query).casefold().split() if token]
     if not tokens:
         return []
@@ -872,9 +874,25 @@ def filter_popup_product_picker_options(
         haystack = popup_product_picker_search_text(product)
         if all(token in haystack for token in tokens):
             matches.append(product)
-        if len(matches) >= limit:
-            break
     return matches
+
+
+def normalize_popup_product_selector_page_size(value) -> int:
+    try:
+        page_size = int(value)
+    except (TypeError, ValueError):
+        page_size = POPUP_PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS[0]
+    if page_size not in POPUP_PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS:
+        return POPUP_PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS[0]
+    return page_size
+
+
+def paginate_popup_product_selector_options(products: list[dict], page: int, page_size: int) -> tuple[list[dict], int, int]:
+    page_size = normalize_popup_product_selector_page_size(page_size)
+    total_pages = max(1, (len(products) + page_size - 1) // page_size)
+    page = min(max(1, int(page or 1)), total_pages)
+    start = (page - 1) * page_size
+    return products[start : start + page_size], page, total_pages
 
 
 def popup_product_from_key(options: list[dict], product_key: str) -> dict:
@@ -916,33 +934,55 @@ def render_popup_picker_thumbnail(container, product: dict, width: int = 48) -> 
 
 
 def render_popup_product_picker(product_options: list[dict], row_key: str) -> None:
-    st.markdown("#### เลือกสินค้า")
+    if st.session_state.get(popup_product_picker_state_key(row_key, "open")):
+        render_popup_product_selector_dialog(product_options, row_key)
+
+
+@st.dialog("\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", width="large")
+def render_popup_product_selector_dialog(product_options: list[dict], row_key: str) -> None:
+    st.caption("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32 \u0e41\u0e25\u0e49\u0e27\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e08\u0e32\u0e01\u0e15\u0e32\u0e23\u0e32\u0e07\u0e14\u0e49\u0e32\u0e19\u0e25\u0e48\u0e32\u0e07")
     query_key = popup_product_picker_state_key(row_key, "query")
-    query = st.text_input("ค้นหา SKU / ชื่อสินค้า", key=query_key)
+    query = st.text_input("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU / \u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", key=query_key)
     clean_query = clean(query)
+    previous_query_key = popup_product_picker_state_key(row_key, "previous_query")
+    previous_query = st.session_state.get(previous_query_key, "")
+    if clean_query != previous_query:
+        st.session_state[popup_product_picker_state_key(row_key, "page")] = 1
+        st.session_state[previous_query_key] = clean_query
+
+    page_size = st.selectbox(
+        "\u0e08\u0e33\u0e19\u0e27\u0e19\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e15\u0e48\u0e2d\u0e2b\u0e19\u0e49\u0e32",
+        POPUP_PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS,
+        key=popup_product_picker_state_key(row_key, "page_size"),
+    )
+    page_size = normalize_popup_product_selector_page_size(page_size)
+
     if not clean_query:
-        st.session_state[popup_product_picker_state_key(row_key, "hide_results")] = False
-        if not selected_popup_product(product_options, row_key):
-            st.caption("พิมพ์ SKU หรือชื่อสินค้าเพื่อค้นหา")
+        st.caption("\u0e1e\u0e34\u0e21\u0e1e\u0e4c SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e04\u0e49\u0e19\u0e2b\u0e32")
+        if st.button("\u0e1b\u0e34\u0e14", key=popup_product_picker_state_key(row_key, "close_empty")):
+            st.session_state[popup_product_picker_state_key(row_key, "open")] = False
+            st.rerun()
         return
 
-    hide_key = popup_product_picker_state_key(row_key, "hide_results")
-    hide_query_key = popup_product_picker_state_key(row_key, "hide_query")
-    if st.session_state.get(hide_key) and clean(st.session_state.get(hide_query_key)) == clean_query:
-        return
-    st.session_state[hide_key] = False
-
-    matches = filter_popup_product_picker_options(product_options, clean_query, POPUP_PRODUCT_PICKER_LIMIT)
+    matches = filter_popup_product_picker_options(product_options, clean_query)
     if not matches:
-        st.info("ไม่พบสินค้า")
+        st.info("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+        if st.button("\u0e1b\u0e34\u0e14", key=popup_product_picker_state_key(row_key, "close_no_result")):
+            st.session_state[popup_product_picker_state_key(row_key, "open")] = False
+            st.rerun()
         return
+
+    current_page = st.session_state.get(popup_product_picker_state_key(row_key, "page"), 1)
+    page_items, page, total_pages = paginate_popup_product_selector_options(matches, current_page, page_size)
+    st.session_state[popup_product_picker_state_key(row_key, "page")] = page
+    st.caption(f"\u0e1e\u0e1a {len(matches):,} \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23")
 
     header = st.columns([0.45, 0.75, 1.8, 1.0, 0.6])
-    for col, label in zip(header, ["รูป", "SKU", "สินค้า", "กลุ่ม", ""]):
+    for col, label in zip(header, ["\u0e23\u0e39\u0e1b", "SKU", "\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", "\u0e01\u0e25\u0e38\u0e48\u0e21", ""]):
         col.markdown(f"**{label}**")
     current_product = selected_popup_product(product_options, row_key)
     current_key = popup_selected_product_key(current_product)
-    for index, product in enumerate(matches):
+    for index, product in enumerate(page_items):
         product_key = popup_selected_product_key(product)
         cols = st.columns([0.45, 0.75, 1.8, 1.0, 0.6])
         render_popup_picker_thumbnail(cols[0], product, width=48)
@@ -951,13 +991,26 @@ def render_popup_product_picker(product_options: list[dict], row_key: str) -> No
         cols[3].write(clean(product.get("product_group")) or "-")
         selected = product_key == current_key
         if cols[4].button(
-            "เลือกแล้ว" if selected else "เลือก",
-            key=f"{row_key}_product_picker_select_{index}_{product_key}",
+            "\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e41\u0e25\u0e49\u0e27" if selected else "\u0e40\u0e25\u0e37\u0e2d\u0e01",
+            key=f"{row_key}_product_selector_pick_{page}_{index}_{product_key}",
             disabled=selected,
             use_container_width=True,
         ):
             select_popup_product(row_key, product, clean_query)
+            st.session_state[popup_product_picker_state_key(row_key, "open")] = False
             st.rerun()
+
+    nav_prev, nav_status, nav_next, nav_close = st.columns([0.9, 1.4, 0.9, 0.9])
+    if nav_prev.button("\u0e01\u0e48\u0e2d\u0e19\u0e2b\u0e19\u0e49\u0e32", key=popup_product_picker_state_key(row_key, "prev"), disabled=page <= 1, use_container_width=True):
+        st.session_state[popup_product_picker_state_key(row_key, "page")] = max(1, page - 1)
+        st.rerun()
+    nav_status.caption(f"\u0e2b\u0e19\u0e49\u0e32 {page} / {total_pages}")
+    if nav_next.button("\u0e16\u0e31\u0e14\u0e44\u0e1b", key=popup_product_picker_state_key(row_key, "next"), disabled=page >= total_pages, use_container_width=True):
+        st.session_state[popup_product_picker_state_key(row_key, "page")] = min(total_pages, page + 1)
+        st.rerun()
+    if nav_close.button("\u0e1b\u0e34\u0e14", key=popup_product_picker_state_key(row_key, "close"), use_container_width=True):
+        st.session_state[popup_product_picker_state_key(row_key, "open")] = False
+        st.rerun()
 
 
 def render_popup_selected_product(product: dict) -> None:
