@@ -457,6 +457,23 @@ assert "def fetch_sales_report(" not in dashboard_source
 assert "def fetch_sales_report_rows(" not in dashboard_source
 assert "def upsert_manual_order_items" not in dashboard_source
 assert "def upsert_manual_order_items" not in dashboard_data_source
+assert "dashboard_auto_refresh" in dashboard_source
+assert 'value=True,\n        key="dashboard_auto_refresh"' in dashboard_source
+assert "dashboard_manual_refresh" in dashboard_source
+assert "DASHBOARD_AUTO_REFRESH_INTERVAL_SECONDS = 15" in dashboard_source
+assert "@st.fragment(run_every=DASHBOARD_AUTO_REFRESH_INTERVAL_SECONDS)" in dashboard_source
+assert "def render_dashboard_auto_refresh" in dashboard_source
+assert "def render_dashboard_once" in dashboard_source
+assert "def render_dashboard_live" in dashboard_source
+assert "\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15\u0e25\u0e48\u0e32\u0e2a\u0e38\u0e14" in dashboard_source
+assert (
+    "clear_cached_data_functions(\n"
+    "            fetch_dashboard_kpis,\n"
+    "            fetch_sales_report,\n"
+    "            fetch_sales_report_rows,\n"
+    "            fetch_sales_report_owner_options,"
+) in dashboard_source
+assert "st.cache_data.clear()" not in dashboard_source
 
 team_sales_types_source = '{"NEW_ORDER", "UPSELL", "\u2b50NEW_ORDER", "\u2b50UPSELL"}'
 assert team_sales_types_source in team_sales_source

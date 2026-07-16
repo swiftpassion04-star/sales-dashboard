@@ -1,5 +1,5 @@
 import html
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -22,6 +22,9 @@ from ui.perf import perf_trace
 st.set_page_config(page_title="Dashboard", layout="wide")
 
 
+DASHBOARD_AUTO_REFRESH_INTERVAL_SECONDS = 15
+
+
 def main() -> None:
     with perf_trace("dashboard.page_render"):
         _render_dashboard_page()
@@ -32,6 +35,39 @@ def _render_dashboard_page() -> None:
     require_login()
     user = current_user() or {}
     render_page_header("Dashboard", "ภาพรวมงาน CRM รายวันสำหรับทีม Telesales")
+
+
+    control_cols = st.columns([1.2, 1])
+    auto_refresh = control_cols[0].toggle(
+        "เปิดอัปเดตอัตโนมัติ",
+        value=True,
+        key="dashboard_auto_refresh",
+        help="อัปเดต KPI และรายงานยอดขายอัตโนมัติ",
+    )
+    if control_cols[1].button("รีเฟรชข้อมูล", key="dashboard_manual_refresh", use_container_width=True):
+        clear_cached_data_functions(
+            fetch_dashboard_kpis,
+            fetch_sales_report,
+            fetch_sales_report_rows,
+            fetch_sales_report_owner_options,
+        )
+        st.rerun()
+
+    if auto_refresh:
+        render_dashboard_auto_refresh(user)
+    else:
+        render_dashboard_once(user)
+
+
+def render_dashboard_live(user: dict, *, auto_refresh: bool) -> None:
+    refresh_label = (
+        f"อัปเดตอัตโนมัติทุก {DASHBOARD_AUTO_REFRESH_INTERVAL_SECONDS} วินาที"
+        if auto_refresh
+        else "ปิดการอัปเดตอัตโนมัติ"
+    )
+    updated_at = datetime.now().strftime("%H:%M:%S")
+    st.caption(f"{refresh_label} · อัปเดตล่าสุด: {updated_at}")
+
     with st.spinner("กำลังโหลด KPI จาก Neon..."):
         with perf_trace("dashboard.fetch_kpis", role=user.get("role")):
             kpis = fetch_dashboard_kpis(user)
@@ -55,6 +91,16 @@ def _render_dashboard_page() -> None:
     )
     render_sales_report(user)
 
+
+
+@st.fragment(run_every=DASHBOARD_AUTO_REFRESH_INTERVAL_SECONDS)
+def render_dashboard_auto_refresh(user: dict) -> None:
+    render_dashboard_live(user, auto_refresh=True)
+
+
+@st.fragment
+def render_dashboard_once(user: dict) -> None:
+    render_dashboard_live(user, auto_refresh=False)
 
 def render_sales_report(user: dict) -> None:
     st.markdown('<div class="crm-section-title">📊 รายงานยอดขาย</div>', unsafe_allow_html=True)
