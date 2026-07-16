@@ -481,6 +481,13 @@ assert "def render_dashboard_auto_refresh" in dashboard_source
 assert "def render_dashboard_once" in dashboard_source
 assert "def render_dashboard_live" in dashboard_source
 assert "\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15\u0e25\u0e48\u0e32\u0e2a\u0e38\u0e14" in dashboard_source
+assert "DASHBOARD_SALES_TABLE_DISPLAY_LIMIT_OPTIONS = [100, 200, 500, 1000]" in dashboard_source
+assert "DASHBOARD_SALES_TABLE_DEFAULT_DISPLAY_LIMIT = 200" in dashboard_source
+assert 'key="dashboard_sales_table_display_limit"' in dashboard_source
+assert "display_rows = rows[:display_limit]" in dashboard_source
+assert "for index, row in enumerate(display_rows, start=1)" in dashboard_source
+assert "render_sales_delete_controls(rows, user)" in dashboard_source
+assert "แสดง {len(display_rows):,} จากทั้งหมด {len(rows):,} รายการ" in dashboard_source
 assert (
     "clear_cached_data_functions(\n"
     "            fetch_dashboard_kpis,\n"

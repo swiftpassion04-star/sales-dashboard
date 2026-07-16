@@ -23,6 +23,8 @@ st.set_page_config(page_title="Dashboard", layout="wide")
 
 
 DASHBOARD_AUTO_REFRESH_INTERVAL_SECONDS = 15
+DASHBOARD_SALES_TABLE_DISPLAY_LIMIT_OPTIONS = [100, 200, 500, 1000]
+DASHBOARD_SALES_TABLE_DEFAULT_DISPLAY_LIMIT = 200
 
 
 def main() -> None:
@@ -186,6 +188,16 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders, user:
     if not rows:
         st.info("ยังไม่มีรายการ NEW_ORDER / UPSELL ในช่วงเวลานี้")
         return
+    display_limit = st.selectbox(
+        "จำนวนแถวที่แสดง",
+        DASHBOARD_SALES_TABLE_DISPLAY_LIMIT_OPTIONS,
+        index=DASHBOARD_SALES_TABLE_DISPLAY_LIMIT_OPTIONS.index(DASHBOARD_SALES_TABLE_DEFAULT_DISPLAY_LIMIT),
+        key="dashboard_sales_table_display_limit",
+    )
+    display_rows = rows[:display_limit]
+    st.caption(f"แสดง {len(display_rows):,} จากทั้งหมด {len(rows):,} รายการ")
+    if len(rows) >= 1000:
+        st.caption("ข้อมูลทั้งหมดอาจมีมากกว่าที่ดึงมา ระบบแสดงตามช่วงวันที่/ตัวกรองปัจจุบัน")
     st.markdown(
         """
 <style>
@@ -268,7 +280,7 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders, user:
     html_parts = ['<div class="sales-sheet-grid">']
     for label in header:
         html_parts.append(f'<div class="sales-sheet-cell sales-sheet-head">{html.escape(label)}</div>')
-    for index, row in enumerate(rows, start=1):
+    for index, row in enumerate(display_rows, start=1):
         sale_type = str(row.get("sale_type") or "").strip()
         row_class = (
             "sales-sheet-row-highlight"
