@@ -47,6 +47,14 @@ PRODUCT_ARCHIVE_REASON_KEY = "product_master_archive_reason"
 PRODUCT_RESTORE_CONFIRM_KEY = "product_master_restore_confirm"
 
 
+def clear_product_master_caches() -> None:
+    neon.clear_cached_data_functions(
+        fetch_product_page,
+        neon.fetch_product_options,
+        neon.fetch_order_product_options,
+    )
+
+
 def clear_product_archive_action_state() -> None:
     st.session_state.pop(PRODUCT_ARCHIVE_CONFIRM_KEY, None)
     st.session_state.pop(PRODUCT_ARCHIVE_REASON_KEY, None)
@@ -233,8 +241,7 @@ def render_create_product_form(auth_user: dict) -> None:
             }
         ]
     )
-    st.cache_data.clear()
-    neon.fetch_order_product_options.clear()
+    clear_product_master_caches()
     st.success("เพิ่มสินค้าแล้ว")
     st.rerun()
 
@@ -277,8 +284,7 @@ def render_product_import(auth_user: dict, existing_rows: list[dict]) -> None:
                 st.error(f"นำเข้าไม่สำเร็จ: {exc}")
                 st.warning("ถ้าเป็นกรณี SKU ใหม่แต่ชื่อสินค้า/กลุ่มสินค้าเดิม ให้รัน migration unique rule ใหม่ใน Neon ก่อน")
                 return
-            st.cache_data.clear()
-            neon.fetch_order_product_options.clear()
+            clear_product_master_caches()
             st.success(f"นำเข้าสินค้าใหม่ {len(import_rows):,} รายการแล้ว")
             st.rerun()
 
@@ -714,8 +720,7 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
                     "updated_at": now_iso(),
                 },
             )
-            st.cache_data.clear()
-            neon.fetch_order_product_options.clear()
+            clear_product_master_caches()
             st.success("บันทึกสินค้าแล้ว")
             st.rerun()
         if cols[7].button("ปิดใช้งาน", key=f"pm_disable_{row_id}", disabled=not bool(row.get("is_active")), use_container_width=True):
@@ -732,8 +737,7 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
                     "updated_at": now_iso(),
                 },
             )
-            st.cache_data.clear()
-            neon.fetch_order_product_options.clear()
+            clear_product_master_caches()
             st.success("ปิดใช้งานสินค้าแล้ว")
             st.rerun()
     else:

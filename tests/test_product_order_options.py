@@ -464,7 +464,13 @@ assert "def clear_order_product_options_cache()" in products_source
 assert "from neon_utils import fetch_order_product_options" in products_source
 assert "fetch_order_product_options.clear()" in products_source
 assert products_source.count("clear_order_product_options_cache()") >= 4
-assert "neon.fetch_order_product_options.clear()" in products_page_source
+assert "st.cache_data.clear()" not in products_page_source
+assert "def clear_product_master_caches()" in products_page_source
+assert "clear_cached_data_functions(" in products_page_source
+assert "fetch_product_page," in products_page_source
+assert "neon.fetch_product_options," in products_page_source
+assert "neon.fetch_order_product_options," in products_page_source
+assert products_page_source.count("clear_product_master_caches()") >= 5
 assert "dashboard_auto_refresh" in dashboard_source
 assert 'value=False,\n        key="dashboard_auto_refresh"' in dashboard_source
 assert "dashboard_manual_refresh" in dashboard_source
