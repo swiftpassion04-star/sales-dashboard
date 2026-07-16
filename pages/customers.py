@@ -27,6 +27,7 @@ from ui.pagination import get_pagination_state, render_pagination
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
+CUSTOMER_HISTORY_DISPLAY_LIMIT = 100
 OWNER_ASSIGNMENT_FOLLOWUP_FILTER_RESET_KEYS = (
     "followup_filter_priority",
     "followup_filter_lead_status",
@@ -533,6 +534,10 @@ def order_sales_display(order: dict) -> str:
 
 
 def render_order_history(rows: list[dict]) -> None:
+    display_orders = rows[:CUSTOMER_HISTORY_DISPLAY_LIMIT]
+    st.caption(f"แสดง {len(display_orders):,} จากทั้งหมด {len(rows):,} รายการล่าสุด")
+    if len(rows) > len(display_orders):
+        st.caption("หากต้องการดูมากกว่านี้ให้ใช้ Customer 360 หรือปรับในเฟสถัดไป")
     st.markdown(
         """
 <div class="crm-table">
@@ -549,7 +554,7 @@ def render_order_history(rows: list[dict]) -> None:
 """,
         unsafe_allow_html=True,
     )
-    for order in rows:
+    for order in display_orders:
         url = clean(order.get("channel_url"))
         url_html = f'<a class="crm-link" href="{html.escape(url, quote=True)}" target="_blank">เปิดลิงก์</a>' if url else "-"
         st.markdown(

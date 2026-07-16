@@ -215,6 +215,8 @@ dashboard_source = Path("pages/dashboard.py").read_text(encoding="utf-8")
 dashboard_data_source = Path("crm_data/dashboard.py").read_text(encoding="utf-8")
 team_sales_source = Path("crm_data/team_sales.py").read_text(encoding="utf-8")
 team_sales_page_source = Path("pages/team_sales.py").read_text(encoding="utf-8")
+customers_source = Path("pages/customers.py").read_text(encoding="utf-8")
+customer_detail_source = Path("pages/customer_detail.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
 assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
 assert "PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]" in manual_source
@@ -488,6 +490,17 @@ assert "display_rows = rows[:display_limit]" in dashboard_source
 assert "for index, row in enumerate(display_rows, start=1)" in dashboard_source
 assert "render_sales_delete_controls(rows, user)" in dashboard_source
 assert "แสดง {len(display_rows):,} จากทั้งหมด {len(rows):,} รายการ" in dashboard_source
+assert "CUSTOMER_HISTORY_DISPLAY_LIMIT = 100" in customers_source
+assert "fetch_orders_by_phones(phones, limit=500)" in customers_source
+assert "display_orders = rows[:CUSTOMER_HISTORY_DISPLAY_LIMIT]" in customers_source
+assert "for order in display_orders:" in customers_source
+assert "แสดง {len(display_orders):,} จากทั้งหมด {len(rows):,} รายการล่าสุด" in customers_source
+assert "def fetch_orders_by_phones" not in customers_source
+assert "def can_view_customer_detail" not in customers_source
+assert "fetch_customer_360_orders(customer.get(\"phone1\"), customer.get(\"phone2\"), limit=20)" in customer_detail_source
+assert "def can_view_customer_detail(user: dict, customer: dict) -> bool:" in customer_detail_source
+assert "CUSTOMER_HISTORY_DISPLAY_LIMIT" not in customer_detail_source
+assert "display_orders" not in customer_detail_source
 assert (
     "clear_cached_data_functions(\n"
     "            fetch_dashboard_kpis,\n"
