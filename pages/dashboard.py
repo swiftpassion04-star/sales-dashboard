@@ -40,10 +40,11 @@ def _render_dashboard_page() -> None:
     control_cols = st.columns([1.2, 1])
     auto_refresh = control_cols[0].toggle(
         "เปิดอัปเดตอัตโนมัติ",
-        value=True,
+        value=False,
         key="dashboard_auto_refresh",
-        help="อัปเดต KPI และรายงานยอดขายอัตโนมัติ",
+        help="เปิดเมื่อต้องการให้ยอดและตารางอัปเดตเองทุก 15 วินาที",
     )
+    control_cols[0].caption("ปิดไว้เพื่อลดโหลดอัตโนมัติ เปิดเมื่อต้องการติดตามยอดแบบสด")
     if control_cols[1].button("รีเฟรชข้อมูล", key="dashboard_manual_refresh", use_container_width=True):
         clear_cached_data_functions(
             fetch_dashboard_kpis,
