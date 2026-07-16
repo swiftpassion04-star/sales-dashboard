@@ -218,6 +218,10 @@ team_sales_page_source = Path("pages/team_sales.py").read_text(encoding="utf-8")
 customers_source = Path("pages/customers.py").read_text(encoding="utf-8")
 customer_detail_source = Path("pages/customer_detail.py").read_text(encoding="utf-8")
 import_excel_source = Path("ui/import_excel_ui.py").read_text(encoding="utf-8")
+users_source = Path("pages/users.py").read_text(encoding="utf-8")
+system_status_source = Path("pages/system_status.py").read_text(encoding="utf-8")
+auth_utils_source = Path("auth_utils.py").read_text(encoding="utf-8")
+permissions_source = Path("permissions.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
 assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
 assert "PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]" in manual_source
@@ -542,6 +546,22 @@ assert "st.cache_data.clear()" not in import_excel_source
 assert "def insert_import_records" not in import_excel_source
 assert "def delete_import_batch" not in import_excel_source
 assert "def upsert_manual_order_items" not in import_excel_source
+assert "st.cache_data.clear()" not in users_source
+assert "def clear_user_role_caches() -> None:" in users_source
+assert "neon.clear_cached_data_functions(" in users_source
+assert "fetch_user_role," in users_source
+assert "neon.fetch_owner_user_options," in users_source
+assert users_source.count("clear_user_role_caches()") == 4
+assert "st.rerun()" in users_source
+assert "st.cache_data.clear()" in system_status_source
+assert "def upsert_user_role" not in users_source
+assert "def set_user_role_active" not in users_source
+assert "st.session_state.auth_role" not in users_source
+assert "auth_role" not in users_source
+assert "def upsert_manual_order_items" not in users_source
+assert "def fetch_user_role" in auth_utils_source
+assert "@st.cache_data(ttl=600, show_spinner=False)" in auth_utils_source
+assert "def can_edit_users" in permissions_source
 
 team_sales_types_source = '{"NEW_ORDER", "UPSELL", "\u2b50NEW_ORDER", "\u2b50UPSELL"}'
 assert team_sales_types_source in team_sales_source

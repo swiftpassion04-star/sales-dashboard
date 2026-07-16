@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
-from auth_utils import current_user, require_login
+from auth_utils import current_user, fetch_user_role, require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
+import neon_utils as neon
 from neon_utils import (
     fetch_crm_owner_options,
     fetch_user_roles,
@@ -21,6 +22,13 @@ OWNER_PLACEHOLDER = "ไม่เลือก owner mapping"
 
 
 st.set_page_config(page_title="Users", layout="wide")
+
+
+def clear_user_role_caches() -> None:
+    neon.clear_cached_data_functions(
+        fetch_user_role,
+        neon.fetch_owner_user_options,
+    )
 
 
 def main() -> None:
@@ -87,7 +95,7 @@ def render_create_user(owners: list[str]) -> None:
                 }
             )
             st.success("บันทึก User / Role แล้ว")
-            st.cache_data.clear()
+            clear_user_role_caches()
             st.rerun()
 
 
@@ -167,14 +175,14 @@ def render_user_row(row: dict, owners: list[str], can_manage: bool) -> None:
             if clean(next_email).lower() != email:
                 set_user_role_active(email, False, now_iso())
             st.success("บันทึก User / Role แล้ว")
-            st.cache_data.clear()
+            clear_user_role_caches()
             st.rerun()
 
         if can_manage and row.get("is_active"):
             if st.button("ปิดใช้งาน user นี้", key=f"deactivate_{email}", use_container_width=True):
                 set_user_role_active(email, False, now_iso())
                 st.success("ปิดใช้งาน user แล้ว")
-                st.cache_data.clear()
+                clear_user_role_caches()
                 st.rerun()
 
 
