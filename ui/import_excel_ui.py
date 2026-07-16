@@ -281,7 +281,16 @@ def render_import_history() -> None:
             st.error(f"ล้าง batch ไม่สำเร็จ: {exc}")
             return
         st.success(f"ล้าง batch สำเร็จ {deleted:,} แถว")
-        st.cache_data.clear()
+        neon.clear_cached_data_functions(
+            neon.fetch_import_history,
+            neon.fetch_filter_options,
+            neon.fetch_followup_filter_options,
+            neon.fetch_crm_owner_options,
+            neon.fetch_sales_report_owner_options,
+            neon.fetch_dashboard_kpis,
+            neon.fetch_sales_report,
+            neon.fetch_sales_report_rows,
+        )
         st.rerun()
 
 

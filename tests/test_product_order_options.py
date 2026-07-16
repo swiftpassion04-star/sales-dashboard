@@ -518,8 +518,7 @@ delete_batch_source = import_excel_source.split("neon.delete_import_batch(select
     "def build_xlsx_template",
     1,
 )[0]
-assert "neon.clear_cached_data_functions(" in import_success_source
-for cache_function in (
+import_cache_functions = (
     "neon.fetch_import_history",
     "neon.fetch_filter_options",
     "neon.fetch_followup_filter_options",
@@ -528,12 +527,18 @@ for cache_function in (
     "neon.fetch_dashboard_kpis",
     "neon.fetch_sales_report",
     "neon.fetch_sales_report_rows",
-):
+)
+assert "neon.clear_cached_data_functions(" in import_success_source
+for cache_function in import_cache_functions:
     assert cache_function in import_success_source
 assert "st.cache_data.clear()" not in import_success_source
 assert "st.rerun()" in import_success_source
-assert "st.cache_data.clear()" in delete_batch_source
-assert "neon.clear_cached_data_functions(" not in delete_batch_source
+assert "neon.clear_cached_data_functions(" in delete_batch_source
+for cache_function in import_cache_functions:
+    assert cache_function in delete_batch_source
+assert "st.cache_data.clear()" not in delete_batch_source
+assert "st.rerun()" in delete_batch_source
+assert "st.cache_data.clear()" not in import_excel_source
 assert "def insert_import_records" not in import_excel_source
 assert "def delete_import_batch" not in import_excel_source
 assert "def upsert_manual_order_items" not in import_excel_source
