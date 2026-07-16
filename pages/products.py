@@ -234,6 +234,7 @@ def render_create_product_form(auth_user: dict) -> None:
         ]
     )
     st.cache_data.clear()
+    neon.fetch_order_product_options.clear()
     st.success("เพิ่มสินค้าแล้ว")
     st.rerun()
 
@@ -277,6 +278,7 @@ def render_product_import(auth_user: dict, existing_rows: list[dict]) -> None:
                 st.warning("ถ้าเป็นกรณี SKU ใหม่แต่ชื่อสินค้า/กลุ่มสินค้าเดิม ให้รัน migration unique rule ใหม่ใน Neon ก่อน")
                 return
             st.cache_data.clear()
+            neon.fetch_order_product_options.clear()
             st.success(f"นำเข้าสินค้าใหม่ {len(import_rows):,} รายการแล้ว")
             st.rerun()
 
@@ -713,6 +715,7 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
                 },
             )
             st.cache_data.clear()
+            neon.fetch_order_product_options.clear()
             st.success("บันทึกสินค้าแล้ว")
             st.rerun()
         if cols[7].button("ปิดใช้งาน", key=f"pm_disable_{row_id}", disabled=not bool(row.get("is_active")), use_container_width=True):
@@ -730,6 +733,7 @@ def render_product_row(row: dict, auth_user: dict, is_editor: bool) -> None:
                 },
             )
             st.cache_data.clear()
+            neon.fetch_order_product_options.clear()
             st.success("ปิดใช้งานสินค้าแล้ว")
             st.rerun()
     else:

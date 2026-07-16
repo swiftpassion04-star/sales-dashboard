@@ -429,6 +429,7 @@ assert total_pages == 1
 assert followup_helpers["popup_selected_product_key"](picker_products[0]) == "SP680::Coffee Premium"
 
 helper_source = inspect.getsource(neon.fetch_order_product_options).lower()
+assert "@st.cache_data(ttl=60, show_spinner=false)" in helper_source
 assert "image_url," in helper_source
 assert "fetch_product_options(" not in helper_source
 assert "delete " not in helper_source
@@ -457,6 +458,13 @@ assert "def fetch_sales_report(" not in dashboard_source
 assert "def fetch_sales_report_rows(" not in dashboard_source
 assert "def upsert_manual_order_items" not in dashboard_source
 assert "def upsert_manual_order_items" not in dashboard_data_source
+products_source = Path("crm_data/products.py").read_text(encoding="utf-8")
+products_page_source = Path("pages/products.py").read_text(encoding="utf-8")
+assert "def clear_order_product_options_cache()" in products_source
+assert "from neon_utils import fetch_order_product_options" in products_source
+assert "fetch_order_product_options.clear()" in products_source
+assert products_source.count("clear_order_product_options_cache()") >= 4
+assert "neon.fetch_order_product_options.clear()" in products_page_source
 assert "dashboard_auto_refresh" in dashboard_source
 assert 'value=False,\n        key="dashboard_auto_refresh"' in dashboard_source
 assert "dashboard_manual_refresh" in dashboard_source

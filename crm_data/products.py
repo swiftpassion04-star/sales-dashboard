@@ -4,6 +4,12 @@ import streamlit as st
 
 
 PRODUCT_PAGE_SIZE = 10
+
+
+def clear_order_product_options_cache() -> None:
+    from neon_utils import fetch_order_product_options
+
+    fetch_order_product_options.clear()
 PRODUCT_STATUS_FILTERS = {"all", "active", "inactive", "archived"}
 PRODUCT_SORT_MODES = {"sku_asc", "sku_desc", "created_asc", "created_desc"}
 _PRODUCT_STATUS_CLAUSES = {
@@ -464,6 +470,7 @@ def bulk_update_product_active(
 
     fetch_product_page.clear()
     fetch_product_options.clear()
+    clear_order_product_options_cache()
     return updated_count
 
 
@@ -496,6 +503,7 @@ def archive_products(
     if updated_count:
         fetch_product_page.clear()
         fetch_product_options.clear()
+        clear_order_product_options_cache()
     return {
         "requested": len(normalized_ids),
         "updated": updated_count,
@@ -527,6 +535,7 @@ def restore_archived_products(
     if updated_count:
         fetch_product_page.clear()
         fetch_product_options.clear()
+        clear_order_product_options_cache()
     return {
         "requested": len(normalized_ids),
         "updated": updated_count,

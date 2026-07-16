@@ -382,6 +382,7 @@ def product_image_preview_url(product: dict) -> str:
     return ""
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_order_product_options() -> list[dict]:
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
