@@ -201,7 +201,16 @@ def render_excel_import(auth_user: dict) -> None:
         st.info(f"สรุป import: นำเข้า {summary['insert']:,} แถว / merge เบอร์ซ้ำ {summary['phone_duplicate']:,} รายการ / กันออก {summary['skip']:,} แถว")
         st.session_state.neon_current_import_batch_id = neon.new_batch_id()
         st.success(f"Import สำเร็จ {len(records):,} แถว เข้า batch {batch_id}")
-        st.cache_data.clear()
+        neon.clear_cached_data_functions(
+            neon.fetch_import_history,
+            neon.fetch_filter_options,
+            neon.fetch_followup_filter_options,
+            neon.fetch_crm_owner_options,
+            neon.fetch_sales_report_owner_options,
+            neon.fetch_dashboard_kpis,
+            neon.fetch_sales_report,
+            neon.fetch_sales_report_rows,
+        )
         st.rerun()
 
 

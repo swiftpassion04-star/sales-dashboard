@@ -217,6 +217,7 @@ team_sales_source = Path("crm_data/team_sales.py").read_text(encoding="utf-8")
 team_sales_page_source = Path("pages/team_sales.py").read_text(encoding="utf-8")
 customers_source = Path("pages/customers.py").read_text(encoding="utf-8")
 customer_detail_source = Path("pages/customer_detail.py").read_text(encoding="utf-8")
+import_excel_source = Path("ui/import_excel_ui.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
 assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
 assert "PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]" in manual_source
@@ -509,6 +510,33 @@ assert (
     "            fetch_sales_report_owner_options,"
 ) in dashboard_source
 assert "st.cache_data.clear()" not in dashboard_source
+import_success_source = import_excel_source.split("neon.insert_import_records(records, batch_size=BATCH_SIZE)", 1)[1].split(
+    "def render_mapping",
+    1,
+)[0]
+delete_batch_source = import_excel_source.split("neon.delete_import_batch(selected_batch)", 1)[1].split(
+    "def build_xlsx_template",
+    1,
+)[0]
+assert "neon.clear_cached_data_functions(" in import_success_source
+for cache_function in (
+    "neon.fetch_import_history",
+    "neon.fetch_filter_options",
+    "neon.fetch_followup_filter_options",
+    "neon.fetch_crm_owner_options",
+    "neon.fetch_sales_report_owner_options",
+    "neon.fetch_dashboard_kpis",
+    "neon.fetch_sales_report",
+    "neon.fetch_sales_report_rows",
+):
+    assert cache_function in import_success_source
+assert "st.cache_data.clear()" not in import_success_source
+assert "st.rerun()" in import_success_source
+assert "st.cache_data.clear()" in delete_batch_source
+assert "neon.clear_cached_data_functions(" not in delete_batch_source
+assert "def insert_import_records" not in import_excel_source
+assert "def delete_import_batch" not in import_excel_source
+assert "def upsert_manual_order_items" not in import_excel_source
 
 team_sales_types_source = '{"NEW_ORDER", "UPSELL", "\u2b50NEW_ORDER", "\u2b50UPSELL"}'
 assert team_sales_types_source in team_sales_source
