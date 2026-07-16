@@ -11,7 +11,7 @@ TEAM_CODES = {
 
 UNASSIGNED_TEAM_CODE = "UNASSIGNED"
 UNASSIGNED_TEAM_NAME = "ยังไม่เลือกทีม"
-_SALE_TYPES = {"NEW_ORDER", "UPSELL"}
+_SALE_TYPES = {"NEW_ORDER", "UPSELL", "⭐NEW_ORDER", "⭐UPSELL"}
 
 _MANUAL_ROW_SQL = """
 (
@@ -71,7 +71,7 @@ def _sale_type_filter(sale_type_filter: str | None) -> tuple[str, list]:
         return "", []
     sale_type = str(sale_type_filter).strip().upper()
     if sale_type not in _SALE_TYPES:
-        raise ValueError("sale_type_filter must be NEW_ORDER, UPSELL, or None")
+        raise ValueError("sale_type_filter must be NEW_ORDER, UPSELL, starred NEW_ORDER, starred UPSELL, or None")
     return "and d.sale_type = %s", [sale_type]
 
 
@@ -139,7 +139,7 @@ def fetch_team_sales_summary(
           where d.created_at >= %s
             and d.created_at < %s
             and {_MANUAL_ROW_SQL}
-            and d.sale_type in ('NEW_ORDER', 'UPSELL')
+            and d.sale_type in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')
             {sale_clause}
         )
         select
@@ -229,7 +229,7 @@ def fetch_team_top_products(
         where d.created_at >= %s
           and d.created_at < %s
           and {_MANUAL_ROW_SQL}
-          and d.sale_type in ('NEW_ORDER', 'UPSELL')
+          and d.sale_type in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')
           {sale_clause}
           {team_clause}
         group by
@@ -268,7 +268,7 @@ def fetch_team_sales_data_quality(start_date: date, end_date: date) -> dict:
           where d.created_at >= %s
             and d.created_at < %s
             and {_MANUAL_ROW_SQL}
-            and d.sale_type in ('NEW_ORDER', 'UPSELL')
+            and d.sale_type in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')
         ), creator_conflicts as (
           select order_id
           from base

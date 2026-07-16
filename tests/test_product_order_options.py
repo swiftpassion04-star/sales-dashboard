@@ -213,6 +213,8 @@ manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
 dashboard_source = Path("pages/dashboard.py").read_text(encoding="utf-8")
 dashboard_data_source = Path("crm_data/dashboard.py").read_text(encoding="utf-8")
+team_sales_source = Path("crm_data/team_sales.py").read_text(encoding="utf-8")
+team_sales_page_source = Path("pages/team_sales.py").read_text(encoding="utf-8")
 assert "neon.fetch_order_product_options()" in manual_source
 assert "PRODUCT_PICKER_LIMIT = 10" in manual_source
 assert "PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]" in manual_source
@@ -455,5 +457,15 @@ assert "def fetch_sales_report(" not in dashboard_source
 assert "def fetch_sales_report_rows(" not in dashboard_source
 assert "def upsert_manual_order_items" not in dashboard_source
 assert "def upsert_manual_order_items" not in dashboard_data_source
+
+team_sales_types_source = '{"NEW_ORDER", "UPSELL", "\u2b50NEW_ORDER", "\u2b50UPSELL"}'
+assert team_sales_types_source in team_sales_source
+team_sales_sql_types_source = "('NEW_ORDER', 'UPSELL', '\u2b50NEW_ORDER', '\u2b50UPSELL')"
+assert team_sales_sql_types_source in team_sales_source
+assert "d.sale_type in ('NEW_ORDER', 'UPSELL')" not in team_sales_source
+assert "FOLLOW" not in team_sales_source.split("_SALE_TYPES", 1)[1].split("_MANUAL_ROW_SQL", 1)[0]
+assert "FOLLOW" not in team_sales_source.split("def fetch_team_sales_summary", 1)[1].split("def fetch_team_top_products", 1)[0]
+assert "def upsert_manual_order_items" not in team_sales_source
+assert "_SALE_TYPES" not in team_sales_page_source
 
 print("product order options safety OK")
