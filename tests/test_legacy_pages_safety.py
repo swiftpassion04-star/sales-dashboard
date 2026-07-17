@@ -2,17 +2,29 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PAGES_DIR = ROOT / "pages"
+
+
+def one(pattern: str) -> Path:
+    matches = sorted(PAGES_DIR.glob(pattern))
+    assert len(matches) == 1, f"Expected one page for {pattern}, found {matches}"
+    return matches[0]
+
+
+def rel(path: Path) -> str:
+    return path.relative_to(ROOT).as_posix()
+
 
 LEGACY_PAGES = [
-    "pages/1_รายงาน.py",
+    rel(one("1_*.py")),
     "pages/2_KPI.py",
     "pages/3_sync_status.py",
-    "pages/4_เพิ่มข้อมูลลูกค้า.py",
-    "pages/5_ฐานข้อมูลลูกค้า.py",
-    "pages/6_สินค้า.py",
-    "pages/7_พนักงาน.py",
-    "pages/8_ประวัติการซื้อ.py",
-    "pages/9_ติดตามลูกค้า.py",
+    rel(one("4_*.py")),
+    rel(one("5_*.py")),
+    rel(one("6_*.py")),
+    rel(one("7_*.py")),
+    rel(one("8_*.py")),
+    rel(one("9_*.py")),
     "pages/10_System_Settings.py",
 ]
 
@@ -27,14 +39,26 @@ CANONICAL_PAGES = [
     "pages/team_sales.py",
 ]
 
-# Keep this list explicit so Phase 7B handles risky direct-URL legacy pages
-# intentionally instead of letting old write/cache-clear paths drift.
-HIGH_RISK_LEGACY_PAGES = [
-    "pages/3_sync_status.py",
-    "pages/4_เพิ่มข้อมูลลูกค้า.py",
-    "pages/6_สินค้า.py",
-    "pages/7_พนักงาน.py",
-    "pages/9_ติดตามลูกค้า.py",
+HIGH_RISK_LEGACY_TARGETS = {
+    "pages/3_sync_status.py": "pages/system_status.py",
+    rel(one("4_*.py")): "pages/import_excel.py",
+    rel(one("6_*.py")): "pages/products.py",
+    rel(one("7_*.py")): "pages/users.py",
+    rel(one("9_*.py")): "pages/followup.py",
+}
+
+LEGACY_WRITE_TOKENS = [
+    "upsert_manual_order_items",
+    "insert_import_records",
+    "delete_import_batch",
+    "upsert_product_options",
+    "update_product_option",
+    "delete_product_option",
+    "upsert_staff_option",
+    "update_staff_option",
+    "delete_staff_option",
+    "upsert_lead_followup",
+    "st.cache_data.clear()",
 ]
 
 
@@ -67,7 +91,9 @@ for page in LEGACY_PAGES:
 for page in CANONICAL_PAGES:
     assert (ROOT / page).is_file(), f"Missing canonical page inventory item: {page}"
 
-assert set(HIGH_RISK_LEGACY_PAGES).issubset(set(LEGACY_PAGES))
+assert set(HIGH_RISK_LEGACY_TARGETS).issubset(set(LEGACY_PAGES))
+for target in HIGH_RISK_LEGACY_TARGETS.values():
+    assert (ROOT / target).is_file(), f"Missing high-risk legacy redirect target: {target}"
 
 nav_source = read_source("nav_utils.py")
 app_source = read_source("app.py")
@@ -89,5 +115,14 @@ for legacy_page in LEGACY_PAGES:
 assert '[data-testid="stSidebarNav"]' in theme_source
 sidebar_nav_block = theme_source.split('[data-testid="stSidebarNav"]', 1)[1].split("}", 1)[0]
 assert "display:none" in sidebar_nav_block.replace(" ", "")
+
+for legacy_page, canonical_target in HIGH_RISK_LEGACY_TARGETS.items():
+    source = read_source(legacy_page)
+    assert "\u0e2b\u0e19\u0e49\u0e32\u0e40\u0e01\u0e48\u0e32" in source
+    assert "st.stop()" in source
+    assert "st.page_link(" in source
+    assert canonical_target in source
+    for token in LEGACY_WRITE_TOKENS:
+        assert token not in source, f"{legacy_page} still contains risky legacy token: {token}"
 
 print("legacy pages safety inventory OK")
