@@ -209,6 +209,52 @@ invalid_ok, _invalid_amount, invalid_error = manual_ui.parse_required_price_inpu
 assert invalid_ok is False
 assert invalid_error
 
+assert neon.normalize_team_code("CRM Team") == "CRM_TEAM"
+assert neon.normalize_team_code("Upsell Team") == "UPSELL_TEAM"
+assert neon.should_enforce_duplicate_phone_lock("CRM Team") is True
+assert neon.should_enforce_duplicate_phone_lock("UPSELL") is False
+
+original_fetch_current_user_team_code = neon.fetch_current_user_team_code
+original_fetch_existing_owner_rows = neon.fetch_existing_owner_rows_by_phones
+try:
+    neon.fetch_current_user_team_code = lambda email: "UPSELL"
+    assert manual_ui.should_check_manual_owner_conflict({"email": "upsell@example.com"}) is False
+
+    neon.fetch_current_user_team_code = lambda email: "CRM Team"
+    assert manual_ui.should_check_manual_owner_conflict({"email": "crm@example.com"}) is True
+
+    def raise_team_lookup(_email):
+        raise RuntimeError("team lookup unavailable")
+
+    neon.fetch_current_user_team_code = raise_team_lookup
+    assert manual_ui.should_check_manual_owner_conflict({"email": "unknown@example.com"}) is True
+
+    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
+        {"owner": "Same Staff", "staff_code": "UP14"},
+        {"owner": "Other Staff", "staff_code": "UP16"},
+    ]
+    assert manual_ui.find_manual_order_owner_conflict(
+        "0934137771",
+        "",
+        {"staff_code": "UP14"},
+        "Same Staff",
+        "UP14",
+    ) == {"owner": "Other Staff", "staff_code": "UP16"}
+
+    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
+        {"owner": "Same Staff", "staff_code": "UP14"},
+    ]
+    assert manual_ui.find_manual_order_owner_conflict(
+        "0934137771",
+        "",
+        {"staff_code": "UP14"},
+        "Same Staff",
+        "UP14",
+    ) == {}
+finally:
+    neon.fetch_current_user_team_code = original_fetch_current_user_team_code
+    neon.fetch_existing_owner_rows_by_phones = original_fetch_existing_owner_rows
+
 manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
 dashboard_source = Path("pages/dashboard.py").read_text(encoding="utf-8")
@@ -261,6 +307,9 @@ assert "key=f\"manual_item_amount_{index}\"" in manual_source
 assert "item[\"qty\"] = int(qty_value or 1)" in manual_source
 assert "item[\"amount\"] = str(amount_value or \"\").strip()" in manual_source
 assert "neon.upsert_manual_order_items(" in manual_source
+assert "should_check_manual_owner_conflict(user)" in manual_source
+assert "neon.fetch_current_user_team_code" in manual_source
+assert "neon.should_enforce_duplicate_phone_lock(team_code)" in manual_source
 assert "render_manual_product_preview" in manual_source
 assert "selected_product_image_preview_url" in manual_source
 assert "getattr(neon, \"product_image_preview_url\", None)" in manual_source

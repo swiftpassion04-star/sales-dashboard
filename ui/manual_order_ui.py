@@ -150,7 +150,7 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         st.error(" / ".join(errors))
         return
 
-    if not is_editor:
+    if not is_editor and should_check_manual_owner_conflict(user):
         owner_conflict = find_manual_order_owner_conflict(phone1, phone2, user, owner, staff_code)
         if owner_conflict:
             conflict_owner = neon.clean(owner_conflict.get("owner")) or neon.clean(owner_conflict.get("staff_code")) or "-"
@@ -211,6 +211,14 @@ def staff_label(row: dict) -> str:
     if code and name.endswith(f"({code})"):
         return name
     return f"{name} ({code})" if code and code != name else name
+
+
+def should_check_manual_owner_conflict(user: dict) -> bool:
+    try:
+        team_code = neon.fetch_current_user_team_code(neon.clean((user or {}).get("email")))
+    except Exception:
+        return True
+    return neon.should_enforce_duplicate_phone_lock(team_code)
 
 
 def find_manual_order_owner_conflict(phone1: str, phone2: str, user: dict, owner: str, staff_code: str) -> dict:

@@ -836,8 +836,12 @@ def fetch_current_user_team_code(user_email: str) -> str | None:
             return clean(row.get("team_code")).upper() if row else None
 
 
+def normalize_team_code(value: str | None) -> str:
+    return clean(value).upper().replace(" ", "_")
+
+
 def should_enforce_duplicate_phone_lock(team_code: str | None) -> bool:
-    return clean(team_code).upper() == CRM_TEAM_CODE
+    return normalize_team_code(team_code) == CRM_TEAM_CODE
 
 
 def _valid_duplicate_lock_phones(phone1: str | None, phone2: str | None) -> list[str]:
