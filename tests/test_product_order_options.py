@@ -251,6 +251,50 @@ try:
         "Same Staff",
         "UP14",
     ) == {}
+
+    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
+        {"owner": " Same   Staff ", "staff_code": ""},
+    ]
+    assert manual_ui.find_manual_order_owner_conflict(
+        "0934137771",
+        "",
+        {"staff_code": "UP14"},
+        "same staff",
+        "UP14",
+    ) == {}
+
+    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
+        {"owner": "Same Staff", "staff_code": "UP99"},
+    ]
+    assert manual_ui.find_manual_order_owner_conflict(
+        "0934137771",
+        "",
+        {"staff_code": "UP14"},
+        "Same Staff",
+        "UP14",
+    ) == {}
+
+    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
+        {"owner": "Other Staff", "staff_code": "UP99"},
+    ]
+    assert manual_ui.find_manual_order_owner_conflict(
+        "0934137771",
+        "",
+        {"staff_code": "UP14"},
+        "Same Staff",
+        "UP14",
+    ) == {"owner": "Other Staff", "staff_code": "UP99"}
+
+    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
+        {"owner": "", "staff_code": "UP99"},
+    ]
+    assert manual_ui.find_manual_order_owner_conflict(
+        "0934137771",
+        "",
+        {"staff_code": "UP14"},
+        "Same Staff",
+        "UP14",
+    ) == {"owner": "", "staff_code": "UP99"}
 finally:
     neon.fetch_current_user_team_code = original_fetch_current_user_team_code
     neon.fetch_existing_owner_rows_by_phones = original_fetch_existing_owner_rows

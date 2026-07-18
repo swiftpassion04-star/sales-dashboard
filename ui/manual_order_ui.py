@@ -226,6 +226,7 @@ def find_manual_order_owner_conflict(phone1: str, phone2: str, user: dict, owner
     if not rows:
         return {}
 
+    current_owner = _normalize_owner_name(owner)
     allowed_codes = {
         normalize_staff_code(neon.clean(value)).casefold()
         for value in [staff_code, user.get("staff_code")]
@@ -235,8 +236,15 @@ def find_manual_order_owner_conflict(phone1: str, phone2: str, user: dict, owner
         existing_code = normalize_staff_code(neon.clean(row.get("staff_code"))).casefold()
         if existing_code and existing_code in allowed_codes:
             continue
+        existing_owner = _normalize_owner_name(row.get("owner"))
+        if current_owner and existing_owner and existing_owner == current_owner:
+            continue
         return dict(row)
     return {}
+
+
+def _normalize_owner_name(value: object) -> str:
+    return " ".join(str(value or "").strip().split()).casefold()
 
 
 def normalize_compare_text(value) -> str:
