@@ -213,6 +213,11 @@ assert neon.normalize_team_code("CRM Team") == "CRM_TEAM"
 assert neon.normalize_team_code("Upsell Team") == "UPSELL_TEAM"
 assert neon.should_enforce_duplicate_phone_lock("CRM Team") is True
 assert neon.should_enforce_duplicate_phone_lock("UPSELL") is False
+assert neon._is_same_order_owner({"owner": "Same Staff", "staff_code": "UP14"}, "Other Name", "UP14") is True
+assert neon._is_same_order_owner({"owner": " Same   Staff ", "staff_code": "UP99"}, "same staff", "UP14") is True
+assert neon._is_same_order_owner({"owner": "Same Staff", "staff_code": ""}, "Same Staff", "UP14") is True
+assert neon._is_same_order_owner({"owner": "Other Staff", "staff_code": "UP99"}, "Same Staff", "UP14") is False
+assert neon._is_same_order_owner({"owner": "", "staff_code": "UP99"}, "Same Staff", "UP14") is False
 
 original_fetch_current_user_team_code = neon.fetch_current_user_team_code
 original_fetch_existing_owner_rows = neon.fetch_existing_owner_rows_by_phones

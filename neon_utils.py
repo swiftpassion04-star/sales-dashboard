@@ -853,18 +853,22 @@ def _valid_duplicate_lock_phones(phone1: str | None, phone2: str | None) -> list
     return phones
 
 
-def _normalize_owner_compare(value: str | None) -> str:
+def _normalize_owner_name(value: object) -> str:
     return " ".join(clean(value).split()).casefold()
+
+
+def _normalize_owner_compare(value: str | None) -> str:
+    return _normalize_owner_name(value)
 
 
 def _is_same_order_owner(row: dict, owner: str | None, staff_code: str | None) -> bool:
     current_staff_code = _normalize_owner_compare(staff_code)
     existing_staff_code = _normalize_owner_compare(row.get("staff_code"))
-    if current_staff_code and existing_staff_code:
-        return current_staff_code == existing_staff_code
+    if current_staff_code and existing_staff_code and current_staff_code == existing_staff_code:
+        return True
 
-    current_owner = _normalize_owner_compare(owner)
-    existing_owner = _normalize_owner_compare(row.get("owner"))
+    current_owner = _normalize_owner_name(owner)
+    existing_owner = _normalize_owner_name(row.get("owner"))
     if current_owner and existing_owner:
         return current_owner == existing_owner
 
