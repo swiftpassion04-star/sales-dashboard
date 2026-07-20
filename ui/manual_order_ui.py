@@ -429,11 +429,20 @@ def render_manual_product_picker(product_options: list[dict]) -> None:
         render_manual_product_selector_dialog(product_options)
 
 
+@st.fragment
 def render_manual_product_selector_dialog(product_options: list[dict]) -> None:
     # Rendered as an inline bordered panel, not a nested @st.dialog: this
     # picker opens from inside the Manual Order dialog, and Streamlit does
     # not allow one st.dialog to open inside another. Follow-up's own popup
     # product picker uses this same inline-panel pattern for the same reason.
+    #
+    # @st.fragment scopes reruns triggered by widgets in here (typing in the
+    # search box, changing page size, paging) to just this panel instead of
+    # re-rendering the whole Manual Order dialog -- including the main form
+    # and the already-added item list -- on every keystroke. Selecting a
+    # product still calls st.rerun() explicitly below, which always escapes
+    # the fragment and does a full rerun, since that needs to update the
+    # item list rendered outside this fragment.
     with st.container(border=True):
         header_col, close_col = st.columns([3.0, 1.0], vertical_alignment="center")
         header_col.markdown("#### \u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
