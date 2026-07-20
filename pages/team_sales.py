@@ -5,8 +5,10 @@ import streamlit as st
 
 from auth_utils import current_user, require_login
 from crm_data.team_sales import (
+    clear_team_sales_caches,
     clear_user_team_assignment,
     fetch_team_assignment_users,
+    fetch_team_sales_fingerprint,
     fetch_team_sales_summary,
     fetch_team_top_products,
     save_user_team_assignment,
@@ -34,6 +36,7 @@ ASSIGNMENT_OPTIONS = {
     "Upsell Team": "UPSELL_TEAM",
 }
 AUTO_REFRESH_INTERVAL_SECONDS = 15
+TEAM_SALES_FINGERPRINT_PREFIX = "team_sales_fingerprint::"
 
 
 st.set_page_config(page_title="ยอดขายทีม", layout="wide")
@@ -48,6 +51,26 @@ def _team_rows_by_code(summary: dict) -> dict[str, dict]:
         str(item.get("team_code") or ""): item
         for item in summary.get("teams", [])
     }
+
+
+def _team_sales_fingerprint_state_key(
+    start_date: date,
+    end_date: date,
+    sale_type_filter: str | None,
+    team_code_filter: str | None,
+) -> str:
+    sale_key = str(sale_type_filter or "ALL")
+    team_key = str(team_code_filter or "ALL")
+    return (
+        f"{TEAM_SALES_FINGERPRINT_PREFIX}{start_date.isoformat()}::"
+        f"{end_date.isoformat()}::{sale_key}::{team_key}"
+    )
+
+
+def _clear_team_sales_fingerprint_state() -> None:
+    for key in list(st.session_state):
+        if str(key).startswith(TEAM_SALES_FINGERPRINT_PREFIX):
+            del st.session_state[key]
 
 
 def _render_team_card(team: dict, card_key: str) -> None:
@@ -169,12 +192,14 @@ def _render_assignment_users(users: list[dict], actor_email: str) -> None:
 
         if result.get("changed"):
             st.session_state.team_assignment_notice = f"บันทึกทีมของ {email} แล้ว"
+            clear_team_sales_caches()
+            _clear_team_sales_fingerprint_state()
         else:
             st.session_state.team_assignment_notice = f"ทีมของ {email} ไม่มีการเปลี่ยนแปลง"
         st.rerun()
 
 
-def _render_team_sales_live(
+def _render_team_sales_once(
     start_date: date,
     end_date: date,
     sale_type_filter: str | None,
@@ -231,35 +256,34 @@ def _render_team_sales_live(
 
 
 @st.fragment(run_every=AUTO_REFRESH_INTERVAL_SECONDS)
-def _render_team_sales_auto_refresh(
+def _poll_team_sales_changes(
     start_date: date,
     end_date: date,
     sale_type_filter: str | None,
     team_code_filter: str | None,
 ) -> None:
-    _render_team_sales_live(
+    state_key = _team_sales_fingerprint_state_key(
         start_date,
         end_date,
         sale_type_filter,
         team_code_filter,
-        auto_refresh=True,
     )
+    try:
+        current_fingerprint = fetch_team_sales_fingerprint(
+            start_date,
+            end_date,
+            sale_type_filter=sale_type_filter,
+        )
+    except Exception:
+        return
 
-
-@st.fragment
-def _render_team_sales_once(
-    start_date: date,
-    end_date: date,
-    sale_type_filter: str | None,
-    team_code_filter: str | None,
-) -> None:
-    _render_team_sales_live(
-        start_date,
-        end_date,
-        sale_type_filter,
-        team_code_filter,
-        auto_refresh=False,
-    )
+    if state_key not in st.session_state:
+        st.session_state[state_key] = current_fingerprint
+        return
+    if st.session_state[state_key] != current_fingerprint:
+        st.session_state[state_key] = current_fingerprint
+        clear_team_sales_caches()
+        st.rerun()
 
 
 def main() -> None:
@@ -310,17 +334,38 @@ def main() -> None:
 
     sale_type_filter = SALE_TYPE_OPTIONS[sale_type_label]
     team_code_filter = TEAM_OPTIONS[team_label]
-    auto_refresh = st.toggle(
+    refresh_col, auto_refresh_col = st.columns([1, 3], vertical_alignment="center")
+    manual_refresh = refresh_col.button(
+        "รีเฟรชข้อมูล",
+        key="team_sales_manual_refresh",
+        use_container_width=True,
+    )
+    auto_refresh = auto_refresh_col.toggle(
         "เปิดอัปเดตอัตโนมัติ",
         value=True,
         key="team_sales_auto_refresh",
-        help="อัปเดตเฉพาะยอดรวมและ Top 10 โดยไม่รบกวนฟอร์มตั้งค่าทีม",
+        help="ตรวจสอบการเปลี่ยนแปลงทุก 15 วินาที และอัปเดตเมื่อข้อมูลเปลี่ยน",
     )
 
+    if manual_refresh:
+        clear_team_sales_caches()
+        _clear_team_sales_fingerprint_state()
+        st.rerun()
+
+    _render_team_sales_once(
+        start_date,
+        end_date,
+        sale_type_filter,
+        team_code_filter,
+        auto_refresh=auto_refresh,
+    )
     if auto_refresh:
-        _render_team_sales_auto_refresh(start_date, end_date, sale_type_filter, team_code_filter)
-    else:
-        _render_team_sales_once(start_date, end_date, sale_type_filter, team_code_filter)
+        _poll_team_sales_changes(
+            start_date,
+            end_date,
+            sale_type_filter,
+            team_code_filter,
+        )
 
     try:
         with st.spinner("กำลังโหลดรายชื่อ User..."):

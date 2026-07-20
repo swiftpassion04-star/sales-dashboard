@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 
+import streamlit as st
+
 from crm_data.common import BANGKOK_TZ
 
 
@@ -116,6 +118,7 @@ def fetch_team_assignment_users(conn_or_none=None) -> list[dict]:
     )
 
 
+@st.cache_data(ttl=120, show_spinner=False)
 def fetch_team_sales_summary(
     start_date: date,
     end_date: date,
@@ -198,6 +201,7 @@ def fetch_team_sales_summary(
     }
 
 
+@st.cache_data(ttl=120, show_spinner=False)
 def fetch_team_top_products(
     start_date: date,
     end_date: date,
@@ -250,6 +254,58 @@ def fetch_team_top_products(
         }
         for row in rows
     ]
+
+
+def clear_team_sales_caches() -> None:
+    fetch_team_sales_summary.clear()
+    fetch_team_top_products.clear()
+
+
+def fetch_team_sales_fingerprint(
+    start_date: date,
+    end_date: date,
+    sale_type_filter: str | None = None,
+) -> tuple[object, ...]:
+    start_ts, end_ts = _date_bounds(start_date, end_date)
+    sale_clause, sale_params = _sale_type_filter(sale_type_filter)
+    rows = _fetch_all(
+        f"""
+        select
+          import_stats.import_row_count,
+          import_stats.import_updated_at,
+          assignment_stats.assignment_row_count,
+          assignment_stats.assignment_updated_at
+        from (
+          select
+            count(*) as import_row_count,
+            max(d.updated_at) as import_updated_at
+          from public.crm_data_imports d
+          where d.created_at >= %s
+            and d.created_at < %s
+            and {_MANUAL_ROW_SQL}
+            and d.sale_type in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')
+            {sale_clause}
+        ) import_stats
+        cross join (
+          select
+            count(*) as assignment_row_count,
+            max(updated_at) as assignment_updated_at
+          from public.crm_user_team_assignments
+        ) assignment_stats
+        """,
+        [
+            start_ts,
+            end_ts,
+            *sale_params,
+        ],
+    )
+    row = rows[0] if rows else {}
+    return (
+        row.get("import_row_count"),
+        row.get("import_updated_at"),
+        row.get("assignment_row_count"),
+        row.get("assignment_updated_at"),
+    )
 
 
 def fetch_team_sales_data_quality(start_date: date, end_date: date) -> dict:
