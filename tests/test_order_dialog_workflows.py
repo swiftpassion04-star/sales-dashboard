@@ -385,4 +385,52 @@ assert "def delete_import_batch" not in import_excel_source
 
 print("import_excel.py canonical wiring OK")
 
+# ---------------------------------------------------------------------------
+# 11. Regression: no unconditional st.rerun() in ui/manual_order_ui.py.
+#
+# A bare st.rerun() sitting directly in a function's top-level body (not
+# nested inside any if/for/while) fires on EVERY render of that function.
+# For render_manual_product_selector_dialog -- called on every script rerun
+# whenever the picker is open -- that is a self-triggering rerun loop: it
+# reruns, which renders the function again, which reruns again, forever.
+#
+# This shipped once: the "ปิด" (close) button's st.rerun() was left at the
+# same indentation as its guarding `if`, instead of inside it, so it fired
+# unconditionally right after the conditional one, on every single render.
+# Symptom in production: typing in the product search box felt laggy, and
+# under an added @st.fragment (since reverted) the picker hung outright.
+# ---------------------------------------------------------------------------
+def unconditional_reruns(source: str) -> list[tuple[str, int]]:
+    """Function name + line number of any st.rerun() sitting directly in a
+    function's top-level body, i.e. not guarded by any if/for/while."""
+    tree = ast.parse(source)
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            for stmt in node.body:
+                is_rerun_call = (
+                    isinstance(stmt, ast.Expr)
+                    and isinstance(stmt.value, ast.Call)
+                    and isinstance(stmt.value.func, ast.Attribute)
+                    and stmt.value.func.attr == "rerun"
+                )
+                if is_rerun_call:
+                    found.append((node.name, stmt.lineno))
+    return found
+
+
+manual_unconditional_reruns = unconditional_reruns(manual_source)
+assert manual_unconditional_reruns == [], (
+    "unconditional st.rerun() found in ui/manual_order_ui.py -- fires on "
+    f"every render of its function, causing a rerun loop: {manual_unconditional_reruns}"
+)
+
+followup_unconditional_reruns = unconditional_reruns(followup_source)
+assert followup_unconditional_reruns == [], (
+    "unconditional st.rerun() found in pages/followup.py -- fires on "
+    f"every render of its function, causing a rerun loop: {followup_unconditional_reruns}"
+)
+
+print("no unconditional st.rerun() in ui/manual_order_ui.py or pages/followup.py OK")
+
 print("order dialog workflows safety OK")

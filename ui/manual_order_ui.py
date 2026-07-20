@@ -506,7 +506,7 @@ def render_manual_product_selector_dialog(product_options: list[dict]) -> None:
             st.rerun()
         if nav_close.button("\u0e1b\u0e34\u0e14", key="manual_product_selector_close", use_container_width=True):
             st.session_state["manual_product_selector_open"] = False
-        st.rerun()
+            st.rerun()
 
 
 def render_manual_selected_product(product: dict) -> None:
