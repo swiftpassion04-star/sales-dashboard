@@ -532,6 +532,7 @@ def build_popup_followup_payload(row: dict, user: dict, prefix: str) -> tuple[di
     lead_status = clean(st.session_state.get(f"{prefix}_lead_status"))
     followup_status = clean(st.session_state.get(f"{prefix}_followup_status"))
     priority = clean(st.session_state.get(f"{prefix}_priority"))
+    followup_note = clean(st.session_state.get(f"{prefix}_followup_note"))
     next_followup_date, date_error = serialize_popup_followup_date(
         st.session_state.get(f"{prefix}_next_followup_date")
     )
@@ -563,8 +564,10 @@ def build_popup_followup_payload(row: dict, user: dict, prefix: str) -> tuple[di
         "lead_status": lead_status,
         "followup_status": followup_status,
         "next_followup_date": next_followup_date,
+        "followup_note": followup_note,
         "follow_up_status": followup_status,
         "follow_up_date": next_followup_date,
+        "follow_up_note": followup_note,
         "priority": priority,
         "updated_by": clean(user.get("email")),
         "updated_at": datetime.utcnow().isoformat() + "Z",
@@ -742,6 +745,11 @@ def _render_order_dialog(row: dict, user: dict) -> None:
             key=f"{prefix}_priority",
         )
         followup_meta_cols[1].date_input("\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48\u0e19\u0e31\u0e14", key=f"{prefix}_next_followup_date")
+        st.text_area(
+            "\u0e42\u0e19\u0e49\u0e15\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21",
+            key=f"{prefix}_followup_note",
+            height=100,
+        )
         st.caption(
             "\u0e2b\u0e32\u0e01\u0e41\u0e01\u0e49\u0e44\u0e02\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e43\u0e19\u0e2a\u0e48\u0e27\u0e19\u0e19\u0e35\u0e49 \u0e23\u0e30\u0e1a\u0e1a\u0e08\u0e30\u0e43\u0e0a\u0e49\u0e2a\u0e33\u0e2b\u0e23\u0e31\u0e1a\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e2b\u0e25\u0e31\u0e07\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e04\u0e33\u0e2a\u0e31\u0e48\u0e07\u0e0b\u0e37\u0e49\u0e2d\u0e43\u0e19\u0e40\u0e1f\u0e2a\u0e16\u0e31\u0e14\u0e44\u0e1b"
         )
@@ -921,6 +929,7 @@ def prepare_popup_order_state(prefix: str, row: dict) -> None:
     )
     st.session_state[f"{prefix}_priority"] = normalize_followup_priority(row.get("priority"))
     st.session_state[f"{prefix}_next_followup_date"] = parse_date(row.get("next_followup_date"))
+    st.session_state[f"{prefix}_followup_note"] = clean(row.get("followup_note"))
     st.session_state[popup_product_picker_state_key(prefix, "selected_product")] = {}
     st.session_state[popup_product_picker_state_key(prefix, "selected_product_sku")] = ""
     st.session_state[f"{prefix}_product_qty"] = 1

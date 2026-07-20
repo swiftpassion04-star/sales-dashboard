@@ -32,20 +32,38 @@ def parse_required_price_input(value: str) -> tuple[bool, float, str]:
     return parse_price_input(text)
 
 
+def render_manual_order_entry(user: dict, is_editor: bool) -> None:
+    with perf_trace("manual_order.render_entry", role=user.get("role")):
+        _render_manual_order_entry(user, is_editor)
+
+
+def _render_manual_order_entry(user: dict, is_editor: bool) -> None:
+    success_message = st.session_state.pop("manual_order_success_message", "")
+    if success_message:
+        st.success(success_message)
+    with st.container(border=True):
+        st.markdown("#### เพิ่มคำสั่งซื้อ")
+        st.caption("สร้างคำสั่งซื้อใหม่และเพิ่มรายการสินค้า")
+        if st.button("+ เพิ่มคำสั่งซื้อ", type="primary", key="manual_order_open_dialog_button"):
+            st.session_state["manual_order_dialog_open"] = True
+            st.rerun()
+    if st.session_state.get("manual_order_dialog_open"):
+        render_manual_order_dialog(user, is_editor)
+
+
+@st.dialog("เพิ่มคำสั่งซื้อ", width="large")
+def render_manual_order_dialog(user: dict, is_editor: bool) -> None:
+    with perf_trace("manual_order.dialog_render", role=user.get("role")):
+        st.caption("พนักงานเพิ่มคำสั่งซื้อได้ทีละรายการ ส่วนการนำเข้า Excel ใช้ได้เฉพาะ EDITOR")
+        render_manual_order_form(user, is_editor)
+
+
 def render_manual_order_form(user: dict, is_editor: bool) -> None:
     with perf_trace("manual_order.render_form", role=user.get("role")):
         _render_manual_order_form(user, is_editor)
 
 
 def _render_manual_order_form(user: dict, is_editor: bool) -> None:
-    st.subheader("เพิ่มคำสั่งซื้อ")
-    st.markdown(
-        '<div class="crm-manual-meta">พนักงานเพิ่มคำสั่งซื้อได้ทีละรายการ ส่วนการนำเข้า Excel ใช้ได้เฉพาะ EDITOR</div>',
-        unsafe_allow_html=True,
-    )
-    success_message = st.session_state.pop("manual_order_success_message", "")
-    if success_message:
-        st.success(success_message)
     if st.session_state.pop("manual_order_clear_requested", False):
         clear_manual_order_form_state()
     staff_options = []
@@ -201,6 +219,7 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
         )
     st.session_state.manual_order_success_message = f"บันทึกสำเร็จ: {action_text}"
     st.session_state.manual_order_clear_requested = True
+    st.session_state["manual_order_dialog_open"] = False
     with perf_trace("manual_order.rerun", action="save"):
         st.rerun()
 

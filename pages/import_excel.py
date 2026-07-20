@@ -7,7 +7,7 @@ from nav_utils import render_sidebar_nav
 from permissions import can_add_manual_order, can_import_excel
 from ui.customer_export_ui import render_customer_export_panel
 from ui.import_excel_ui import render_excel_import, render_import_history
-from ui.manual_order_ui import render_manual_order_form
+from ui.manual_order_ui import render_manual_order_entry
 
 
 st.set_page_config(page_title="Import Excel", layout="wide")
@@ -26,8 +26,7 @@ def main() -> None:
     neon.require_neon_config()
     neon.ensure_crm_data_imports_schema()
 
-    st.markdown('<div class="crm-section-title">เพิ่มคำสั่งซื้อ</div>', unsafe_allow_html=True)
-    render_manual_order_form(user, is_editor)
+    render_manual_order_entry(user, is_editor)
     render_customer_export_panel(
         {},
         user,
