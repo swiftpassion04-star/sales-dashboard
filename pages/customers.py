@@ -373,8 +373,19 @@ def render_customer_actions(
             st.error("ไม่มีสิทธิ์แก้ไขรายการนี้")
             return
         try:
-            payload = build_follow_marker_payload(row, marker, clean(user.get("email")))
+            current_followup = neon.fetch_lead_followup_by_customer(
+                customer_key=f"customer_id:{clean(row.get('customer_id')) or clean(row.get('id'))}",
+                crm_data_import_id=clean(row.get("id")),
+                phone1=row.get("phone1"),
+                phone2=row.get("phone2"),
+            )
+        except Exception as exc:
+            st.error(f"ไม่สามารถอ่านข้อมูลติดตามล่าสุดได้: {exc}")
+            return
+        try:
+            payload = build_follow_marker_payload(row, marker, clean(user.get("email")), current_followup)
             upsert_lead_followup(payload)
+            neon.clear_cached_data_functions(fetch_followup_filter_options)
             st.success("อัปเดตสถานะติดตามแล้ว")
             st.rerun()
         except Exception as exc:
@@ -444,39 +455,56 @@ def owner_staff_choices(rows: list[dict]) -> tuple[list[str], dict[str, str]]:
     return names, staff_code_by_name
 
 
-def build_follow_marker_payload(row: dict, marker: str, updated_by: str) -> dict:
+def build_follow_marker_payload(
+    row: dict,
+    marker: str,
+    updated_by: str,
+    current_followup: dict | None = None,
+) -> dict:
     phone1 = clean(row.get("phone1"))
     phone2 = clean(row.get("phone2"))
     phone_key = customer_phone_key(row)
+    current_followup = current_followup or {}
     followup_status = clean(marker) or "0"
-    if followup_status == "0":
+    if current_followup:
+        note = clean(current_followup.get("followup_note")) or clean(current_followup.get("follow_up_note"))
+    elif followup_status == "0":
         note = ""
     elif followup_status == "RESET":
         note = "RESET"
     else:
         note = f"ติดตามรอบที่ {followup_status}"
+    next_followup_date = clean(current_followup.get("next_followup_date")) or clean(current_followup.get("follow_up_date"))
+    customer_id = clean(row.get("customer_id")) or clean(row.get("id"))
+    customer_key = clean(current_followup.get("customer_key")) or phone_key or clean(row.get("id"))
+    crm_data_import_id = clean(current_followup.get("crm_data_import_id")) or clean(row.get("id")) or None
+    owner = clean(current_followup.get("owner")) or clean(row.get("sales_staff"))
+    staff_code = clean(current_followup.get("staff_code")) or clean(row.get("staff_code"))
+    lead_status = clean(current_followup.get("lead_status")) or "new"
+    priority = clean(current_followup.get("priority")) or DEFAULT_FOLLOWUP_PRIORITY
     return {
-        "customer_key": phone_key or clean(row.get("id")),
-        "crm_data_import_id": clean(row.get("id")) or None,
-        "order_id": clean(row.get("order_id")),
-        "customer_id": clean(row.get("customer_id")) or clean(row.get("id")),
-        "customer_name": clean(row.get("customer")),
-        "phone_key": phone_key,
-        "phone1": phone1,
-        "phone2": phone2,
-        "product_group": "",
-        "product_name": clean(row.get("product_name")),
-        "sku": clean(row.get("sku")),
-        "staff_code": clean(row.get("staff_code")),
-        "owner": clean(row.get("sales_staff")),
-        "lead_status": "new",
+        "customer_key": customer_key,
+        "crm_data_import_id": crm_data_import_id,
+        "order_id": clean(current_followup.get("order_id")) or clean(row.get("order_id")),
+        "customer_id": customer_id,
+        "customer_name": clean(current_followup.get("customer_name")) or clean(row.get("customer")),
+        "phone_key": clean(current_followup.get("phone_key")) or phone_key,
+        "phone1": clean(current_followup.get("phone1")) or phone1,
+        "phone2": clean(current_followup.get("phone2")) or phone2,
+        "product_group": clean(current_followup.get("product_group")),
+        "product_name": clean(current_followup.get("product_name")) or clean(row.get("product_name")),
+        "sku": clean(current_followup.get("sku")) or clean(row.get("sku")),
+        "staff_code": staff_code,
+        "owner": owner,
+        "lead_status": lead_status,
+        "customer_status": clean(current_followup.get("customer_status")),
         "followup_status": followup_status,
-        "next_followup_date": None,
+        "next_followup_date": next_followup_date or None,
         "followup_note": note,
         "follow_up_status": followup_status,
-        "follow_up_date": None,
+        "follow_up_date": next_followup_date or None,
         "follow_up_note": note,
-        "priority": DEFAULT_FOLLOWUP_PRIORITY,
+        "priority": priority,
         "updated_by": updated_by,
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }

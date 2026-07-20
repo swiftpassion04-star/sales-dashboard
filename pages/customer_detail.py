@@ -14,7 +14,7 @@ from neon_utils import (
     fetch_customer_360_orders,
     fetch_customer_360_products,
     fetch_followup_filter_options,
-    neon_connection,
+    fetch_lead_followup_by_customer,
     normalize_followup_priority,
     normalize_phone,
     upsert_lead_followup,
@@ -103,51 +103,12 @@ def can_view_customer_detail(user: dict, customer: dict) -> bool:
 
 def fetch_customer_followup(customer: dict) -> dict:
     customer_id = clean(customer.get("id")) or clean(customer.get("customer_id"))
-    phone1 = normalize_phone(customer.get("phone1"))
-    phone2 = normalize_phone(customer.get("phone2"))
-    clauses = ["customer_key = %s"]
-    params = [f"customer_id:{customer_id}"]
-    if customer_id and customer_id.isdigit():
-        clauses.append("crm_data_import_id = %s")
-        params.append(int(customer_id))
-    if phone1:
-        clauses.append("(phone1 = %s or phone2 = %s)")
-        params.extend([phone1, phone1])
-    if phone2:
-        clauses.append("(phone1 = %s or phone2 = %s)")
-        params.extend([phone2, phone2])
-    with neon_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                select
-                  id::text,
-                  customer_key,
-                  crm_data_import_id::text,
-                  order_id,
-                  customer_name,
-                  phone1,
-                  phone2,
-                  product_name,
-                  sku,
-                  staff_code,
-                  owner,
-                  coalesce(lead_status, 'new') as lead_status,
-                  coalesce(followup_status, follow_up_status, 'none') as followup_status,
-                  coalesce(priority, 'NEW') as priority,
-                  coalesce(next_followup_date, follow_up_date)::text as next_followup_date,
-                  coalesce(followup_note, follow_up_note, '') as followup_note,
-                  updated_by,
-                  updated_at
-                from public.crm_lead_followups
-                where {" or ".join(clauses)}
-                order by updated_at desc nulls last, created_at desc nulls last
-                limit 1
-                """,
-                params,
-            )
-            row = cur.fetchone()
-            return dict(row) if row else {}
+    return fetch_lead_followup_by_customer(
+        customer_key=f"customer_id:{customer_id}" if customer_id else "",
+        crm_data_import_id=customer_id,
+        phone1=customer.get("phone1"),
+        phone2=customer.get("phone2"),
+    )
 
 
 def render_customer_360(

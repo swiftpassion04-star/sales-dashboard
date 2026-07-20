@@ -2341,6 +2341,74 @@ def fetch_lead_followups(limit: int = 100000) -> list[dict]:
             return cur.fetchall()
 
 
+def fetch_lead_followup_by_customer(
+    customer_key: object | None = None,
+    crm_data_import_id: object | None = None,
+    phone1: object | None = None,
+    phone2: object | None = None,
+) -> dict:
+    clauses: list[str] = []
+    params: list = []
+    clean_customer_key = clean(customer_key)
+    clean_import_id = clean(crm_data_import_id)
+    clean_phone1 = normalize_phone(phone1)
+    clean_phone2 = normalize_phone(phone2)
+    if clean_customer_key:
+        clauses.append("customer_key = %s")
+        params.append(clean_customer_key)
+    if clean_import_id:
+        clauses.append("crm_data_import_id::text = %s")
+        params.append(clean_import_id)
+    if clean_phone1:
+        clauses.append("(phone1 = %s or phone2 = %s)")
+        params.extend([clean_phone1, clean_phone1])
+    if clean_phone2:
+        clauses.append("(phone1 = %s or phone2 = %s)")
+        params.extend([clean_phone2, clean_phone2])
+    if not clauses:
+        return {}
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select
+                  id::text as id,
+                  customer_key,
+                  crm_data_import_id::text,
+                  order_id,
+                  customer_id,
+                  customer_name,
+                  phone_key,
+                  phone1,
+                  phone2,
+                  product_group,
+                  product_name,
+                  sku,
+                  staff_code,
+                  owner,
+                  coalesce(lead_status, 'new') as lead_status,
+                  null::text as customer_status,
+                  coalesce(followup_status, follow_up_status, 'none') as followup_status,
+                  coalesce(followup_status, follow_up_status, 'none') as follow_up_status,
+                  coalesce(priority, %s) as priority,
+                  coalesce(next_followup_date, follow_up_date)::text as next_followup_date,
+                  coalesce(next_followup_date, follow_up_date)::text as follow_up_date,
+                  coalesce(followup_note, follow_up_note, '') as followup_note,
+                  coalesce(followup_note, follow_up_note, '') as follow_up_note,
+                  updated_by,
+                  updated_at
+                from public.crm_lead_followups
+                where {" or ".join(clauses)}
+                order by updated_at desc nulls last, created_at desc nulls last
+                limit 1
+                """,
+                [DEFAULT_FOLLOWUP_PRIORITY] + params,
+            )
+            row = cur.fetchone()
+            return dict(row) if row else {}
+
+
 def upsert_lead_followup(payload: dict) -> None:
     ensure_crm_data_imports_schema()
     payload = dict(payload)
