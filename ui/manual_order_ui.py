@@ -429,74 +429,83 @@ def render_manual_product_picker(product_options: list[dict]) -> None:
         render_manual_product_selector_dialog(product_options)
 
 
-@st.dialog("\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", width="large")
 def render_manual_product_selector_dialog(product_options: list[dict]) -> None:
-    st.caption("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32 \u0e41\u0e25\u0e49\u0e27\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e08\u0e32\u0e01\u0e15\u0e32\u0e23\u0e32\u0e07\u0e14\u0e49\u0e32\u0e19\u0e25\u0e48\u0e32\u0e07")
-    query = st.text_input("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU / \u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", key="manual_product_selector_query")
-    clean_query = neon.clean(query)
-    previous_query = st.session_state.get("manual_product_selector_previous_query", "")
-    if clean_query != previous_query:
-        st.session_state["manual_product_selector_page"] = 1
-        st.session_state["manual_product_selector_previous_query"] = clean_query
-
-    page_size = st.selectbox(
-        "\u0e08\u0e33\u0e19\u0e27\u0e19\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e15\u0e48\u0e2d\u0e2b\u0e19\u0e49\u0e32",
-        PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS,
-        key="manual_product_selector_page_size",
-    )
-    page_size = normalize_product_selector_page_size(page_size)
-
-    if not clean_query:
-        st.caption("\u0e1e\u0e34\u0e21\u0e1e\u0e4c SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e04\u0e49\u0e19\u0e2b\u0e32")
-        if st.button("\u0e1b\u0e34\u0e14", key="manual_product_selector_close_empty"):
+    # Rendered as an inline bordered panel, not a nested @st.dialog: this
+    # picker opens from inside the Manual Order dialog, and Streamlit does
+    # not allow one st.dialog to open inside another. Follow-up's own popup
+    # product picker uses this same inline-panel pattern for the same reason.
+    with st.container(border=True):
+        header_col, close_col = st.columns([3.0, 1.0], vertical_alignment="center")
+        header_col.markdown("#### \u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+        if close_col.button("\u0e1b\u0e34\u0e14", key="manual_product_selector_close_top", use_container_width=True):
             st.session_state["manual_product_selector_open"] = False
             st.rerun()
-        return
+        st.caption("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32 \u0e41\u0e25\u0e49\u0e27\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e08\u0e32\u0e01\u0e15\u0e32\u0e23\u0e32\u0e07\u0e14\u0e49\u0e32\u0e19\u0e25\u0e48\u0e32\u0e07")
+        query = st.text_input("\u0e04\u0e49\u0e19\u0e2b\u0e32 SKU / \u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", key="manual_product_selector_query")
+        clean_query = neon.clean(query)
+        previous_query = st.session_state.get("manual_product_selector_previous_query", "")
+        if clean_query != previous_query:
+            st.session_state["manual_product_selector_page"] = 1
+            st.session_state["manual_product_selector_previous_query"] = clean_query
 
-    matches = filter_product_selector_options(product_options, clean_query)
-    if not matches:
-        st.info("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
-        if st.button("\u0e1b\u0e34\u0e14", key="manual_product_selector_close_no_result"):
+        page_size = st.selectbox(
+            "\u0e08\u0e33\u0e19\u0e27\u0e19\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e15\u0e48\u0e2d\u0e2b\u0e19\u0e49\u0e32",
+            PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS,
+            key="manual_product_selector_page_size",
+        )
+        page_size = normalize_product_selector_page_size(page_size)
+
+        if not clean_query:
+            st.caption("\u0e1e\u0e34\u0e21\u0e1e\u0e4c SKU \u0e2b\u0e23\u0e37\u0e2d\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e04\u0e49\u0e19\u0e2b\u0e32")
+            if st.button("\u0e1b\u0e34\u0e14", key="manual_product_selector_close_empty"):
+                st.session_state["manual_product_selector_open"] = False
+                st.rerun()
+            return
+
+        matches = filter_product_selector_options(product_options, clean_query)
+        if not matches:
+            st.info("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+            if st.button("\u0e1b\u0e34\u0e14", key="manual_product_selector_close_no_result"):
+                st.session_state["manual_product_selector_open"] = False
+                st.rerun()
+            return
+
+        current_page = st.session_state.get("manual_product_selector_page", 1)
+        page_items, page, total_pages = paginate_product_selector_options(matches, current_page, page_size)
+        st.session_state["manual_product_selector_page"] = page
+        st.caption(f"\u0e1e\u0e1a {len(matches):,} \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23")
+
+        header = st.columns([0.45, 0.75, 1.8, 1.0, 0.6])
+        for col, label in zip(header, ["\u0e23\u0e39\u0e1b", "SKU", "\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", "\u0e01\u0e25\u0e38\u0e48\u0e21", ""]):
+            col.markdown(f"**{label}**")
+
+        current_key = selected_product_key(st.session_state.get("manual_selected_product") or {})
+        for index, product in enumerate(page_items):
+            product_key = selected_product_key(product)
+            cols = st.columns([0.45, 0.75, 1.8, 1.0, 0.6])
+            render_product_picker_thumbnail(cols[0], product)
+            cols[1].write(neon.clean(product.get("sku")) or "-")
+            cols[2].write(neon.clean(product.get("product_name")) or "-")
+            cols[3].write(neon.clean(product.get("product_group")) or "-")
+            if cols[4].button(
+                "\u0e40\u0e25\u0e37\u0e2d\u0e01",
+                key=f"manual_product_selector_pick_{page}_{index}_{product_key}",
+                use_container_width=True,
+            ):
+                select_manual_product(product)
+                add_manual_order_item(product, 1, None)
+                st.rerun()
+
+        nav_prev, nav_status, nav_next, nav_close = st.columns([0.9, 1.4, 0.9, 0.9])
+        if nav_prev.button("\u0e01\u0e48\u0e2d\u0e19\u0e2b\u0e19\u0e49\u0e32", key="manual_product_selector_prev", disabled=page <= 1, use_container_width=True):
+            st.session_state["manual_product_selector_page"] = max(1, page - 1)
+            st.rerun()
+        nav_status.caption(f"\u0e2b\u0e19\u0e49\u0e32 {page} / {total_pages}")
+        if nav_next.button("\u0e16\u0e31\u0e14\u0e44\u0e1b", key="manual_product_selector_next", disabled=page >= total_pages, use_container_width=True):
+            st.session_state["manual_product_selector_page"] = min(total_pages, page + 1)
+            st.rerun()
+        if nav_close.button("\u0e1b\u0e34\u0e14", key="manual_product_selector_close", use_container_width=True):
             st.session_state["manual_product_selector_open"] = False
-            st.rerun()
-        return
-
-    current_page = st.session_state.get("manual_product_selector_page", 1)
-    page_items, page, total_pages = paginate_product_selector_options(matches, current_page, page_size)
-    st.session_state["manual_product_selector_page"] = page
-    st.caption(f"\u0e1e\u0e1a {len(matches):,} \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23")
-
-    header = st.columns([0.45, 0.75, 1.8, 1.0, 0.6])
-    for col, label in zip(header, ["\u0e23\u0e39\u0e1b", "SKU", "\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", "\u0e01\u0e25\u0e38\u0e48\u0e21", ""]):
-        col.markdown(f"**{label}**")
-
-    current_key = selected_product_key(st.session_state.get("manual_selected_product") or {})
-    for index, product in enumerate(page_items):
-        product_key = selected_product_key(product)
-        cols = st.columns([0.45, 0.75, 1.8, 1.0, 0.6])
-        render_product_picker_thumbnail(cols[0], product)
-        cols[1].write(neon.clean(product.get("sku")) or "-")
-        cols[2].write(neon.clean(product.get("product_name")) or "-")
-        cols[3].write(neon.clean(product.get("product_group")) or "-")
-        if cols[4].button(
-            "\u0e40\u0e25\u0e37\u0e2d\u0e01",
-            key=f"manual_product_selector_pick_{page}_{index}_{product_key}",
-            use_container_width=True,
-        ):
-            select_manual_product(product)
-            add_manual_order_item(product, 1, None)
-            st.rerun()
-
-    nav_prev, nav_status, nav_next, nav_close = st.columns([0.9, 1.4, 0.9, 0.9])
-    if nav_prev.button("\u0e01\u0e48\u0e2d\u0e19\u0e2b\u0e19\u0e49\u0e32", key="manual_product_selector_prev", disabled=page <= 1, use_container_width=True):
-        st.session_state["manual_product_selector_page"] = max(1, page - 1)
-        st.rerun()
-    nav_status.caption(f"\u0e2b\u0e19\u0e49\u0e32 {page} / {total_pages}")
-    if nav_next.button("\u0e16\u0e31\u0e14\u0e44\u0e1b", key="manual_product_selector_next", disabled=page >= total_pages, use_container_width=True):
-        st.session_state["manual_product_selector_page"] = min(total_pages, page + 1)
-        st.rerun()
-    if nav_close.button("\u0e1b\u0e34\u0e14", key="manual_product_selector_close", use_container_width=True):
-        st.session_state["manual_product_selector_open"] = False
         st.rerun()
 
 
