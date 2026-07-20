@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sales CRM · Preview — ติดตามลูกค้า (ตารางปรับใหม่)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --primary: #f97316;
+    --primary-hover: #ea580c;
+    --primary-press: #c2410c;
+    --primary-pale: #fff2e2;
+    --bg: #fff8f0;
+    --bg-soft: #fff3e8;
+    --bg-lift: #fffdf9;
+    --surface: #ffffff;
+    --border: #f3e4d2;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --warm-muted: #8a6a52;
+
+    /* Table tokens (the focus of this redesign) */
+    --tbl-head-a: #ffefe0;
+    --tbl-head-b: #ffe3cc;
+    --tbl-head-text: #7c2d12;
+    --tbl-row-even: #ffffff;
+    --tbl-row-odd: #fff6ec;
+    --tbl-line: #f2e0cd;
+    --tbl-hover: #fff0dd;
+
+    --radius: 18px;
+    --radius-sm: 14px;
+    --pill: 999px;
+    --shadow-soft: 0 4px 14px rgba(124, 45, 18, 0.045);
+    --shadow: 0 18px 42px rgba(124, 45, 18, 0.1);
+    --font: "Noto Sans Thai", "Leelawadee UI", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: var(--font);
+    color: var(--text);
+    font-size: 15px;
+    background:
+      radial-gradient(circle at 14% 8%, rgba(255, 219, 181, 0.52), transparent 28%),
+      radial-gradient(circle at 88% 0%, rgba(255, 242, 226, 0.72), transparent 32%),
+      var(--bg);
+    min-height: 100vh;
+  }
+
+  /* Preview ribbon */
+  .preview-flag {
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 18px;
+    background: #1f2937;
+    color: #ffe8d2;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .preview-flag b { color: #fdba74; }
+  .preview-flag .dot { color: #fb923c; }
+
+  .app { display: flex; min-height: calc(100vh - 37px); }
+
+  /* ---------------------------- Sidebar ---------------------------- */
+  .sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: var(--bg-soft);
+    border-right: 1px solid var(--border);
+    padding: 14px 12px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .brand { padding: 8px 10px 16px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+  .brand-title { font-size: 18px; font-weight: 800; color: var(--text); }
+  .brand-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .nav-group { margin: 14px 10px 4px; font-size: 12px; font-weight: 800; color: var(--muted); }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    min-height: 42px; padding: 10px 14px; margin: 3px 0;
+    border-radius: var(--pill); border-left: 3px solid transparent;
+    color: var(--text); font-weight: 650; cursor: pointer; user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .nav-item:hover { background: var(--bg); border-left-color: var(--primary-tint, #fdba74); }
+  .nav-item.active { background: #ffe6cc; border-left-color: var(--primary); }
+  .nav-item .ic { width: 18px; text-align: center; }
+  .sidebar-footer {
+    margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--border);
+    font-size: 13px; font-weight: 700; color: var(--warm-muted);
+  }
+
+  /* ----------------------------- Main ------------------------------ */
+  .main { flex: 1; min-width: 0; padding: 26px 34px 60px; }
+
+  .page-head { margin-bottom: 18px; }
+  .eyebrow { color: #9a5a22; font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+  .page-title { font-size: 28px; font-weight: 800; line-height: 1.2; margin: 0; }
+  .page-sub { color: var(--muted); font-size: 15px; margin-top: 8px; }
+
+  /* Priority tabs */
+  .tabs { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 6px; }
+  .tab {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: var(--pill); padding: 8px 18px; font-weight: 700; font-size: 14px;
+    cursor: pointer; min-height: 40px; transition: all 0.15s;
+  }
+  .tab:hover { border-color: var(--primary); background: var(--primary-pale); }
+  .tab.active { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: var(--shadow-soft); }
+
+  /* Filters (compact) */
+  .filters {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow-soft); padding: 16px; margin: 16px 0 20px;
+  }
+  .field label { display: block; font-size: 12.5px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+  .field .control {
+    height: 42px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); display: flex; align-items: center; padding: 0 12px;
+    color: var(--text); font-size: 14px; justify-content: space-between;
+  }
+  .field .control::after { content: "▾"; color: var(--muted); font-size: 12px; }
+  .field.search .control::after { content: ""; }
+  .field.search .control { color: #b5967e; }
+
+  /* KPI cards */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 12px; }
+  .kpi {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow-soft); padding: 18px 20px;
+    position: relative; overflow: hidden;
+  }
+  .kpi::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  }
+  .kpi.today::before { background: var(--primary); }
+  .kpi.overdue::before { background: #dc2626; }
+  .kpi.week::before { background: #f59e0b; }
+  .kpi.done::before { background: #16a34a; }
+  .kpi .k-label { font-size: 13px; font-weight: 700; color: var(--muted); }
+  .kpi .k-value { font-size: 34px; font-weight: 800; line-height: 1.1; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .kpi.overdue .k-value { color: #b91c1c; }
+
+  .mini-metrics { display: flex; gap: 22px; margin: 14px 2px 20px; color: var(--muted); font-size: 13.5px; }
+  .mini-metrics b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* =========================== TABLE ============================== */
+  .table-scroll { overflow-x: auto; border-radius: 16px; }
+  .ftable {
+    min-width: 1240px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+  }
+  .frow {
+    display: grid;
+    grid-template-columns:
+      minmax(88px, 0.8fr)     /* ติดตาม */
+      minmax(116px, 1.0fr)    /* เพิ่มคำสั่งซื้อ */
+      minmax(122px, 0.95fr)   /* วันนัด — fits 2026-07-21 on one line */
+      minmax(160px, 2.1fr)    /* ชื่อลูกค้า */
+      minmax(134px, 1.05fr)   /* เบอร์โทร — fits 081-234-5678 on one line */
+      minmax(84px, 0.7fr)     /* SKU — fits SP 674 on one line */
+      minmax(150px, 1.5fr)    /* สินค้า */
+      minmax(120px, 1.5fr)    /* สถานะลูกค้า */
+      minmax(128px, 1.55fr)   /* สถานะติดตาม */
+      minmax(84px, 0.85fr)    /* ความสำคัญ */
+      minmax(78px, 0.8fr);    /* URL */
+    align-items: stretch;
+  }
+  /* header */
+  .frow.head {
+    position: sticky; top: 37px; z-index: 20;
+    background: linear-gradient(180deg, var(--tbl-head-a), var(--tbl-head-b));
+    border-bottom: 2px solid var(--primary);
+  }
+  .frow.head .cell {
+    justify-content: center;      /* header text centered in the card */
+    text-align: center;
+    color: var(--tbl-head-text);
+    font-weight: 800;
+    font-size: 13.5px;
+    min-height: 54px;
+    line-height: 1.3;
+  }
+  /* body rows: zebra bounded exactly by the row line */
+  .frow.body { border-bottom: 1px solid var(--tbl-line); transition: background 0.12s; }
+  .frow.body:last-child { border-bottom: 0; }
+  .frow.body.even { background: var(--tbl-row-even); }
+  .frow.body.odd  { background: var(--tbl-row-odd); }
+  .frow.body:hover { background: var(--tbl-hover); }
+
+  .cell {
+    display: flex; align-items: center;
+    padding: 12px 14px; min-height: 60px;
+    font-size: 14px; overflow-wrap: anywhere;
+  }
+  /* per-column alignment for a tidy read */
+  .c-center { justify-content: center; text-align: center; }
+  .c-left   { justify-content: flex-start; text-align: left; }
+  /* วันนัด / เบอร์โทร / SKU: keep on a single line, never wrap */
+  .num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: keep-all;
+  }
+  .cust-name { font-weight: 700; }
+  .muted-cell { color: var(--muted); }
+
+  /* action buttons */
+  .btn {
+    border: 1px solid var(--primary); color: var(--primary-press); background: #fff;
+    border-radius: var(--pill); padding: 7px 12px; font-weight: 700; font-size: 13px;
+    cursor: pointer; white-space: nowrap; width: 100%; min-height: 38px; transition: all 0.15s;
+    font-family: inherit;
+  }
+  .btn:hover { background: var(--primary-pale); border-color: var(--primary-hover); color: var(--primary-hover); }
+  .btn.solid { background: var(--primary); color: #fff; }
+  .btn.solid:hover { background: var(--primary-hover); }
+
+  /* badges */
+  .badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 26px; padding: 3px 12px; border-radius: var(--pill);
+    font-weight: 700; font-size: 12.5px; white-space: nowrap;
+  }
+  .b-blue { background: #ffead6; color: #9a4b12; }
+  .b-green { background: #e9f8ef; color: #166534; }
+  .b-yellow { background: #fff3cc; color: #8a5a00; }
+  .b-orange { background: #ffdbb5; color: #8f3d08; }
+  .b-red { background: #fde4e4; color: #b91c1c; }
+  .b-gray { background: #f1e9e1; color: #7b5c44; }
+
+  .link { color: var(--primary); font-weight: 700; text-decoration: none; }
+  .link:hover { color: var(--primary-hover); text-decoration: underline; }
+  .dot-empty { color: #cbb6a2; font-size: 18px; line-height: 1; }
+
+  /* Notes panel */
+  .notes {
+    margin-top: 26px; background: var(--bg-lift); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 22px; box-shadow: var(--shadow-soft);
+  }
+  .notes h3 { margin: 0 0 10px; font-size: 16px; color: var(--primary-press); }
+  .notes ul { margin: 0; padding-left: 20px; line-height: 1.9; color: var(--text); font-size: 14px; }
+  .notes .old { color: var(--muted); }
+
+  @media (max-width: 1180px) {
+    .filters { grid-template-columns: repeat(2, 1fr); }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+  <div class="preview-flag">
+    🎨 <b>PREVIEW / MOCKUP</b> <span class="dot">•</span> หน้า “ติดตามลูกค้า” เวอร์ชันปรับตาราง <span class="dot">•</span> ข้อมูลทั้งหมดเป็นตัวอย่างสมมติ ไม่ได้ดึงจากฐานข้อมูลจริง
+  </div>
+
+  <div class="app">
+    <!-- Sidebar (context only) -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-title">Sales CRM</div>
+        <div class="brand-sub">Telesales workspace</div>
+      </div>
+
+      <div class="nav-group">ภาพรวม</div>
+      <div class="nav-item"><span class="ic">📊</span> Dashboard</div>
+      <div class="nav-item"><span class="ic">🏆</span> ยอดขายทีม</div>
+
+      <div class="nav-group">ลูกค้า</div>
+      <div class="nav-item"><span class="ic">🔍</span> ค้นหาลูกค้า</div>
+      <div class="nav-item active"><span class="ic">🔔</span> ติดตามลูกค้า</div>
+      <div class="nav-item"><span class="ic">🧾</span> เพิ่มคำสั่งซื้อ</div>
+
+      <div class="nav-group">ข้อมูล</div>
+      <div class="nav-item"><span class="ic">🎁</span> สินค้า</div>
+
+      <div class="nav-group">ระบบ</div>
+      <div class="nav-item"><span class="ic">🔄</span> Sync / System Status</div>
+      <div class="nav-item"><span class="ic">👥</span> User / Role</div>
+      <div class="nav-item"><span class="ic">⚙️</span> Settings</div>
+
+      <div class="sidebar-footer">✅ เข้าสู่ระบบแล้ว</div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="page-head">
+        <div class="eyebrow">CRM CORE</div>
+        <h1 class="page-title">ติดตามลูกค้า</h1>
+        <div class="page-sub">จัดการ Lead และ Follow-up จาก Neon เท่านั้น</div>
+      </div>
+
+      <!-- Priority tabs -->
+      <div class="tabs">
+        <button class="tab">Super VIP</button>
+        <button class="tab active">VIP</button>
+        <button class="tab">Premium</button>
+        <button class="tab">Economy</button>
+        <button class="tab">NEW</button>
+        <button class="tab">Dismiss</button>
+      </div>
+
+      <!-- Filters (compact mock) -->
+      <div class="filters">
+        <div class="field"><label>สถานะลูกค้า</label><div class="control">ทั้งหมด</div></div>
+        <div class="field"><label>สถานะติดตาม</label><div class="control">ทั้งหมด</div></div>
+        <div class="field"><label>ความสำคัญ</label><div class="control">VIP</div></div>
+        <div class="field"><label>สินค้า / SKU</label><div class="control">ทั้งหมด</div></div>
+        <div class="field search"><label>ค้นหา</label><div class="control">เบอร์โทร / ชื่อลูกค้า / เลขคำสั่งซื้อ</div></div>
+        <div class="field"><label>ผู้ดูแล</label><div class="control">ทั้งหมด</div></div>
+        <div class="field"><label>วันที่นัด</label><div class="control">ทั้งหมด</div></div>
+        <div class="field" style="display:flex;align-items:flex-end;">
+          <button class="btn solid" style="height:42px;">ค้นหา</button>
+        </div>
+      </div>
+
+      <!-- KPI cards -->
+      <div class="kpis">
+        <div class="kpi today"><div class="k-label">ต้องติดตามวันนี้</div><div class="k-value">3</div></div>
+        <div class="kpi overdue"><div class="k-label">ค้างเกินกำหนด</div><div class="k-value">10</div></div>
+        <div class="kpi week"><div class="k-label">สัปดาห์นี้</div><div class="k-value">5</div></div>
+        <div class="kpi done"><div class="k-label">เสร็จแล้ว</div><div class="k-value">2</div></div>
+      </div>
+
+      <div class="mini-metrics">
+        <span>รายการทั้งหมด <b>1,248</b></span>
+        <span>แถวที่แสดง <b>10</b></span>
+        <span>หน้า <b>1 / 125</b></span>
+      </div>
+
+      <!-- ============= REDESIGNED TABLE ============= -->
+      <div class="table-scroll">
+        <div class="ftable" role="table" aria-label="รายการติดตามลูกค้า">
+          <!-- header -->
+          <div class="frow head" role="row">
+            <div class="cell">ติดตาม</div>
+            <div class="cell">เพิ่มคำสั่งซื้อ</div>
+            <div class="cell">วันนัด</div>
+            <div class="cell">ชื่อลูกค้า</div>
+            <div class="cell">เบอร์โทร</div>
+            <div class="cell">SKU</div>
+            <div class="cell">สินค้า</div>
+            <div class="cell">สถานะลูกค้า</div>
+            <div class="cell">สถานะติดตาม</div>
+            <div class="cell">ความสำคัญ</div>
+            <div class="cell">URL</div>
+          </div>
+
+          <!-- rows (mock data) -->
+          <!-- 1 -->
+          <div class="frow body even" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-21</div>
+            <div class="cell c-left cust-name">สมชาย ใจดี</div>
+            <div class="cell c-left num">081-234-5678</div>
+            <div class="cell c-center num">SP 674</div>
+            <div class="cell c-left">GKK24 (4 แคปซูล)</div>
+            <div class="cell c-center"><span class="badge b-blue">ต้องติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-orange">นัดติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-orange">VIP</span></div>
+            <div class="cell c-center"><span class="dot-empty">•</span></div>
+          </div>
+          <!-- 2 -->
+          <div class="frow body odd" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-21</div>
+            <div class="cell c-left cust-name">สุนิสา วงศ์ทอง</div>
+            <div class="cell c-left num">089-118-2244</div>
+            <div class="cell c-center num">SP 224</div>
+            <div class="cell c-left">คอลลาเจนเปปไทด์</div>
+            <div class="cell c-center"><span class="badge b-green">ติดต่อแล้ว</span></div>
+            <div class="cell c-center"><span class="badge b-orange">นัดติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-orange">VIP</span></div>
+            <div class="cell c-center"><a class="link" href="#">เปิดลิงก์</a></div>
+          </div>
+          <!-- 3 -->
+          <div class="frow body even" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-22</div>
+            <div class="cell c-left cust-name">ธนกร รักเรียน</div>
+            <div class="cell c-left num">090-777-3010</div>
+            <div class="cell c-center num">SP 674</div>
+            <div class="cell c-left">เกร็กคู (6 แคปซูล)</div>
+            <div class="cell c-center"><span class="badge b-blue">ต้องติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-orange">นัดติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-yellow">NEW</span></div>
+            <div class="cell c-center"><a class="link" href="#">เปิดลิงก์</a></div>
+          </div>
+          <!-- 4 -->
+          <div class="frow body odd" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-22</div>
+            <div class="cell c-left cust-name">ปิยะดา แสงทอง</div>
+            <div class="cell c-left num">092-540-8080</div>
+            <div class="cell c-center num">SP 224</div>
+            <div class="cell c-left">วิตามินซี พลัส</div>
+            <div class="cell c-center"><span class="badge b-blue">ต้องติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-gray">ยังไม่ตั้งติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-yellow">NEW</span></div>
+            <div class="cell c-center"><span class="dot-empty">•</span></div>
+          </div>
+          <!-- 5 -->
+          <div class="frow body even" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-23</div>
+            <div class="cell c-left cust-name">วีระพงษ์ ศรีสุข</div>
+            <div class="cell c-left num">086-943-1200</div>
+            <div class="cell c-center num">SP 674</div>
+            <div class="cell c-left">GKK24 (4 แคปซูล)</div>
+            <div class="cell c-center"><span class="badge b-green">ปิดการขายแล้ว</span></div>
+            <div class="cell c-center"><span class="badge b-gray">ยังไม่ตั้งติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-red">Super VIP</span></div>
+            <div class="cell c-center"><span class="dot-empty">•</span></div>
+          </div>
+          <!-- 6 -->
+          <div class="frow body odd" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-23</div>
+            <div class="cell c-left cust-name">กนกวรรณ พูลสุข</div>
+            <div class="cell c-left num">096-254-7788</div>
+            <div class="cell c-center num">SP 679</div>
+            <div class="cell c-left">GKK24 (4 แคปซูล)</div>
+            <div class="cell c-center"><span class="badge b-yellow">ลูกค้าใหม่</span></div>
+            <div class="cell c-center"><span class="badge b-gray">ยังไม่ตั้งติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-yellow">NEW</span></div>
+            <div class="cell c-center"><a class="link" href="#">เปิดลิงก์</a></div>
+          </div>
+          <!-- 7 -->
+          <div class="frow body even" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-24</div>
+            <div class="cell c-left cust-name">อภิสิทธิ์ มั่นคง</div>
+            <div class="cell c-left num">082-351-1504</div>
+            <div class="cell c-center num">SP 224</div>
+            <div class="cell c-left">คอลลาเจนเปปไทด์</div>
+            <div class="cell c-center"><span class="badge b-green">ติดต่อแล้ว</span></div>
+            <div class="cell c-center"><span class="badge b-orange">นัดติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-yellow">NEW</span></div>
+            <div class="cell c-center"><a class="link" href="#">เปิดลิงก์</a></div>
+          </div>
+          <!-- 8 -->
+          <div class="frow body odd" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-24</div>
+            <div class="cell c-left cust-name">จิราภรณ์ ทองมา</div>
+            <div class="cell c-left num">081-763-9276</div>
+            <div class="cell c-center num">SP 225</div>
+            <div class="cell c-left">น้ำมันปลา โอเมก้า</div>
+            <div class="cell c-center"><span class="badge b-yellow">ลูกค้าใหม่</span></div>
+            <div class="cell c-center"><span class="badge b-orange">นัดติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-blue">Premium</span></div>
+            <div class="cell c-center"><span class="dot-empty">•</span></div>
+          </div>
+          <!-- 9 -->
+          <div class="frow body even" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-25</div>
+            <div class="cell c-left cust-name">ณัฐพล บุญมี</div>
+            <div class="cell c-left num">081-914-4677</div>
+            <div class="cell c-center num">SP 679</div>
+            <div class="cell c-left">GKK24 (4 แคปซูล)</div>
+            <div class="cell c-center"><span class="badge b-yellow">ลูกค้าใหม่</span></div>
+            <div class="cell c-center"><span class="badge b-gray">ยังไม่ตั้งติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-gray">Economy</span></div>
+            <div class="cell c-center"><a class="link" href="#">เปิดลิงก์</a></div>
+          </div>
+          <!-- 10 -->
+          <div class="frow body odd" role="row">
+            <div class="cell c-center"><button class="btn">ติดตาม</button></div>
+            <div class="cell c-center"><button class="btn">เพิ่มคำสั่งซื้อ</button></div>
+            <div class="cell c-center num">2026-07-25</div>
+            <div class="cell c-left cust-name">พรทิพย์ สุขสันต์</div>
+            <div class="cell c-left num">087-271-8682</div>
+            <div class="cell c-center num">SP 225</div>
+            <div class="cell c-left">น้ำมันปลา โอเมก้า</div>
+            <div class="cell c-center"><span class="badge b-yellow">ลูกค้าใหม่</span></div>
+            <div class="cell c-center"><span class="badge b-gray">ยังไม่ตั้งติดตาม</span></div>
+            <div class="cell c-center"><span class="badge b-yellow">NEW</span></div>
+            <div class="cell c-center"><a class="link" href="#">เปิดลิงก์</a></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Design notes -->
+      <div class="notes">
+        <h3>สิ่งที่ปรับจากตารางเดิม</h3>
+        <ul>
+          <li><b>Zebra ตรงเส้นแถว</b> — สลับสีแถว ขาว / ครีมอ่อน (<code>#FFFFFF</code> / <code>#FFF6EC</code>) โดยพื้นสีและเส้นคั่นแถวอยู่ในกล่องเดียวกัน จึงชิดขอบแถวพอดี ไม่เหลื่อม <span class="old">(เดิมสี/เส้นไม่ตรงกัน)</span></li>
+          <li><b>Header กึ่งกลางการ์ด</b> — ข้อความหัวตารางจัดกึ่งกลางทุกคอลัมน์ พื้นไล่เฉดส้มอ่อน + เส้นใต้ส้มเข้ม อ่านเป็นหัวตารางชัด</li>
+          <li><b>จัด text ต่อคอลัมน์</b> — ชื่อลูกค้า/สินค้า ชิดซ้าย, วันนัด·เบอร์·SKU กึ่งกลางแบบเลขเรียงหลัก (tabular-nums), badge สถานะ/ความสำคัญ กึ่งกลาง</li>
+          <li><b>ลบเส้นแนวตั้งที่รก</b> — เอาเส้นแบ่งคอลัมน์ออก เหลือ zebra + ช่องไฟ ทำให้กวาดสายตาตามแถวง่ายขึ้น</li>
+          <li><b>ช่องไฟ + ความสูงแถวสม่ำเสมอ</b> — ทุก cell สูงเท่ากัน จัดกึ่งกลางแนวตั้ง ปุ่ม/badge ขนาดเท่ากัน</li>
+          <li><b>เลื่อนแนวนอนอัตโนมัติ</b> — ตารางมี <code>overflow-x</code> ของตัวเอง หน้าเว็บไม่เลื่อนซ้าย-ขวาทั้งหน้า</li>
+        </ul>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

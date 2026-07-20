@@ -43,3 +43,7 @@ Thumbs.db
 *.swp
 *.swo
 ~$*
+
+# Local UI preview scratch (do not commit)
+/preview_hero/
+/.claude/launch.json
