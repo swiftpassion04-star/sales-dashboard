@@ -25,7 +25,7 @@ from ui.perf import perf_trace
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
-FOLLOWUP_TABLE_COLUMNS = [0.85, 1.1, 1.0, 2.25, 1.15, 0.75, 1.5, 1.6, 1.7, 0.9, 0.85]
+FOLLOWUP_TABLE_COLUMNS = [0.8, 1.0, 1.05, 2.05, 1.25, 0.8, 1.4, 1.5, 1.6, 0.85, 0.8]
 PRODUCT_PLACEHOLDER = None
 POPUP_PRODUCT_SELECTOR_PAGE_SIZE_OPTIONS = [10, 25, 50]
 ALL = "ทั้งหมด"
@@ -197,25 +197,38 @@ div[role="dialog"] button[aria-label="Close"] {
 }
 .st-key-followup_table_header_v2 [data-testid="column"],
 [class*="st-key-followup_table_row_"] [data-testid="column"] {
-  border-right:1px solid #FB923C;
   min-height:62px;
   padding:10px 12px;
   display:flex;
   align-items:center;
 }
-.st-key-followup_table_header_v2 [data-testid="column"]:last-child,
-[class*="st-key-followup_table_row_"] [data-testid="column"]:last-child {
-  border-right:0;
-}
 .st-key-followup_table_header_v2 p,
 [class*="st-key-followup_table_row_"] p {
   margin:0;
   line-height:1.45;
+  width:100%;
 }
 .st-key-followup_table_header_v2 p {
   color:#7C2D12 !important;
   font-weight:800 !important;
   white-space:normal;
+  text-align:center;
+}
+/* วันนัด / เบอร์โทร / SKU: keep on one line and centered for quick scanning */
+.st-key-followup_table_header_v2 [data-testid="column"]:nth-child(3),
+.st-key-followup_table_header_v2 [data-testid="column"]:nth-child(5),
+.st-key-followup_table_header_v2 [data-testid="column"]:nth-child(6),
+[class*="st-key-followup_table_row_"] [data-testid="column"]:nth-child(3),
+[class*="st-key-followup_table_row_"] [data-testid="column"]:nth-child(5),
+[class*="st-key-followup_table_row_"] [data-testid="column"]:nth-child(6) {
+  justify-content:center;
+}
+[class*="st-key-followup_table_row_"] [data-testid="column"]:nth-child(3) p,
+[class*="st-key-followup_table_row_"] [data-testid="column"]:nth-child(5) p,
+[class*="st-key-followup_table_row_"] [data-testid="column"]:nth-child(6) p {
+  white-space:nowrap;
+  text-align:center;
+  font-variant-numeric:tabular-nums;
 }
 [class*="st-key-followup_table_row_"] [data-testid="stHorizontalBlock"] {
   border-left:1px solid #FB923C;
@@ -224,13 +237,13 @@ div[role="dialog"] button[aria-label="Close"] {
   overflow:hidden;
 }
 [class*="st-key-followup_table_row_even_"] [data-testid="stHorizontalBlock"] {
-  background:#FFFDF9;
+  background:#FFFFFF;
 }
 [class*="st-key-followup_table_row_odd_"] [data-testid="stHorizontalBlock"] {
-  background:#FFF2E2;
+  background:#FFF6EC;
 }
 [class*="st-key-followup_table_row_"] [data-testid="stHorizontalBlock"]:hover {
-  background:#FFF5EB;
+  background:#FFF0DD;
 }
 [class*="st-key-followup_table_row_"] .stButton > button {
   min-height:38px;
@@ -578,6 +591,13 @@ def parse_date(value):
         return None
 
 
+def format_followup_date_display(value) -> str:
+    parsed = parse_date(value)
+    if not parsed:
+        return "ว่าง"
+    return parsed.strftime("%d/%m/%Y")
+
+
 def clean(value) -> str:
     return str(value or "").strip()
 
@@ -610,7 +630,7 @@ def render_followup_table(rows: list[dict], user: dict) -> None:
                 st.session_state.followup_modal_type = "order"
                 st.session_state.followup_modal_row = dict(row)
                 st.rerun()
-        cols[2].write(clean(row.get("next_followup_date")) or "ว่าง")
+        cols[2].write(format_followup_date_display(row.get("next_followup_date")))
         cols[3].write(clean(row.get("customer_name")) or "-")
         cols[4].write(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")
         cols[5].write(clean(row.get("sku")) or "-")
