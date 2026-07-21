@@ -396,7 +396,6 @@ assert "st.session_state[popup_product_picker_state_key(row_key, \"open\")] = Fa
 assert "st.session_state[popup_product_picker_state_key(row_key, \"query\")] = \"\"" not in followup_source
 assert "f\"{prefix}_product_select\"" not in followup_source
 assert "pc1.selectbox(" not in followup_source
-assert "product_action.form_submit_button" in followup_source
 assert "open_product_selector" in followup_source
 assert "render_popup_product_selector_panel(product_options, row_key)" in followup_source
 assert "def render_popup_product_selector_panel" in followup_source
@@ -442,6 +441,24 @@ order_dialog_source = followup_source.split("def _render_order_dialog", 1)[1].sp
     "def find_popup_order_owner_conflict",
     1,
 )[0]
+popup_items_source = followup_source.split("def render_popup_order_items", 1)[1].split(
+    "def _render_order_dialog",
+    1,
+)[0]
+assert "st.form(" not in order_dialog_source
+assert "form_submit_button" not in order_dialog_source
+assert "product_action.button(" in order_dialog_source
+assert "submitted = st.button(" in order_dialog_source
+assert 'key=f"{prefix}_open_product_picker"' in order_dialog_source
+assert 'key=f"{prefix}_submit_order"' in order_dialog_source
+assert "cols[4].button(" in popup_items_source
+assert "form_submit_button" not in popup_items_source
+assert 'key=f"{prefix}_delete_{index}"' in popup_items_source
+assert "add_popup_order_item(row_key, product, 1, None)" in followup_source
+assert followup_source.count("add_popup_order_item(row_key, product, 1, None)") == 1
+assert '"qty": qty' in followup_source
+assert '"amount": amount_value' in followup_source
+assert '"image_url": image_url' in followup_source
 assert "def build_popup_followup_payload(row: dict, user: dict, prefix: str)" in followup_source
 assert "def serialize_popup_followup_date(value)" in followup_source
 assert "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)" in order_dialog_source

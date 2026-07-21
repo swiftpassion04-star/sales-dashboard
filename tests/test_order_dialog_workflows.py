@@ -96,6 +96,36 @@ for existing_field in (
 ):
     assert existing_field in order_dialog_source
 
+for tracking_widget_key in (
+    'key=f"{prefix}_lead_status"',
+    'key=f"{prefix}_followup_status"',
+    'key=f"{prefix}_priority"',
+    'key=f"{prefix}_next_followup_date"',
+    'key=f"{prefix}_followup_note"',
+):
+    assert tracking_widget_key in order_dialog_source
+
+for order_widget_key in (
+    'key=f"{prefix}_order_id"',
+    'key=f"{prefix}_customer_name"',
+    'key=f"{prefix}_phone1"',
+    'key=f"{prefix}_phone2"',
+    'key=f"{prefix}_url"',
+    'key=f"{prefix}_address"',
+    'key=f"{prefix}_sale_type"',
+):
+    assert order_widget_key in order_dialog_source
+
+assert "st.form(" not in order_dialog_source
+assert "form_submit_button" not in order_dialog_source
+assert "product_action.button(" in order_dialog_source
+assert "submitted = st.button(" in order_dialog_source
+assert 'key=f"{prefix}_open_product_picker"' in order_dialog_source
+assert 'key=f"{prefix}_submit_order"' in order_dialog_source
+assert "@st.dialog(" not in order_dialog_source
+assert "st.fragment" not in order_dialog_source
+assert "st.cache_data.clear()" not in order_dialog_source
+
 print("follow-up note field wiring OK")
 
 # ---------------------------------------------------------------------------
@@ -148,6 +178,8 @@ needed_defs = {
     "prepare_popup_order_state",
     "build_popup_followup_payload",
     "clear_popup_order_state",
+    "select_popup_product",
+    "add_popup_order_item",
 }
 needed_assigns = {"LEAD_STATUS_OPTIONS", "FOLLOWUP_STATUS_OPTIONS"}
 
@@ -237,8 +269,462 @@ st.session_state[f"{prefix}_followup_note"] = "จะถูกล้าง"  # �
 followup_ns["clear_popup_order_state"](prefix, sample_row)
 assert st.session_state[f"{prefix}_followup_note"] == sample_row["followup_note"]
 
+# 3g. Scenario A: edit appointment date, open the product picker, select a
+#     product, then save. The new date must survive the picker rerun and be
+#     written to both canonical and legacy date fields.
 st.session_state.clear()
-print("follow-up note behavioral checks OK")
+followup_ns["prepare_popup_order_state"](prefix, sample_row)
+new_date = date(2026, 8, 2)
+st.session_state[f"{prefix}_next_followup_date"] = new_date
+st.session_state[followup_ns["popup_product_picker_state_key"](prefix, "open")] = True
+product = {
+    "sku": "SP680",
+    "product_name": "Coffee Premium",
+    "product_group": "Drink",
+    "image_url": "https://example.test/sp680.jpg",
+}
+followup_ns["select_popup_product"](prefix, product, "680")
+followup_ns["add_popup_order_item"](prefix, product, 1, None)
+followup_ns["prepare_popup_order_state"](prefix, sample_row)
+payload, errors = followup_ns["build_popup_followup_payload"](sample_row, {"email": "tester@example.com"}, prefix)
+assert errors == []
+assert st.session_state[f"{prefix}_next_followup_date"] == new_date
+assert payload["next_followup_date"] == "2026-08-02"
+assert payload["follow_up_date"] == "2026-08-02"
+assert st.session_state[f"{prefix}_items"][0]["image_url"] == product["image_url"]
+assert st.session_state[f"{prefix}_items"][0]["qty"] == 1
+assert st.session_state[f"{prefix}_items"][0]["amount"] == ""
+
+# 3h. Scenario B: picker already open -> edit date -> click product pick
+#     immediately. The selected product rerun must not restore the old date.
+st.session_state.clear()
+followup_ns["prepare_popup_order_state"](prefix, sample_row)
+st.session_state[followup_ns["popup_product_picker_state_key"](prefix, "open")] = True
+immediate_date = date(2026, 8, 3)
+st.session_state[f"{prefix}_next_followup_date"] = immediate_date
+followup_ns["select_popup_product"](prefix, product, "680")
+followup_ns["add_popup_order_item"](prefix, product, 1, None)
+followup_ns["prepare_popup_order_state"](prefix, sample_row)
+payload, errors = followup_ns["build_popup_followup_payload"](sample_row, {"email": "tester@example.com"}, prefix)
+assert errors == []
+assert st.session_state[f"{prefix}_next_followup_date"] == immediate_date
+assert payload["next_followup_date"] == "2026-08-03"
+assert payload["follow_up_date"] == "2026-08-03"
+
+# 3i. Scenario C: an originally blank appointment date must not come back as
+#     None after choosing a date and selecting a product.
+blank_date_row = dict(sample_row)
+blank_date_row["next_followup_date"] = None
+st.session_state.clear()
+followup_ns["prepare_popup_order_state"](prefix, blank_date_row)
+assert st.session_state[f"{prefix}_next_followup_date"] is None
+selected_date = date(2026, 8, 4)
+st.session_state[f"{prefix}_next_followup_date"] = selected_date
+followup_ns["select_popup_product"](prefix, product, "680")
+followup_ns["add_popup_order_item"](prefix, product, 1, None)
+followup_ns["prepare_popup_order_state"](prefix, blank_date_row)
+payload, errors = followup_ns["build_popup_followup_payload"](blank_date_row, {"email": "tester@example.com"}, prefix)
+assert errors == []
+assert st.session_state[f"{prefix}_next_followup_date"] == selected_date
+assert payload["next_followup_date"] == "2026-08-04"
+assert payload["follow_up_date"] == "2026-08-04"
+
+# 3j. Scenario D / reverse interaction: order fields already in session_state
+#     must survive a rerun caused by outside-form follow-up widgets.
+st.session_state.clear()
+followup_ns["prepare_popup_order_state"](prefix, sample_row)
+st.session_state[f"{prefix}_order_id"] = "ORDER-123"
+st.session_state[f"{prefix}_customer_name"] = "Customer Draft"
+st.session_state[f"{prefix}_phone1"] = "0899999999"
+st.session_state[f"{prefix}_url"] = "https://example.test/order"
+st.session_state[f"{prefix}_address"] = "Draft address"
+st.session_state[f"{prefix}_sale_type"] = "UPSELL"
+st.session_state[f"{prefix}_next_followup_date"] = date(2026, 8, 5)
+followup_ns["prepare_popup_order_state"](prefix, sample_row)
+assert st.session_state[f"{prefix}_order_id"] == "ORDER-123"
+assert st.session_state[f"{prefix}_customer_name"] == "Customer Draft"
+assert st.session_state[f"{prefix}_phone1"] == "0899999999"
+assert st.session_state[f"{prefix}_url"] == "https://example.test/order"
+assert st.session_state[f"{prefix}_address"] == "Draft address"
+assert st.session_state[f"{prefix}_sale_type"] == "UPSELL"
+payload, errors = followup_ns["build_popup_followup_payload"](sample_row, {"email": "tester@example.com"}, prefix)
+assert errors == []
+assert payload["next_followup_date"] == "2026-08-05"
+
+# 3k. Behavioral render harness: after removing st.form, every dialog widget
+#     should commit immediately to session_state, and real save calls should
+#     receive the preserved order/follow-up data.
+dialog_needed_defs = {
+    "clean",
+    "parse_date",
+    "followup_option_or_default",
+    "popup_product_picker_state_key",
+    "serialize_popup_followup_date",
+    "prepare_popup_order_state",
+    "build_popup_followup_payload",
+    "clear_popup_order_state",
+    "select_popup_product",
+    "add_popup_order_item",
+    "_render_order_dialog",
+    "render_popup_order_items",
+    "render_popup_order_item_preview",
+    "selected_product_image_preview_url",
+}
+dialog_needed_assigns = {"LEAD_STATUS_OPTIONS", "FOLLOWUP_STATUS_OPTIONS"}
+dialog_nodes = []
+for node in followup_tree.body:
+    if isinstance(node, ast.FunctionDef) and node.name in dialog_needed_defs:
+        dialog_nodes.append(node)
+    elif isinstance(node, ast.Assign) and any(
+        isinstance(target, ast.Name) and target.id in dialog_needed_assigns for target in node.targets
+    ):
+        dialog_nodes.append(node)
+
+assert {node.name for node in dialog_nodes if isinstance(node, ast.FunctionDef)} == dialog_needed_defs
+
+
+class _FakeRerun(Exception):
+    pass
+
+
+class _NoopContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeSessionState(dict):
+    def __getattr__(self, name):
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
+class _FakeStreamlit:
+    def __init__(self, state, values=None, clicks=None, harness=None):
+        self.session_state = state
+        self.values = values or {}
+        self.clicks = set(clicks or [])
+        self.harness = harness
+
+    def columns(self, spec, **_kwargs):
+        count = spec if isinstance(spec, int) else len(spec)
+        return [self for _ in range(count)]
+
+    def text_input(self, _label, value="", key=None, **_kwargs):
+        if key in self.values:
+            self.session_state[key] = self.values[key]
+        elif key and key not in self.session_state:
+            self.session_state[key] = value
+        return self.session_state.get(key, value)
+
+    def text_area(self, _label, value="", key=None, **_kwargs):
+        return self.text_input(_label, value=value, key=key)
+
+    def selectbox(self, _label, options, key=None, **_kwargs):
+        default = options[0] if options else None
+        if key in self.values:
+            self.session_state[key] = self.values[key]
+        elif key and key not in self.session_state:
+            self.session_state[key] = default
+        return self.session_state.get(key, default)
+
+    def date_input(self, _label, value=None, key=None, **_kwargs):
+        if key in self.values:
+            self.session_state[key] = self.values[key]
+        elif key and key not in self.session_state:
+            self.session_state[key] = value
+        return self.session_state.get(key, value)
+
+    def number_input(self, _label, value=0, key=None, **_kwargs):
+        if key in self.values:
+            self.session_state[key] = self.values[key]
+        elif key and key not in self.session_state:
+            self.session_state[key] = value
+        return self.session_state.get(key, value)
+
+    def button(self, label, key=None, **_kwargs):
+        button_id = key or label
+        return button_id in self.clicks or label in self.clicks
+
+    def form_submit_button(self, *_args, **_kwargs):
+        raise AssertionError("Follow-up order dialog must not use st.form_submit_button")
+
+    def form(self, *_args, **_kwargs):
+        raise AssertionError("Follow-up order dialog must not use st.form")
+
+    def rerun(self):
+        if self.harness:
+            self.harness.reruns += 1
+        raise _FakeRerun()
+
+    def error(self, message):
+        if self.harness:
+            self.harness.errors.append(str(message))
+
+    def warning(self, _message):
+        pass
+
+    def caption(self, _message):
+        pass
+
+    def markdown(self, _message, **_kwargs):
+        pass
+
+    def info(self, _message):
+        pass
+
+    def write(self, _message):
+        pass
+
+    def image(self, *_args, **_kwargs):
+        pass
+
+
+class _DialogHarness:
+    def __init__(self, row):
+        self.row = dict(row)
+        self.state = _FakeSessionState()
+        self.order_writes = []
+        self.followup_writes = []
+        self.cache_clears = 0
+        self.closes = 0
+        self.reruns = 0
+        self.errors = []
+        self.order_fail = False
+        self.followup_fail = False
+        self.product = {
+            "sku": "SP680",
+            "product_name": "Coffee Premium",
+            "product_group": "Drink",
+            "image_url": "https://example.test/sp680.jpg",
+        }
+
+    @property
+    def prefix(self):
+        return "followup_order_customer_id_42"
+
+    def render(self, values=None, clicks=None, picker_select=False):
+        fake = _FakeStreamlit(self.state, values=values, clicks=clicks, harness=self)
+        dialog_ns["st"] = fake
+        dialog_ns["_active_harness"] = self
+        dialog_ns["_picker_select"] = picker_select
+        try:
+            dialog_ns["_render_order_dialog"](self.row, {"email": "tester@example.com", "role": "admin"})
+            return "ok"
+        except _FakeRerun:
+            return "rerun"
+
+
+def _fake_render_popup_product_picker(_product_options, row_key):
+    harness = dialog_ns["_active_harness"]
+    if not dialog_ns.get("_picker_select"):
+        return
+    dialog_ns["select_popup_product"](row_key, harness.product, "680")
+    dialog_ns["add_popup_order_item"](row_key, harness.product, 1, None)
+    dialog_ns["st"].rerun()
+
+
+def _fake_upsert_manual_order_items(order_payload, items):
+    harness = dialog_ns["_active_harness"]
+    if harness.order_fail:
+        raise RuntimeError("order write failed")
+    captured_items = [dict(item) for item in items]
+    harness.order_writes.append((dict(order_payload), captured_items))
+    return {"item_count": len(captured_items), "actions": {"inserted": len(captured_items), "updated": 0}}
+
+
+def _fake_upsert_lead_followup(payload):
+    harness = dialog_ns["_active_harness"]
+    harness.followup_writes.append(dict(payload))
+    if harness.followup_fail:
+        raise RuntimeError("follow-up write failed")
+
+
+def _fake_clear_cached_functions_safely(*_functions):
+    dialog_ns["_active_harness"].cache_clears += 1
+
+
+def _fake_close_followup_modal():
+    dialog_ns["_active_harness"].closes += 1
+
+
+def _fake_parse_required_price_input(value):
+    text = str(value or "").strip()
+    if text == "":
+        return False, None, "required"
+    try:
+        return True, float(text), ""
+    except ValueError:
+        return False, None, "invalid"
+
+
+dialog_module = ast.Module(body=dialog_nodes, type_ignores=[])
+ast.fix_missing_locations(dialog_module)
+dialog_ns = {
+    "st": None,
+    "date": date,
+    "datetime": datetime,
+    "neon": neon,
+    "row_key": lambda _row: "customer_id_42",
+    "perf_trace": lambda *_args, **_kwargs: _NoopContext(),
+    "fetch_popup_product_options": lambda: [],
+    "render_popup_product_picker": _fake_render_popup_product_picker,
+    "parse_required_price_input": _fake_parse_required_price_input,
+    "validate_phone_pair": lambda *_args: [],
+    "can_manage_all": lambda _user: True,
+    "find_popup_order_owner_conflict": lambda *_args: {},
+    "upsert_manual_order_items": _fake_upsert_manual_order_items,
+    "build_popup_followup_payload": followup_ns["build_popup_followup_payload"],
+    "upsert_lead_followup": _fake_upsert_lead_followup,
+    "clear_cached_functions_safely": _fake_clear_cached_functions_safely,
+    "fetch_followup_filter_options": lambda: None,
+    "close_followup_modal": _fake_close_followup_modal,
+    "FOLLOWUP_PRIORITY_OPTIONS": neon.FOLLOWUP_PRIORITY_OPTIONS,
+    "PRIORITY_OPTIONS": {priority: priority for priority in neon.FOLLOWUP_PRIORITY_OPTIONS},
+    "normalize_followup_priority": neon.normalize_followup_priority,
+    "lead_label": lambda value: value,
+    "followup_label": lambda value: value,
+    "priority_label": lambda value: value,
+}
+dialog_ns.update({
+    "render_popup_product_picker": _fake_render_popup_product_picker,
+    "remove_popup_order_item": lambda prefix_arg, index: dialog_ns["st"].session_state[f"{prefix_arg}_items"].pop(index),
+    "upsert_manual_order_items": _fake_upsert_manual_order_items,
+    "upsert_lead_followup": _fake_upsert_lead_followup,
+    "clear_cached_functions_safely": _fake_clear_cached_functions_safely,
+    "close_followup_modal": _fake_close_followup_modal,
+})
+exec(compile(dialog_module, "<followup_order_dialog_render>", "exec"), dialog_ns)
+
+
+def _valid_order_values(prefix_value, order_id="ORDER-123", amount="120"):
+    return {
+        f"{prefix_value}_order_id": order_id,
+        f"{prefix_value}_customer_name": "Customer Draft",
+        f"{prefix_value}_phone1": "0899999999",
+        f"{prefix_value}_phone2": "",
+        f"{prefix_value}_url": "https://example.test/order",
+        f"{prefix_value}_address": "Draft address",
+        f"{prefix_value}_sale_type": "UPSELL",
+        f"{prefix_value}_item_qty_0": 2,
+        f"{prefix_value}_item_amount_0": amount,
+    }
+
+
+def _submit_click(prefix_value):
+    return {f"{prefix_value}_submit_order"}
+
+
+# Scenario A: edit date, open picker, select product, save.
+harness_a = _DialogHarness(sample_row)
+prefix_a = harness_a.prefix
+assert harness_a.render(values={f"{prefix_a}_next_followup_date": date(2026, 8, 6)}, clicks={f"{prefix_a}_open_product_picker"}) == "rerun"
+assert harness_a.state[f"{prefix_a}_next_followup_date"] == date(2026, 8, 6)
+assert harness_a.render(picker_select=True) == "rerun"
+assert harness_a.render(values=_valid_order_values(prefix_a), clicks=_submit_click(prefix_a)) == "rerun"
+assert harness_a.followup_writes[0]["next_followup_date"] == "2026-08-06"
+assert harness_a.followup_writes[0]["follow_up_date"] == "2026-08-06"
+
+# Scenario B: picker is open, edit date, pick immediately, save.
+harness_b = _DialogHarness(sample_row)
+prefix_b = harness_b.prefix
+harness_b.state[followup_ns["popup_product_picker_state_key"](prefix_b, "open")] = True
+assert harness_b.render(values={f"{prefix_b}_next_followup_date": date(2026, 8, 7)}, picker_select=True) == "rerun"
+assert harness_b.state[f"{prefix_b}_next_followup_date"] == date(2026, 8, 7)
+assert harness_b.render(values=_valid_order_values(prefix_b), clicks=_submit_click(prefix_b)) == "rerun"
+assert harness_b.followup_writes[0]["next_followup_date"] == "2026-08-07"
+
+# Scenario C: original date None, choose date, select product, rerun.
+row_without_date = dict(sample_row)
+row_without_date["next_followup_date"] = None
+harness_c = _DialogHarness(row_without_date)
+prefix_c = harness_c.prefix
+assert harness_c.render(values={f"{prefix_c}_next_followup_date": date(2026, 8, 8)}, picker_select=True) == "rerun"
+assert harness_c.state[f"{prefix_c}_next_followup_date"] == date(2026, 8, 8)
+assert harness_c.render(values=_valid_order_values(prefix_c), clicks=_submit_click(prefix_c)) == "rerun"
+assert harness_c.followup_writes[0]["next_followup_date"] == "2026-08-08"
+
+# Scenario D: order fields before metadata rerun remain in captured order payload.
+harness_d = _DialogHarness(sample_row)
+prefix_d = harness_d.prefix
+first_values_d = _valid_order_values(prefix_d, order_id="ORDER-D")
+harness_d.render(values=first_values_d)
+harness_d.state[f"{prefix_d}_items"] = [dict(harness_d.product, qty=1, amount="120")]
+harness_d.render(values={f"{prefix_d}_item_qty_0": 2, f"{prefix_d}_item_amount_0": "120"})
+harness_d.render(values={
+    f"{prefix_d}_next_followup_date": date(2026, 8, 9),
+    f"{prefix_d}_lead_status": "interested",
+    f"{prefix_d}_priority": "VIP",
+    f"{prefix_d}_followup_note": "Updated note",
+})
+result_d = harness_d.render(clicks=_submit_click(prefix_d))
+assert result_d == "rerun", (result_d, harness_d.errors, harness_d.order_writes, harness_d.followup_writes)
+order_payload_d, order_items_d = harness_d.order_writes[0]
+assert order_payload_d["order_id"] == "ORDER-D"
+assert order_payload_d["customer_name"] == "Customer Draft"
+assert order_payload_d["phone1"] == "0899999999"
+assert order_items_d[0]["qty"] == 2
+assert order_items_d[0]["amount"] == 120.0
+assert harness_d.followup_writes[0]["next_followup_date"] == "2026-08-09"
+
+# Scenario E: order fields before product selection remain in captured order payload.
+harness_e = _DialogHarness(sample_row)
+prefix_e = harness_e.prefix
+harness_e.render(values=_valid_order_values(prefix_e, order_id="ORDER-E"))
+assert harness_e.render(clicks={f"{prefix_e}_open_product_picker"}) == "rerun"
+assert harness_e.render(picker_select=True) == "rerun"
+assert harness_e.render(values={f"{prefix_e}_item_qty_0": 2, f"{prefix_e}_item_amount_0": "130"}, clicks=_submit_click(prefix_e)) == "rerun"
+order_payload_e, order_items_e = harness_e.order_writes[0]
+assert order_payload_e["order_id"] == "ORDER-E"
+assert order_payload_e["customer_name"] == "Customer Draft"
+assert order_items_e[0]["sku"] == "SP680"
+assert order_items_e[0]["amount"] == 130.0
+
+# Scenario F: order save failure never writes follow-up data.
+harness_f = _DialogHarness(sample_row)
+prefix_f = harness_f.prefix
+harness_f.order_fail = True
+harness_f.render()
+harness_f.state[f"{prefix_f}_items"] = [dict(harness_f.product, qty=1, amount="120")]
+assert harness_f.render(values=_valid_order_values(prefix_f), clicks=_submit_click(prefix_f)) == "ok"
+assert len(harness_f.order_writes) == 0
+assert len(harness_f.followup_writes) == 0
+
+# Scenario G: follow-up failure leaves state open and does not clear/close/rerun success.
+harness_g = _DialogHarness(sample_row)
+prefix_g = harness_g.prefix
+harness_g.followup_fail = True
+harness_g.render()
+harness_g.state[f"{prefix_g}_items"] = [dict(harness_g.product, qty=1, amount="120")]
+assert harness_g.render(values=_valid_order_values(prefix_g), clicks=_submit_click(prefix_g)) == "ok"
+assert len(harness_g.order_writes) == 1
+assert len(harness_g.followup_writes) == 1
+assert harness_g.cache_clears == 0
+assert harness_g.closes == 0
+assert harness_g.reruns == 0
+assert harness_g.state.get(f"{prefix_g}_ready") is True
+
+# Scenario H: full success writes once each, clears once, closes once, reruns once.
+harness_h = _DialogHarness(sample_row)
+prefix_h = harness_h.prefix
+harness_h.render()
+harness_h.state[f"{prefix_h}_items"] = [dict(harness_h.product, qty=1, amount="0")]
+assert harness_h.render(values=_valid_order_values(prefix_h, amount="0"), clicks=_submit_click(prefix_h)) == "rerun"
+assert len(harness_h.order_writes) == 1
+assert len(harness_h.followup_writes) == 1
+assert harness_h.cache_clears == 1
+assert harness_h.closes == 1
+assert harness_h.reruns == 1
+
+st.session_state.clear()
+print("follow-up note/date/product picker behavioral checks OK")
 
 # ---------------------------------------------------------------------------
 # 4. Manual Order: page shows a clean entry with a "+ เพิ่มคำสั่งซื้อ" button

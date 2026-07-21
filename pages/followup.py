@@ -710,55 +710,62 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         product_options = []
         st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
 
-    with st.form(f"{prefix}_form", clear_on_submit=False):
-        c1, c2 = st.columns(2)
-        order_id = c1.text_input("หมายเลขคำสั่งซื้อ", key=f"{prefix}_order_id")
-        customer_name = c2.text_input("ชื่อลูกค้า", key=f"{prefix}_customer_name")
-        p1, p2 = st.columns(2)
-        phone1 = p1.text_input("เบอร์โทร", key=f"{prefix}_phone1")
-        phone2 = p2.text_input("เบอร์สำรอง", key=f"{prefix}_phone2")
-        url = st.text_input("URL", key=f"{prefix}_url")
-        address = st.text_area("ที่อยู่", key=f"{prefix}_address", height=90)
-        sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW", "⭐NEW_ORDER", "⭐UPSELL"], key=f"{prefix}_sale_type")
-        st.text_input("ผู้ดูแล", value=owner, disabled=True, key=f"{prefix}_owner_locked")
-        st.caption(f"วันที่สร้างคำสั่งซื้อ: {date.today().isoformat()}")
+    st.markdown("#### \u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32")
+    followup_status_cols = st.columns(2)
+    followup_status_cols[0].selectbox(
+        "\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32",
+        list(LEAD_STATUS_OPTIONS.keys()),
+        format_func=lead_label,
+        key=f"{prefix}_lead_status",
+    )
+    followup_status_cols[1].selectbox(
+        "\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21",
+        list(FOLLOWUP_STATUS_OPTIONS.keys()),
+        format_func=followup_label,
+        key=f"{prefix}_followup_status",
+    )
+    followup_meta_cols = st.columns(2)
+    followup_meta_cols[0].selectbox(
+        "\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e33\u0e04\u0e31\u0e0d",
+        list(PRIORITY_OPTIONS.keys()),
+        format_func=priority_label,
+        key=f"{prefix}_priority",
+    )
+    followup_meta_cols[1].date_input("\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48\u0e19\u0e31\u0e14", key=f"{prefix}_next_followup_date")
+    st.text_area(
+        "\u0e42\u0e19\u0e49\u0e15\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21",
+        key=f"{prefix}_followup_note",
+        height=100,
+    )
+    st.caption(
+        "\u0e2b\u0e32\u0e01\u0e41\u0e01\u0e49\u0e44\u0e02\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e43\u0e19\u0e2a\u0e48\u0e27\u0e19\u0e19\u0e35\u0e49 \u0e23\u0e30\u0e1a\u0e1a\u0e08\u0e30\u0e43\u0e0a\u0e49\u0e2a\u0e33\u0e2b\u0e23\u0e31\u0e1a\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e2b\u0e25\u0e31\u0e07\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e04\u0e33\u0e2a\u0e31\u0e48\u0e07\u0e0b\u0e37\u0e49\u0e2d\u0e43\u0e19\u0e40\u0e1f\u0e2a\u0e16\u0e31\u0e14\u0e44\u0e1b"
+    )
 
-        st.markdown("#### \u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32")
-        followup_status_cols = st.columns(2)
-        followup_status_cols[0].selectbox(
-            "\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32",
-            list(LEAD_STATUS_OPTIONS.keys()),
-            format_func=lead_label,
-            key=f"{prefix}_lead_status",
-        )
-        followup_status_cols[1].selectbox(
-            "\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21",
-            list(FOLLOWUP_STATUS_OPTIONS.keys()),
-            format_func=followup_label,
-            key=f"{prefix}_followup_status",
-        )
-        followup_meta_cols = st.columns(2)
-        followup_meta_cols[0].selectbox(
-            "\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e33\u0e04\u0e31\u0e0d",
-            list(PRIORITY_OPTIONS.keys()),
-            format_func=priority_label,
-            key=f"{prefix}_priority",
-        )
-        followup_meta_cols[1].date_input("\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48\u0e19\u0e31\u0e14", key=f"{prefix}_next_followup_date")
-        st.text_area(
-            "\u0e42\u0e19\u0e49\u0e15\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21",
-            key=f"{prefix}_followup_note",
-            height=100,
-        )
-        st.caption(
-            "\u0e2b\u0e32\u0e01\u0e41\u0e01\u0e49\u0e44\u0e02\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e43\u0e19\u0e2a\u0e48\u0e27\u0e19\u0e19\u0e35\u0e49 \u0e23\u0e30\u0e1a\u0e1a\u0e08\u0e30\u0e43\u0e0a\u0e49\u0e2a\u0e33\u0e2b\u0e23\u0e31\u0e1a\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e2b\u0e25\u0e31\u0e07\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e04\u0e33\u0e2a\u0e31\u0e48\u0e07\u0e0b\u0e37\u0e49\u0e2d\u0e43\u0e19\u0e40\u0e1f\u0e2a\u0e16\u0e31\u0e14\u0e44\u0e1b"
-        )
+    c1, c2 = st.columns(2)
+    order_id = c1.text_input("หมายเลขคำสั่งซื้อ", key=f"{prefix}_order_id")
+    customer_name = c2.text_input("ชื่อลูกค้า", key=f"{prefix}_customer_name")
+    p1, p2 = st.columns(2)
+    phone1 = p1.text_input("เบอร์โทร", key=f"{prefix}_phone1")
+    phone2 = p2.text_input("เบอร์สำรอง", key=f"{prefix}_phone2")
+    url = st.text_input("URL", key=f"{prefix}_url")
+    address = st.text_area("ที่อยู่", key=f"{prefix}_address", height=90)
+    sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW", "⭐NEW_ORDER", "⭐UPSELL"], key=f"{prefix}_sale_type")
+    st.text_input("ผู้ดูแล", value=owner, disabled=True, key=f"{prefix}_owner_locked")
+    st.caption(f"วันที่สร้างคำสั่งซื้อ: {date.today().isoformat()}")
 
-        product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
-        product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
-        open_product_selector = product_action.form_submit_button("+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32", use_container_width=True)
-        delete_index = render_popup_order_items(prefix)
-        submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
+    product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
+    product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
+    open_product_selector = product_action.button(
+        "+ \u0e40\u0e1e\u0e34\u0e48\u0e21\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32",
+        key=f"{prefix}_open_product_picker",
+        use_container_width=True,
+    )
+    delete_index = render_popup_order_items(prefix)
+    submitted = st.button(
+        "บันทึกคำสั่งซื้อ",
+        key=f"{prefix}_submit_order",
+        use_container_width=True,
+    )
 
     if open_product_selector:
         st.session_state[popup_product_picker_state_key(prefix, "open")] = True
@@ -1251,7 +1258,7 @@ def render_popup_order_items(prefix: str) -> int | None:
         )
         item["qty"] = int(qty_value or 1)
         item["amount"] = str(amount_value or "").strip()
-        if cols[4].form_submit_button("ลบ", key=f"{prefix}_delete_{index}", use_container_width=True):
+        if cols[4].button("ลบ", key=f"{prefix}_delete_{index}", use_container_width=True):
             delete_index = index
     return delete_index
 
