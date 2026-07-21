@@ -1,5 +1,10 @@
 import inspect
+import json
 from pathlib import Path
+from copy import deepcopy
+from datetime import date, datetime, time
+from decimal import Decimal
+from uuid import UUID, uuid4
 
 import sys
 from contextlib import contextmanager
@@ -84,6 +89,15 @@ for action_type in ("DELETE_ORDER", "UPDATE_CUSTOMER_PHONE", "MERGE_CUSTOMER_PHO
 
 assert "def ensure_crm_data_audit_log_schema() -> bool:" in NEON_SOURCE
 assert "def _insert_crm_audit_log(" in NEON_SOURCE
+assert "def _to_json_safe(" in NEON_SOURCE
+jsonb_source = NEON_SOURCE.split("def _jsonb(value):", 1)[1].split(
+    "def _assert_editor_customer_record_action",
+    1,
+)[0]
+assert "safe_value = _to_json_safe(value)" in jsonb_source
+assert "Jsonb(safe_value)" in jsonb_source
+assert "Jsonb(value)" not in jsonb_source
+assert "allow_nan=False" in jsonb_source
 audit_insert_source = NEON_SOURCE.split("def _insert_crm_audit_log(", 1)[1].split(
     "def _safe_record_dict",
     1,
@@ -202,16 +216,114 @@ assert "def upsert_manual_order_items" in NEON_SOURCE
 assert "def upsert_lead_followup" in NEON_SOURCE
 
 
+class StringOnlyObject:
+    def __str__(self):
+        return "string-only-object"
+
+    def __eq__(self, other):
+        return isinstance(other, StringOnlyObject)
+
+
+payload_id = uuid4()
+item_uuid = uuid4()
+tuple_uuid = uuid4()
+set_uuid = uuid4()
+frozen_uuid = uuid4()
+nested_key_uuid = uuid4()
+nested_value_uuid = uuid4()
+payload = {
+    "id": payload_id,
+    "created_at": datetime(2026, 7, 21, 9, 30, 15),
+    "date": date(2026, 7, 21),
+    "time": time(9, 30, 15),
+    "amount": Decimal("123.45"),
+    "items": [
+        {"record_id": item_uuid},
+        (tuple_uuid, Decimal("0.10")),
+    ],
+    "values": {set_uuid},
+    "frozen": frozenset({frozen_uuid}),
+    "nested": {
+        nested_key_uuid: {
+            "ids": [nested_value_uuid],
+        },
+    },
+    "unknown": StringOnlyObject(),
+}
+original_payload = deepcopy(payload)
+safe_payload = neon._to_json_safe(payload)
+json.dumps(safe_payload, ensure_ascii=False, allow_nan=False)
+assert payload == original_payload
+assert safe_payload["id"] == str(payload_id)
+assert safe_payload["created_at"] == "2026-07-21T09:30:15"
+assert safe_payload["date"] == "2026-07-21"
+assert safe_payload["time"] == "09:30:15"
+assert safe_payload["amount"] == "123.45"
+assert safe_payload["items"][0]["record_id"] == str(item_uuid)
+assert safe_payload["items"][1] == [str(tuple_uuid), "0.10"]
+assert safe_payload["values"] == [str(set_uuid)]
+assert safe_payload["frozen"] == [str(frozen_uuid)]
+assert str(nested_key_uuid) in safe_payload["nested"]
+assert safe_payload["nested"][str(nested_key_uuid)]["ids"] == [str(nested_value_uuid)]
+assert safe_payload["unknown"] == "string-only-object"
+assert all(isinstance(key, str) for key in safe_payload["nested"].keys())
+
+
+def unwrap_json_payload(value):
+    if hasattr(value, "obj"):
+        return value.obj
+    if isinstance(value, str) and value[:1] in {"{", "["}:
+        return json.loads(value)
+    return value
+
+
+def assert_no_raw_uuid(value):
+    value = unwrap_json_payload(value)
+    if isinstance(value, dict):
+        for key, item in value.items():
+            assert isinstance(key, str)
+            assert not isinstance(key, UUID)
+            assert_no_raw_uuid(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            assert_no_raw_uuid(item)
+        return
+    assert not isinstance(value, UUID)
+    json.dumps(value, ensure_ascii=False, allow_nan=False)
+
+
+nested_uuid_payload = {"outer": [{"record_id": uuid4(), "amount": Decimal("1.25")}]}
+jsonb_value = neon._jsonb(nested_uuid_payload)
+assert_no_raw_uuid(jsonb_value)
+original_jsonb = neon.Jsonb
+try:
+    neon.Jsonb = None
+    fallback_jsonb_value = neon._jsonb(nested_uuid_payload)
+    assert isinstance(fallback_jsonb_value, str)
+    assert_no_raw_uuid(fallback_jsonb_value)
+finally:
+    neon.Jsonb = original_jsonb
+
+try:
+    neon._jsonb({"bad": float("nan")})
+    raise AssertionError("_jsonb should reject NaN")
+except ValueError:
+    pass
+
+
 class FakeCursor:
     def __init__(
         self,
         *,
         rows_by_kind=None,
         audit_conflict: bool = False,
+        fail_on_audit_insert: bool = False,
         fail_on_business_write: str | None = None,
     ):
         self.rows_by_kind = {key: list(value) for key, value in (rows_by_kind or {}).items()}
         self.audit_conflict = audit_conflict
+        self.fail_on_audit_insert = fail_on_audit_insert
         self.fail_on_business_write = fail_on_business_write
         self.statement = ""
         self.statements: list[str] = []
@@ -246,6 +358,8 @@ class FakeCursor:
         self.rowcount = 0
 
         if "insert into public.crm_data_audit_log" in normalized:
+            if self.fail_on_audit_insert:
+                raise RuntimeError("injected audit insert failure")
             if self.audit_conflict:
                 self.current_rows = []
                 return
@@ -360,9 +474,10 @@ def restore_fake_neon(originals):
         setattr(neon, name, value)
 
 
-def make_anchor(record_id="1", phone1="0811111111", phone2="", owner="Target Owner", staff_code="T01"):
-    return {
+def make_anchor(record_id="1", phone1="0811111111", phone2="", owner="Target Owner", staff_code="T01", **extra):
+    row = {
         "id": record_id,
+        "import_batch_id": uuid4(),
         "order_id": f"ORD-{record_id}",
         "phone1": phone1,
         "phone2": phone2,
@@ -371,8 +486,13 @@ def make_anchor(record_id="1", phone1="0811111111", phone2="", owner="Target Own
         "url": f"https://example.com/{record_id}",
         "source_type": "manual",
         "source_file_name": "manual_order",
-        "raw_data": {"source": "manual_order"},
+        "raw_data": {"source": "manual_order", "snapshot_uuid": uuid4(), "amount": Decimal("9.99")},
+        "uploaded_at": datetime(2026, 7, 21, 8, 0, 0),
+        "order_date": date(2026, 7, 21),
+        "total_amount": Decimal("99.95"),
     }
+    row.update(extra)
+    return row
 
 
 def make_followup(
@@ -383,8 +503,9 @@ def make_followup(
     updated_at,
     created_at,
     phone1="0811111111",
+    **extra,
 ):
-    return {
+    row = {
         "id": row_id,
         "customer_key": f"customer:{row_id}",
         "crm_data_import_id": row_id,
@@ -398,7 +519,27 @@ def make_followup(
         "followup_note": f"note {row_id}",
         "updated_at": updated_at,
         "created_at": created_at,
+        "snapshot_uuid": uuid4(),
     }
+    row.update(extra)
+    return row
+
+
+def audit_payloads(cursor: FakeCursor):
+    return [
+        (params[8], params[9], params[10])
+        for statement, params in zip(cursor.statements, cursor.params_log)
+        if "insert into public.crm_data_audit_log" in statement
+    ]
+
+
+def assert_audit_payloads_json_safe(cursor: FakeCursor):
+    payloads = audit_payloads(cursor)
+    assert payloads
+    for before_snapshot, after_snapshot, metadata in payloads:
+        assert_no_raw_uuid(before_snapshot)
+        assert_no_raw_uuid(after_snapshot)
+        assert_no_raw_uuid(metadata)
 
 
 def run_with_fake_connection(function, fake_connection, *args, **kwargs):
@@ -442,6 +583,7 @@ assert delete_result["duplicate_request"] is False
 assert delete_conn.commit_count == 1
 assert delete_conn.rollback_count == 0
 assert delete_cursor.audit_inserts == 1
+assert_audit_payloads_json_safe(delete_cursor)
 assert delete_cursor.order_item_deletes == 1
 assert delete_cursor.data_import_deletes == 1
 assert delete_cursor.business_writes == 2
@@ -532,9 +674,37 @@ phone_result = run_with_fake_connection(
 )
 assert phone_result["duplicate_request"] is False
 assert phone_success_cursor.audit_inserts == 1
+assert_audit_payloads_json_safe(phone_success_cursor)
 assert phone_success_cursor.data_import_updates == 1
 assert phone_success_cursor.followup_updates == 1
 assert phone_success_conn.commit_count == 1
+
+audit_failure_cursor = FakeCursor(
+    rows_by_kind={
+        "anchors": [[make_anchor("1", phone1="0811111111")]],
+        "customer_rows": [[make_anchor("1", phone1="0811111111")], []],
+        "followup_rows": [[make_followup("1", lead_status="new", followup_status="none", updated_at="2026-07-20", created_at="2026-07-19")]],
+    },
+    fail_on_audit_insert=True,
+)
+audit_failure_conn = FakeConnection(audit_failure_cursor)
+audit_failure_success = True
+try:
+    run_with_fake_connection(
+        neon.update_customer_phones,
+        audit_failure_conn,
+        "1",
+        "0822222222",
+        "",
+        {"role": "EDITOR", "email": "editor@example.com"},
+        "REQ-AUDIT-FAILURE",
+    )
+except RuntimeError:
+    audit_failure_success = False
+assert audit_failure_success is False
+assert audit_failure_cursor.business_writes == 0
+assert audit_failure_conn.commit_count == 0
+assert audit_failure_conn.rollback_count == 1
 
 
 target_followup = make_followup(
@@ -575,7 +745,12 @@ merge_result = run_with_fake_connection(
     "REQ-MERGE-STATUS",
 )
 assert merge_result["duplicate_request"] is False
+assert merge_cursor.audit_inserts == 1
+assert merge_cursor.data_import_updates == 1
+assert merge_cursor.followup_updates == 1
 assert merge_conn.commit_count == 1
+assert merge_conn.rollback_count == 0
+assert_audit_payloads_json_safe(merge_cursor)
 followup_update_params = [
     params
     for statement, params in zip(merge_cursor.statements, merge_cursor.params_log)
@@ -629,5 +804,26 @@ try:
 except RuntimeError:
     assert merge_rollback_conn.commit_count == 0
     assert merge_rollback_conn.rollback_count == 1
+
+direct_audit_cursor = FakeCursor()
+direct_inserted = neon._insert_crm_audit_log(
+    direct_audit_cursor,
+    request_id="REQ-DIRECT-AUDIT",
+    action_type="TEST_NESTED_AUDIT",
+    entity_type="customer_phone",
+    entity_key="1",
+    actor={"role": "EDITOR", "email": "editor@example.com", "staff_name": "Editor"},
+    source_page="tests/test_customer_editor_actions.py",
+    before_snapshot={
+        "id": uuid4(),
+        "amount": Decimal("15.50"),
+        "created_at": datetime(2026, 7, 21, 10, 0, 0),
+        "items": [{"id": uuid4(), "dates": (date(2026, 7, 21), time(10, 0, 0))}],
+    },
+    after_snapshot={"ids": {uuid4()}, "nested": {uuid4(): [Decimal("0.01")]}},
+    metadata={"request_uuid": uuid4(), "frozen": frozenset({uuid4()})},
+)
+assert direct_inserted is True
+assert_audit_payloads_json_safe(direct_audit_cursor)
 
 print("customer editor actions safety OK")

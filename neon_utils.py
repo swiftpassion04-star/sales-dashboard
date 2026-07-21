@@ -1,7 +1,9 @@
 import json
 import os
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
+from uuid import UUID
 
 import pandas as pd
 import streamlit as st
@@ -2095,8 +2097,36 @@ def ensure_crm_data_audit_log_schema() -> bool:
     return True
 
 
+def _to_json_safe(value):
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (date, time)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(_to_json_safe(key)): _to_json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_to_json_safe(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        safe_items = [_to_json_safe(item) for item in value]
+        return sorted(
+            safe_items,
+            key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True, allow_nan=False),
+        )
+    return str(value)
+
+
 def _jsonb(value):
-    return Jsonb(value) if Jsonb is not None else json.dumps(value, default=str)
+    safe_value = _to_json_safe(value)
+    json_text = json.dumps(safe_value, ensure_ascii=False, allow_nan=False)
+    return Jsonb(safe_value) if Jsonb is not None else json_text
 
 
 def _assert_editor_customer_record_action(user: dict | None) -> None:
