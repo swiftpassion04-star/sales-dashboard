@@ -2061,6 +2061,728 @@ def assign_url_to_phones(phones: tuple[str, ...], url: str, updated_by: str) -> 
             raise
 
 
+CRM_DATA_AUDIT_LOG_DDL = """
+create table if not exists public.crm_data_audit_log (
+  id bigserial primary key,
+  request_id text not null unique,
+  action_type text not null,
+  entity_type text not null,
+  entity_key text not null,
+  actor_email text,
+  actor_role text,
+  actor_name text,
+  source_page text,
+  before_snapshot jsonb not null default '{}'::jsonb,
+  after_snapshot jsonb not null default '{}'::jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_crm_data_audit_log_entity
+  on public.crm_data_audit_log (entity_type, entity_key, created_at desc);
+
+create index if not exists idx_crm_data_audit_log_action
+  on public.crm_data_audit_log (action_type, created_at desc);
+"""
+
+
+@st.cache_resource(show_spinner=False)
+def ensure_crm_data_audit_log_schema() -> bool:
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(CRM_DATA_AUDIT_LOG_DDL)
+        conn.commit()
+    return True
+
+
+def _jsonb(value):
+    return Jsonb(value) if Jsonb is not None else json.dumps(value, default=str)
+
+
+def _assert_editor_customer_record_action(user: dict | None) -> None:
+    from permissions import can_manage_customer_records
+
+    if not can_manage_customer_records(user):
+        raise PermissionError("Only EDITOR can manage customer records")
+
+
+def _actor_snapshot(actor: dict | None) -> dict:
+    actor = actor or {}
+    return {
+        "email": clean(actor.get("email")),
+        "role": clean(actor.get("role")),
+        "name": clean(actor.get("staff_name")) or clean(actor.get("name")),
+        "staff_code": clean(actor.get("staff_code")),
+    }
+
+
+def _insert_crm_audit_log(
+    cursor,
+    *,
+    request_id: str,
+    action_type: str,
+    entity_type: str,
+    entity_key: str,
+    actor: dict | None,
+    source_page: str,
+    before_snapshot: dict | list,
+    after_snapshot: dict | list,
+    metadata: dict,
+) -> bool:
+    actor_data = _actor_snapshot(actor)
+    cursor.execute(
+        """
+        insert into public.crm_data_audit_log (
+          request_id,
+          action_type,
+          entity_type,
+          entity_key,
+          actor_email,
+          actor_role,
+          actor_name,
+          source_page,
+          before_snapshot,
+          after_snapshot,
+          metadata
+        )
+        values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        on conflict (request_id) do nothing
+        returning id
+        """,
+        [
+            clean(request_id),
+            clean(action_type),
+            clean(entity_type),
+            clean(entity_key),
+            actor_data["email"],
+            actor_data["role"],
+            actor_data["name"],
+            clean(source_page),
+            _jsonb(before_snapshot),
+            _jsonb(after_snapshot),
+            _jsonb(metadata),
+        ],
+    )
+    return cursor.fetchone() is not None
+
+
+def _safe_record_dict(row) -> dict:
+    return dict(row or {})
+
+
+def _record_phones(row: dict) -> list[str]:
+    return sorted(
+        {phone for phone in (normalize_phone(row.get("phone1")), normalize_phone(row.get("phone2"))) if phone}
+    )
+
+
+def _is_manual_order_row(row: dict) -> bool:
+    raw_data = row.get("raw_data") or {}
+    if not isinstance(raw_data, dict):
+        raw_data = {}
+    return (
+        clean(row.get("source_type")) == "manual"
+        or clean(row.get("source_file_name")) == "manual_order"
+        or clean(raw_data.get("source")) == "manual_order"
+    )
+
+
+def _logical_order_where_from_anchor(anchor: dict) -> tuple[str, list, str]:
+    order_id = clean(anchor.get("order_id"))
+    if _is_manual_order_row(anchor):
+        if order_id:
+            return (
+                """
+                import_status = 'valid'
+                  and order_id = %s
+                  and (
+                    coalesce(nullif(source_type, ''), '') = 'manual'
+                    or coalesce(nullif(source_file_name, ''), '') = 'manual_order'
+                    or coalesce(nullif(raw_data->>'source', ''), '') = 'manual_order'
+                  )
+                """,
+                [order_id],
+                "manual_order_id",
+            )
+        return "id::text = %s and import_status = 'valid'", [clean(anchor.get("id"))], "manual_anchor_id"
+
+    import_batch_id = clean(anchor.get("import_batch_id"))
+    source_file_name = clean(anchor.get("source_file_name"))
+    sheet_name = clean(anchor.get("sheet_name"))
+    if not order_id or not import_batch_id:
+        raise ValueError(
+            "Cannot safely identify imported logical order group without order_id and import_batch_id"
+        )
+    return (
+        """
+        import_status = 'valid'
+          and order_id = %s
+          and import_batch_id::text = %s
+          and coalesce(source_file_name, '') = %s
+          and coalesce(sheet_name, '') = %s
+          and not (
+            coalesce(nullif(source_type, ''), '') = 'manual'
+            or coalesce(nullif(source_file_name, ''), '') = 'manual_order'
+            or coalesce(nullif(raw_data->>'source', ''), '') = 'manual_order'
+          )
+        """,
+        [order_id, import_batch_id, source_file_name, sheet_name],
+        "import_batch_order_id",
+    )
+
+
+def _fetch_customer_anchor_row(cursor, anchor_record_id: str, lock: bool = False) -> dict:
+    anchor_record_id = clean(anchor_record_id)
+    if not anchor_record_id:
+        raise ValueError("anchor_record_id is required")
+    cursor.execute(
+        f"""
+        select *
+        from public.crm_data_imports
+        where id::text = %s
+          and import_status = 'valid'
+        limit 1
+        {'for update' if lock else ''}
+        """,
+        [anchor_record_id],
+    )
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError("Customer order record was not found")
+    return _safe_record_dict(row)
+
+
+def _fetch_logical_order_rows(cursor, anchor: dict, lock: bool = False) -> tuple[list[dict], str]:
+    where_sql, params, group_strategy = _logical_order_where_from_anchor(anchor)
+    cursor.execute(
+        f"""
+        select *
+        from public.crm_data_imports
+        where {where_sql}
+        order by id asc
+        {'for update' if lock else ''}
+        """,
+        params,
+    )
+    rows = [_safe_record_dict(row) for row in cursor.fetchall()]
+    if not rows:
+        raise ValueError("No logical order rows were found")
+    return rows, group_strategy
+
+
+def _count_followups_for_order(cursor, rows: list[dict]) -> int:
+    ids = [clean(row.get("id")) for row in rows if clean(row.get("id"))]
+    order_ids = sorted({clean(row.get("order_id")) for row in rows if clean(row.get("order_id"))})
+    phones = sorted({phone for row in rows for phone in _record_phones(row)})
+    cursor.execute(
+        """
+        select count(*)::int as count
+        from public.crm_lead_followups
+        where crm_data_import_id::text = any(%s)
+           or order_id = any(%s)
+           or phone1 = any(%s)
+           or phone2 = any(%s)
+        """,
+        [ids or [""], order_ids or [""], phones or [""], phones or [""]],
+    )
+    row = cursor.fetchone() or {}
+    return int(row.get("count") or 0)
+
+
+def preview_customer_order_delete(anchor_record_id: str, user: dict | None) -> dict:
+    _assert_editor_customer_record_action(user)
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            anchor = _fetch_customer_anchor_row(cur, anchor_record_id)
+            rows, group_strategy = _fetch_logical_order_rows(cur, anchor)
+            followup_count = _count_followups_for_order(cur, rows)
+    ids = [clean(row.get("id")) for row in rows if clean(row.get("id"))]
+    return {
+        "anchor_id": clean(anchor_record_id),
+        "group_strategy": group_strategy,
+        "record_ids": ids,
+        "order_ids": sorted({clean(row.get("order_id")) for row in rows if clean(row.get("order_id"))}),
+        "row_count": len(rows),
+        "followup_count": followup_count,
+        "rows": rows,
+    }
+
+
+def delete_customer_order_records(anchor_record_id: str, user: dict | None, request_id: str) -> dict:
+    _assert_editor_customer_record_action(user)
+    request_id = clean(request_id)
+    if not request_id:
+        raise ValueError("request_id is required")
+    ensure_crm_data_imports_schema()
+    ensure_crm_data_audit_log_schema()
+    has_order_items = neon_table_exists("crm_order_items")
+    has_order_item_import_id = has_order_items and neon_column_exists("crm_order_items", "crm_data_import_id")
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                anchor = _fetch_customer_anchor_row(cur, anchor_record_id, lock=True)
+                rows, group_strategy = _fetch_logical_order_rows(cur, anchor, lock=True)
+                ids = [clean(row.get("id")) for row in rows if clean(row.get("id"))]
+                order_ids = sorted({clean(row.get("order_id")) for row in rows if clean(row.get("order_id"))})
+                inserted_audit = _insert_crm_audit_log(
+                    cur,
+                    request_id=request_id,
+                    action_type="DELETE_ORDER",
+                    entity_type="crm_data_imports",
+                    entity_key=clean(anchor_record_id),
+                    actor=user,
+                    source_page="pages/customers.py",
+                    before_snapshot={"rows": rows},
+                    after_snapshot={"deleted_record_ids": ids, "followups_deleted": 0},
+                    metadata={"group_strategy": group_strategy, "order_ids": order_ids},
+                )
+                if not inserted_audit:
+                    conn.rollback()
+                    return {"deleted": 0, "duplicate_request": True, "record_ids": ids}
+                if has_order_item_import_id:
+                    cur.execute(
+                        """
+                        delete from public.crm_order_items
+                        where crm_data_import_id::text = any(%s)
+                        """,
+                        [ids],
+                    )
+                cur.execute(
+                    """
+                    delete from public.crm_data_imports
+                    where id::text = any(%s)
+                    """,
+                    [ids],
+                )
+                deleted = int(cur.rowcount or 0)
+            conn.commit()
+            return {"deleted": deleted, "duplicate_request": False, "record_ids": ids}
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def _fetch_customer_rows_by_phones(cursor, phones: list[str], lock: bool = False) -> list[dict]:
+    if not phones:
+        return []
+    cursor.execute(
+        f"""
+        select *
+        from public.crm_data_imports
+        where import_status = 'valid'
+          and (phone1 = any(%s) or phone2 = any(%s))
+        order by order_date desc nulls last, updated_at desc nulls last, uploaded_at desc, id desc
+        {'for update' if lock else ''}
+        """,
+        [phones, phones],
+    )
+    return [_safe_record_dict(row) for row in cursor.fetchall()]
+
+
+def _fetch_followups_by_phones(cursor, phones: list[str], lock: bool = False) -> list[dict]:
+    if not phones:
+        return []
+    cursor.execute(
+        f"""
+        select *
+        from public.crm_lead_followups
+        where phone1 = any(%s) or phone2 = any(%s)
+        order by updated_at desc nulls last, created_at desc nulls last, id desc
+        {'for update' if lock else ''}
+        """,
+        [phones, phones],
+    )
+    return [_safe_record_dict(row) for row in cursor.fetchall()]
+
+
+def _validate_customer_phone_inputs(phone1, phone2) -> tuple[str, str]:
+    errors = validate_phone_pair(phone1, phone2)
+    first = normalize_phone(phone1)
+    second = normalize_phone(phone2)
+    if first and second and first == second:
+        errors.append("phone1 and phone2 must be different")
+    if errors:
+        raise ValueError("; ".join(errors))
+    return first, second
+
+
+def preview_customer_phone_update(
+    anchor_record_id: str,
+    new_phone1,
+    new_phone2,
+    user: dict | None,
+) -> dict:
+    _assert_editor_customer_record_action(user)
+    first, second = _validate_customer_phone_inputs(new_phone1, new_phone2)
+    ensure_crm_data_imports_schema()
+    new_phones = [phone for phone in (first, second) if phone]
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            anchor = _fetch_customer_anchor_row(cur, anchor_record_id)
+            old_phones = _record_phones(anchor)
+            source_rows = _fetch_customer_rows_by_phones(cur, old_phones)
+            source_ids = {clean(row.get("id")) for row in source_rows}
+            target_rows = [
+                row for row in _fetch_customer_rows_by_phones(cur, new_phones)
+                if clean(row.get("id")) not in source_ids
+            ]
+            source_followups = _fetch_followups_by_phones(cur, old_phones)
+            target_followups = _fetch_followups_by_phones(cur, new_phones) if target_rows else []
+    return {
+        "anchor_id": clean(anchor_record_id),
+        "old_phones": old_phones,
+        "new_phone1": first,
+        "new_phone2": second,
+        "source_row_count": len(source_rows),
+        "source_followup_count": len(source_followups),
+        "collision": bool(target_rows),
+        "target_anchor_id": clean(target_rows[0].get("id")) if target_rows else "",
+        "target_row_count": len(target_rows),
+        "target_followup_count": len(target_followups),
+        "source_rows": source_rows,
+        "target_rows": target_rows,
+        "source_followups": source_followups,
+        "target_followups": target_followups,
+    }
+
+
+def update_customer_phones(
+    anchor_record_id: str,
+    new_phone1,
+    new_phone2,
+    user: dict | None,
+    request_id: str,
+) -> dict:
+    _assert_editor_customer_record_action(user)
+    first, second = _validate_customer_phone_inputs(new_phone1, new_phone2)
+    request_id = clean(request_id)
+    if not request_id:
+        raise ValueError("request_id is required")
+    ensure_crm_data_imports_schema()
+    ensure_crm_data_audit_log_schema()
+    new_phones = [phone for phone in (first, second) if phone]
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                anchor = _fetch_customer_anchor_row(cur, anchor_record_id, lock=True)
+                old_phones = _record_phones(anchor)
+                source_rows = _fetch_customer_rows_by_phones(cur, old_phones, lock=True)
+                source_ids = {clean(row.get("id")) for row in source_rows}
+                collision_rows = [
+                    row for row in _fetch_customer_rows_by_phones(cur, new_phones, lock=True)
+                    if clean(row.get("id")) not in source_ids
+                ]
+                if collision_rows:
+                    raise ValueError("Phone collision detected; merge confirmation is required")
+                followups = _fetch_followups_by_phones(cur, old_phones, lock=True)
+                inserted_audit = _insert_crm_audit_log(
+                    cur,
+                    request_id=request_id,
+                    action_type="UPDATE_CUSTOMER_PHONE",
+                    entity_type="customer_phone",
+                    entity_key=clean(anchor_record_id),
+                    actor=user,
+                    source_page="pages/customers.py",
+                    before_snapshot={"rows": source_rows, "followups": followups},
+                    after_snapshot={"phone1": first, "phone2": second},
+                    metadata={"old_phones": old_phones, "new_phones": new_phones},
+                )
+                if not inserted_audit:
+                    conn.rollback()
+                    return {"updated_orders": 0, "updated_followups": 0, "duplicate_request": True}
+                cur.execute(
+                    """
+                    update public.crm_data_imports
+                    set phone1 = %s,
+                        phone2 = %s,
+                        updated_by = %s,
+                        updated_at = now()
+                    where import_status = 'valid'
+                      and (phone1 = any(%s) or phone2 = any(%s))
+                    """,
+                    [first, second, clean((user or {}).get("email")), old_phones, old_phones],
+                )
+                updated_orders = int(cur.rowcount or 0)
+                cur.execute(
+                    """
+                    update public.crm_lead_followups
+                    set phone1 = %s,
+                        phone2 = %s,
+                        phone_key = %s,
+                        updated_by = %s,
+                        updated_at = now()
+                    where phone1 = any(%s) or phone2 = any(%s)
+                    """,
+                    [first, second, first or second, clean((user or {}).get("email")), old_phones, old_phones],
+                )
+                updated_followups = int(cur.rowcount or 0)
+            conn.commit()
+            return {
+                "updated_orders": updated_orders,
+                "updated_followups": updated_followups,
+                "duplicate_request": False,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+
+
+PRIORITY_PRECEDENCE = {"Super VIP": 5, "VIP": 4, "Premium": 3, "Economy": 2, "NEW": 1}
+
+
+def _merge_priority(rows: list[dict]) -> str:
+    priorities = [normalize_followup_priority(row.get("priority")) for row in rows]
+    priorities = [priority for priority in priorities if priority != "Dismiss"]
+    if not priorities:
+        return DEFAULT_FOLLOWUP_PRIORITY
+    return max(priorities, key=lambda value: PRIORITY_PRECEDENCE.get(value, 0))
+
+
+def _parse_optional_date(value):
+    parsed = parse_date(value)
+    if not parsed:
+        return None
+    if isinstance(parsed, str):
+        try:
+            return date.fromisoformat(parsed[:10])
+        except ValueError:
+            return None
+    return parsed
+
+
+def _merge_followup_date(rows: list[dict]):
+    today = datetime.now(BANGKOK_TZ).date()
+    dated_rows = []
+    for row in rows:
+        value = row.get("next_followup_date") or row.get("follow_up_date")
+        parsed = _parse_optional_date(value)
+        if parsed:
+            dated_rows.append((parsed, row))
+    future = sorted([item for item in dated_rows if item[0] >= today], key=lambda item: item[0])
+    if future:
+        return future[0][0].isoformat()
+    if dated_rows:
+        latest_row = max(rows, key=lambda row: clean(row.get("updated_at")))
+        latest_date = _parse_optional_date(latest_row.get("next_followup_date") or latest_row.get("follow_up_date"))
+        return latest_date.isoformat() if latest_date else None
+    return None
+
+
+def _merge_followup_notes(target_rows: list[dict], source_rows: list[dict]) -> str:
+    def notes(rows: list[dict]) -> str:
+        values = []
+        for row in rows:
+            note = clean(row.get("followup_note")) or clean(row.get("follow_up_note"))
+            if note and note not in values:
+                values.append(note)
+        return "\n".join(values)
+
+    target_note = notes(target_rows) or "-"
+    source_note = notes(source_rows) or "-"
+    stamp = datetime.now(BANGKOK_TZ).strftime("%d/%m/%Y")
+    return (
+        f"[รวมข้อมูลวันที่ {stamp}]\n"
+        "ข้อมูลเดิมฝั่ง Target:\n"
+        f"{target_note}\n\n"
+        "ข้อมูลจากฝั่งที่นำมารวม:\n"
+        f"{source_note}"
+    )
+
+
+def _followup_stable_key(row: dict):
+    for key in ("id", "customer_key", "crm_data_import_id"):
+        value = clean(row.get(key))
+        if value:
+            return (2, int(value)) if value.isdigit() else (1, value)
+    return (0, "")
+
+
+def _followup_latest_sort_key(row: dict):
+    updated_at = clean(row.get("updated_at"))
+    created_at = clean(row.get("created_at"))
+    return (
+        1 if updated_at else 0,
+        updated_at,
+        1 if created_at else 0,
+        created_at,
+        _followup_stable_key(row),
+    )
+
+
+def _resolve_latest_followup_value(rows: list[dict], keys: tuple[str, ...], default=None):
+    for row in sorted(rows or [], key=_followup_latest_sort_key, reverse=True):
+        for key in keys:
+            value = clean(row.get(key))
+            if value:
+                return value
+    return default
+
+
+def _resolve_latest_followup_statuses(rows: list[dict]) -> dict:
+    return {
+        "lead_status": _resolve_latest_followup_value(rows, ("lead_status",)),
+        "followup_status": _resolve_latest_followup_value(rows, ("followup_status", "follow_up_status")),
+    }
+
+
+def merge_customer_phone_collision(
+    anchor_record_id: str,
+    target_anchor_id: str,
+    new_phone1,
+    new_phone2,
+    user: dict | None,
+    request_id: str,
+    *,
+    survivor: str = "target",
+    owner_source: str = "target",
+    url_source: str = "target",
+) -> dict:
+    _assert_editor_customer_record_action(user)
+    first, second = _validate_customer_phone_inputs(new_phone1, new_phone2)
+    request_id = clean(request_id)
+    if not request_id:
+        raise ValueError("request_id is required")
+    if clean(survivor) not in {"target", "source"}:
+        raise ValueError("survivor must be target or source")
+    if clean(owner_source) not in {"target", "source"}:
+        raise ValueError("owner_source must be target or source")
+    if clean(url_source) not in {"target", "source"}:
+        raise ValueError("url_source must be target or source")
+    ensure_crm_data_imports_schema()
+    ensure_crm_data_audit_log_schema()
+    new_phones = [phone for phone in (first, second) if phone]
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                source_anchor = _fetch_customer_anchor_row(cur, anchor_record_id, lock=True)
+                target_anchor = _fetch_customer_anchor_row(cur, target_anchor_id, lock=True)
+                old_phones = _record_phones(source_anchor)
+                target_phones = _record_phones(target_anchor) or new_phones
+                source_rows = _fetch_customer_rows_by_phones(cur, old_phones, lock=True)
+                source_ids = {clean(row.get("id")) for row in source_rows}
+                target_rows = [
+                    row for row in _fetch_customer_rows_by_phones(cur, new_phones or target_phones, lock=True)
+                    if clean(row.get("id")) not in source_ids
+                ]
+                if not target_rows:
+                    raise ValueError("Target phone customer was not found for merge")
+                all_rows = source_rows + target_rows
+                source_followups = _fetch_followups_by_phones(cur, old_phones, lock=True)
+                target_followups = _fetch_followups_by_phones(cur, new_phones or target_phones, lock=True)
+                chosen_owner_row = target_anchor if owner_source == "target" else source_anchor
+                chosen_url_row = target_anchor if url_source == "target" else source_anchor
+                final_owner = clean(chosen_owner_row.get("owner"))
+                final_staff_code = clean(chosen_owner_row.get("staff_code"))
+                final_url = clean(chosen_url_row.get("url"))
+                merged_priority = _merge_priority(source_followups + target_followups)
+                merged_date = _merge_followup_date(source_followups + target_followups)
+                merged_note = _merge_followup_notes(target_followups, source_followups)
+                merged_statuses = _resolve_latest_followup_statuses(source_followups + target_followups)
+                merged_lead_status = merged_statuses.get("lead_status")
+                merged_followup_status = merged_statuses.get("followup_status")
+                ids = [clean(row.get("id")) for row in all_rows if clean(row.get("id"))]
+                inserted_audit = _insert_crm_audit_log(
+                    cur,
+                    request_id=request_id,
+                    action_type="MERGE_CUSTOMER_PHONE",
+                    entity_type="customer_phone",
+                    entity_key=clean(anchor_record_id),
+                    actor=user,
+                    source_page="pages/customers.py",
+                    before_snapshot={
+                        "source_rows": source_rows,
+                        "target_rows": target_rows,
+                        "source_followups": source_followups,
+                        "target_followups": target_followups,
+                    },
+                    after_snapshot={
+                        "phone1": first,
+                        "phone2": second,
+                        "owner": final_owner,
+                        "staff_code": final_staff_code,
+                        "url": final_url,
+                        "priority": merged_priority,
+                        "next_followup_date": merged_date,
+                        "lead_status": merged_lead_status,
+                        "followup_status": merged_followup_status,
+                    },
+                    metadata={
+                        "survivor": survivor,
+                        "owner_source": owner_source,
+                        "url_source": url_source,
+                        "old_phones": old_phones,
+                        "target_phones": target_phones,
+                    },
+                )
+                if not inserted_audit:
+                    conn.rollback()
+                    return {"updated_orders": 0, "updated_followups": 0, "duplicate_request": True}
+                cur.execute(
+                    """
+                    update public.crm_data_imports
+                    set phone1 = %s,
+                        phone2 = %s,
+                        owner = coalesce(nullif(%s, ''), owner),
+                        staff_code = coalesce(nullif(%s, ''), staff_code),
+                        url = coalesce(nullif(%s, ''), url),
+                        updated_by = %s,
+                        updated_at = now()
+                    where id::text = any(%s)
+                    """,
+                    [first, second, final_owner, final_staff_code, final_url, clean((user or {}).get("email")), ids],
+                )
+                updated_orders = int(cur.rowcount or 0)
+                all_phones = sorted(set(old_phones + target_phones + new_phones))
+                cur.execute(
+                    """
+                    update public.crm_lead_followups
+                    set phone1 = %s,
+                        phone2 = %s,
+                        phone_key = %s,
+                        owner = coalesce(nullif(%s, ''), owner),
+                        staff_code = coalesce(nullif(%s, ''), staff_code),
+                        lead_status = coalesce(nullif(%s, ''), lead_status),
+                        followup_status = coalesce(nullif(%s, ''), followup_status),
+                        priority = %s,
+                        next_followup_date = %s,
+                        follow_up_date = %s,
+                        followup_note = %s,
+                        follow_up_note = %s,
+                        updated_by = %s,
+                        updated_at = now()
+                    where phone1 = any(%s) or phone2 = any(%s)
+                    """,
+                    [
+                        first,
+                        second,
+                        first or second,
+                        final_owner,
+                        final_staff_code,
+                        merged_lead_status,
+                        merged_followup_status,
+                        merged_priority,
+                        merged_date,
+                        merged_date,
+                        merged_note,
+                        merged_note,
+                        clean((user or {}).get("email")),
+                        all_phones,
+                        all_phones,
+                    ],
+                )
+                updated_followups = int(cur.rowcount or 0)
+            conn.commit()
+            return {
+                "updated_orders": updated_orders,
+                "updated_followups": updated_followups,
+                "duplicate_request": False,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def assign_owner_to_order_record(
     record_id: str,
     order_id: str,

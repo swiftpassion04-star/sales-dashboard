@@ -70,6 +70,10 @@ def can_assign_customer_owner(user: dict | None) -> bool:
     return user_role(user) == ROLE_EDITOR
 
 
+def can_manage_customer_records(user: dict | None) -> bool:
+    return user_role(user) == ROLE_EDITOR
+
+
 def can_delete_order(user: dict | None) -> bool:
     return user_role(user) in _normalized_roles(ORDER_DELETE_ROLES)
 

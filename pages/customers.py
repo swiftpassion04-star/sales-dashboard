@@ -1,11 +1,19 @@
 from datetime import date, datetime, timedelta
 import html
 from io import BytesIO
+from uuid import uuid4
 
 import pandas as pd
 import streamlit as st
 
 from auth_utils import current_user, require_login
+from crm_data.dashboard import (
+    fetch_dashboard_kpis,
+    fetch_sales_report,
+    fetch_sales_report_owner_options,
+    fetch_sales_report_rows,
+)
+from crm_data.team_sales import fetch_team_sales_summary, fetch_team_top_products
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 import neon_utils as neon
@@ -22,7 +30,12 @@ from neon_utils import (
     normalize_phone,
     upsert_lead_followup,
 )
-from permissions import can_assign_customer_owner, can_export_customers, can_manage_all
+from permissions import (
+    can_assign_customer_owner,
+    can_export_customers,
+    can_manage_all,
+    can_manage_customer_records,
+)
 from ui.pagination import get_pagination_state, render_pagination
 
 
@@ -66,6 +79,21 @@ st.set_page_config(page_title="Customers", layout="wide")
 def reset_owner_assignment_followup_filters() -> None:
     for key in OWNER_ASSIGNMENT_FOLLOWUP_FILTER_RESET_KEYS:
         st.session_state.pop(key, None)
+
+
+def clear_customer_editor_action_caches() -> None:
+    neon.clear_cached_data_functions(
+        fetch_customer_page,
+        fetch_customer_export_rows,
+        fetch_filter_options,
+        fetch_followup_filter_options,
+        fetch_dashboard_kpis,
+        fetch_sales_report,
+        fetch_sales_report_rows,
+        fetch_sales_report_owner_options,
+        fetch_team_sales_summary,
+        fetch_team_top_products,
+    )
 
 
 def main() -> None:
@@ -319,7 +347,8 @@ def render_customer_actions(
     can_assign_owner: bool,
 ) -> None:
     can_edit_follow = can_edit_customer_follow_action(row, user)
-    if not can_edit_follow and not can_assign_owner:
+    can_manage_records = can_manage_customer_records(user)
+    if not can_edit_follow and not can_assign_owner and not can_manage_records:
         st.caption("ไม่มีสิทธิ์แก้ไขรายการนี้")
         return
 
@@ -431,6 +460,209 @@ def render_customer_actions(
             st.rerun()
         except Exception as exc:
             st.error(f"อัปเดต URL ไม่สำเร็จ: {exc}")
+
+
+    if can_manage_records:
+        render_customer_editor_record_actions(row, user)
+
+
+def customer_editor_action_key(name: str, anchor_id: str) -> str:
+    return f"{name}_{clean(anchor_id)}"
+
+
+def render_customer_editor_record_actions(row: dict, user: dict) -> None:
+    anchor_id = clean(row.get("id"))
+    if not anchor_id:
+        return
+    st.divider()
+    st.caption("EDITOR actions")
+    edit_col, delete_col = st.columns(2)
+    edit_key = customer_editor_action_key("edit_phone", anchor_id)
+    delete_key = customer_editor_action_key("delete_order", anchor_id)
+    if edit_col.button("แก้ไขเบอร์ลูกค้า", key=f"{edit_key}_open_button", use_container_width=True):
+        st.session_state[edit_key] = True
+        st.session_state.setdefault(f"{edit_key}_request_id", str(uuid4()))
+    if delete_col.button("ลบออเดอร์ถาวร", key=f"{delete_key}_open_button", use_container_width=True):
+        st.session_state[delete_key] = True
+        st.session_state.setdefault(f"{delete_key}_request_id", str(uuid4()))
+
+    if st.session_state.get(edit_key):
+        render_customer_phone_editor_panel(row, user, edit_key)
+    if st.session_state.get(delete_key):
+        render_customer_order_delete_panel(row, user, delete_key)
+
+
+def render_customer_order_delete_panel(row: dict, user: dict, state_key: str) -> None:
+    anchor_id = clean(row.get("id"))
+    with st.container(border=True):
+        st.markdown("##### ยืนยันการลบออเดอร์")
+        st.warning("การลบนี้จะลบเฉพาะแถวสินค้าในออเดอร์เดียวกัน และจะไม่ลบ Follow-up")
+        preview_key = f"{state_key}_preview"
+        request_key = f"{state_key}_request_id"
+        in_progress_key = f"{state_key}_in_progress"
+        col1, col2 = st.columns(2)
+        if col1.button("ตรวจสอบก่อนลบ", key=f"{state_key}_preview_button", use_container_width=True):
+            try:
+                st.session_state[preview_key] = neon.preview_customer_order_delete(anchor_id, user)
+            except Exception as exc:
+                st.session_state.pop(preview_key, None)
+                st.error(f"ตรวจสอบรายการลบไม่สำเร็จ: {exc}")
+        if col2.button("ปิด", key=f"{state_key}_close_button", use_container_width=True):
+            st.session_state.pop(state_key, None)
+            st.session_state.pop(preview_key, None)
+            st.session_state.pop(request_key, None)
+            st.session_state.pop(in_progress_key, None)
+            st.rerun()
+        preview = st.session_state.get(preview_key) or {}
+        if preview:
+            st.write(f"จำนวนแถวสินค้าที่จะลบ: {int(preview.get('row_count') or 0):,}")
+            st.write(f"จำนวน Follow-up ที่เกี่ยวข้อง (ไม่ลบ): {int(preview.get('followup_count') or 0):,}")
+            st.caption(f"Grouping: {clean(preview.get('group_strategy')) or '-'}")
+            confirmed = st.checkbox("ยืนยันว่าต้องการลบออเดอร์นี้ถาวร", key=f"{state_key}_confirm_checkbox")
+            if st.button(
+                "ลบออเดอร์ถาวร",
+                key=f"{state_key}_confirm_button",
+                use_container_width=True,
+                disabled=not confirmed or bool(st.session_state.get(in_progress_key)),
+            ):
+                st.session_state[in_progress_key] = True
+                try:
+                    result = neon.delete_customer_order_records(
+                        anchor_id,
+                        user,
+                        st.session_state.setdefault(request_key, str(uuid4())),
+                    )
+                    clear_customer_editor_action_caches()
+                    if result.get("duplicate_request"):
+                        st.info("คำขอนี้ถูกดำเนินการไปแล้ว")
+                    else:
+                        st.success(f"ลบออเดอร์แล้ว {int(result.get('deleted') or 0):,} แถว")
+                    st.session_state.pop(state_key, None)
+                    st.session_state.pop(preview_key, None)
+                    st.session_state.pop(request_key, None)
+                    st.session_state.pop(in_progress_key, None)
+                    st.rerun()
+                except Exception as exc:
+                    st.session_state[in_progress_key] = False
+                    st.error(f"ลบออเดอร์ไม่สำเร็จ: {exc}")
+
+
+def render_customer_phone_editor_panel(row: dict, user: dict, state_key: str) -> None:
+    anchor_id = clean(row.get("id"))
+    request_key = f"{state_key}_request_id"
+    preview_key = f"{state_key}_preview"
+    in_progress_key = f"{state_key}_in_progress"
+    with st.container(border=True):
+        st.markdown("##### แก้ไขเบอร์ลูกค้า")
+        phone1 = st.text_input("เบอร์โทร", value=clean(row.get("phone1")), key=f"{state_key}_phone1")
+        phone2 = st.text_input("เบอร์สำรอง", value=clean(row.get("phone2")), key=f"{state_key}_phone2")
+        check_col, close_col = st.columns(2)
+        if check_col.button("ตรวจสอบก่อนบันทึก", key=f"{state_key}_preview_button", use_container_width=True):
+            try:
+                st.session_state[preview_key] = neon.preview_customer_phone_update(anchor_id, phone1, phone2, user)
+                st.session_state.setdefault(request_key, str(uuid4()))
+            except Exception as exc:
+                st.session_state.pop(preview_key, None)
+                st.error(f"ตรวจสอบเบอร์ไม่สำเร็จ: {exc}")
+        if close_col.button("ปิด", key=f"{state_key}_close_button", use_container_width=True):
+            st.session_state.pop(state_key, None)
+            st.session_state.pop(preview_key, None)
+            st.session_state.pop(request_key, None)
+            st.session_state.pop(in_progress_key, None)
+            st.rerun()
+        preview = st.session_state.get(preview_key) or {}
+        if not preview:
+            return
+        st.write(f"ออเดอร์ฝั่งปัจจุบันที่จะอัปเดต: {int(preview.get('source_row_count') or 0):,}")
+        st.write(f"Follow-up ฝั่งปัจจุบันที่จะอัปเดต: {int(preview.get('source_followup_count') or 0):,}")
+        if preview.get("collision"):
+            render_customer_phone_merge_panel(row, user, state_key, preview)
+            return
+        confirmed = st.checkbox("ยืนยันบันทึกเบอร์ใหม่", key=f"{state_key}_confirm_checkbox")
+        if st.button(
+            "บันทึกเบอร์ใหม่",
+            key=f"{state_key}_save_button",
+            use_container_width=True,
+            disabled=not confirmed or bool(st.session_state.get(in_progress_key)),
+        ):
+            st.session_state[in_progress_key] = True
+            try:
+                result = neon.update_customer_phones(
+                    anchor_id,
+                    preview.get("new_phone1"),
+                    preview.get("new_phone2"),
+                    user,
+                    st.session_state.setdefault(request_key, str(uuid4())),
+                )
+                clear_customer_editor_action_caches()
+                if result.get("duplicate_request"):
+                    st.info("คำขอนี้ถูกดำเนินการไปแล้ว")
+                else:
+                    st.success(
+                        "อัปเดตเบอร์แล้ว "
+                        f"{int(result.get('updated_orders') or 0):,} ออเดอร์ / "
+                        f"{int(result.get('updated_followups') or 0):,} Follow-up"
+                    )
+                st.session_state.pop(state_key, None)
+                st.session_state.pop(preview_key, None)
+                st.session_state.pop(request_key, None)
+                st.session_state.pop(in_progress_key, None)
+                st.rerun()
+            except Exception as exc:
+                st.session_state[in_progress_key] = False
+                st.error(f"อัปเดตเบอร์ไม่สำเร็จ: {exc}")
+
+
+def render_customer_phone_merge_panel(row: dict, user: dict, state_key: str, preview: dict) -> None:
+    source_anchor_id = clean(row.get("id"))
+    target_anchor_id = clean(preview.get("target_anchor_id"))
+    merge_key = f"phone_merge_{source_anchor_id}_{target_anchor_id}"
+    st.warning("พบเบอร์นี้อยู่ในลูกค้าคนอื่น ต้องยืนยันการรวมข้อมูลก่อน")
+    st.write(f"ออเดอร์ฝั่ง Target: {int(preview.get('target_row_count') or 0):,}")
+    st.write(f"Follow-up ฝั่ง Target: {int(preview.get('target_followup_count') or 0):,}")
+    survivor = st.radio("Survivor", ["target", "source"], index=0, key=f"{merge_key}_survivor", horizontal=True)
+    owner_source = st.radio("Owner", ["target", "source"], index=0, key=f"{merge_key}_owner_source", horizontal=True)
+    url_source = st.radio("URL", ["target", "source"], index=0, key=f"{merge_key}_url_source", horizontal=True)
+    st.session_state[merge_key] = True
+    confirmed = st.checkbox("ยืนยันรวมข้อมูลลูกค้า", key=f"{merge_key}_confirm_checkbox")
+    if st.button(
+        "รวมข้อมูลลูกค้า",
+        key=f"{merge_key}_confirm_button",
+        use_container_width=True,
+        disabled=not confirmed or bool(st.session_state.get(f"{merge_key}_in_progress")),
+    ):
+        st.session_state[f"{merge_key}_in_progress"] = True
+        try:
+            result = neon.merge_customer_phone_collision(
+                source_anchor_id,
+                target_anchor_id,
+                preview.get("new_phone1"),
+                preview.get("new_phone2"),
+                user,
+                st.session_state.setdefault(f"{merge_key}_request_id", str(uuid4())),
+                survivor=survivor,
+                owner_source=owner_source,
+                url_source=url_source,
+            )
+            clear_customer_editor_action_caches()
+            if result.get("duplicate_request"):
+                st.info("คำขอนี้ถูกดำเนินการไปแล้ว")
+            else:
+                st.success(
+                    "รวมข้อมูลแล้ว "
+                    f"{int(result.get('updated_orders') or 0):,} ออเดอร์ / "
+                    f"{int(result.get('updated_followups') or 0):,} Follow-up"
+                )
+            for suffix in ("", "_request_id", "_in_progress", "_confirm_checkbox"):
+                st.session_state.pop(f"{merge_key}{suffix}", None)
+            st.session_state.pop(state_key, None)
+            st.session_state.pop(f"{state_key}_preview", None)
+            st.session_state.pop(f"{state_key}_request_id", None)
+            st.session_state.pop(f"{state_key}_in_progress", None)
+            st.rerun()
+        except Exception as exc:
+            st.session_state[f"{merge_key}_in_progress"] = False
+            st.error(f"รวมข้อมูลไม่สำเร็จ: {exc}")
 
 
 def can_edit_customer_follow_action(row: dict, user: dict) -> bool:
