@@ -5,6 +5,7 @@ import time
 
 import requests
 import streamlit as st
+from app_logging import log_exception, user_error_message
 from permissions import (
     ROLE_EDITOR,
     ROLE_STAFF,
@@ -503,7 +504,17 @@ def require_login() -> dict:
                 render_user_box(user)
                 return user
         except Exception as exc:
-            st.error(str(exc))
+            error_reference_id = log_exception(
+                "auth_login_failed",
+                exc,
+                safe_metadata_values={
+                    "page": "login",
+                    "action": "login",
+                    "component": "auth",
+                    "outcome": "failure",
+                },
+            )
+            st.error(user_error_message(error_reference_id))
     st.stop()
 
 

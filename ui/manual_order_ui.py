@@ -3,6 +3,7 @@ from math import isfinite
 
 import streamlit as st
 
+from app_logging import log_exception, user_error_message
 import neon_utils as neon
 from ui.perf import perf_trace
 
@@ -72,13 +73,33 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
             with perf_trace("manual_order.load_owner_options", role=user.get("role")):
                 staff_options = neon.fetch_owner_user_options(active_only=True)
         except Exception as exc:
-            st.warning(f"โหลดรายชื่อพนักงานไม่สำเร็จ: {exc}")
+            error_reference_id = log_exception(
+                "manual_order_data_load_failed",
+                exc,
+                safe_metadata_values={
+                    "page": "manual_order",
+                    "action": "load_data",
+                    "component": "manual_order",
+                    "outcome": "failure",
+                },
+            )
+            st.warning(user_error_message(error_reference_id))
     try:
         with perf_trace("manual_order.load_product_options", role=user.get("role")):
             product_options = fetch_manual_product_options()
     except Exception as exc:
         product_options = []
-        st.warning(f"โหลดรายการสินค้าไม่สำเร็จ: {exc}")
+        error_reference_id = log_exception(
+            "manual_order_product_load_failed",
+            exc,
+            safe_metadata_values={
+                "page": "manual_order",
+                "action": "load_products",
+                "component": "manual_order",
+                "outcome": "failure",
+            },
+        )
+        st.warning(user_error_message(error_reference_id))
 
     with st.container(border=True):
         with st.form("manual_order_form", clear_on_submit=False, border=False):
@@ -202,7 +223,17 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
                 manual_items,
             )
     except Exception as exc:
-        st.error(f"บันทึกคำสั่งซื้อไม่สำเร็จ: {exc}")
+        error_reference_id = log_exception(
+            "manual_order_save_failed",
+            exc,
+            safe_metadata_values={
+                "page": "manual_order",
+                "action": "save_order",
+                "component": "manual_order",
+                "outcome": "failure",
+            },
+        )
+        st.error(user_error_message(error_reference_id))
         return
 
     duplicate_lock_warning = neon.clean(result.get("duplicate_lock_warning"))

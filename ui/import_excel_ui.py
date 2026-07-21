@@ -3,6 +3,7 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
+from app_logging import log_exception, user_error_message
 import neon_utils as neon
 
 
@@ -81,7 +82,17 @@ def render_excel_import(auth_user: dict) -> None:
     try:
         excel = pd.ExcelFile(uploaded)
     except Exception as exc:
-        st.error(f"อ่านไฟล์ Excel ไม่สำเร็จ: {exc}")
+        error_reference_id = log_exception(
+            "import_excel_file_read_failed",
+            exc,
+            safe_metadata_values={
+                "page": "import_excel",
+                "action": "read_file",
+                "component": "excel_import",
+                "outcome": "failure",
+            },
+        )
+        st.error(user_error_message(error_reference_id))
         return
 
     sheet_name = st.selectbox("Worksheet", excel.sheet_names, key="neon_import_sheet")
@@ -89,7 +100,17 @@ def render_excel_import(auth_user: dict) -> None:
     try:
         df = pd.read_excel(excel, sheet_name=sheet_name, header=int(header_row) - 1, dtype=str).fillna("")
     except Exception as exc:
-        st.error(f"อ่าน worksheet ไม่สำเร็จ: {exc}")
+        error_reference_id = log_exception(
+            "import_excel_parse_failed",
+            exc,
+            safe_metadata_values={
+                "page": "import_excel",
+                "action": "parse_file",
+                "component": "excel_import",
+                "outcome": "failure",
+            },
+        )
+        st.error(user_error_message(error_reference_id))
         return
 
     df = df[df.apply(lambda row: any(neon.clean(value) for value in row), axis=1)].reset_index(drop=True)
@@ -127,7 +148,17 @@ def render_excel_import(auth_user: dict) -> None:
     try:
         import_plan = neon.analyze_import_records(records)
     except Exception as exc:
-        st.error(f"ตรวจข้อมูลซ้ำจาก Neon ไม่สำเร็จ: {exc}")
+        error_reference_id = log_exception(
+            "import_excel_validation_failed",
+            exc,
+            safe_metadata_values={
+                "page": "import_excel",
+                "action": "validate_file",
+                "component": "excel_import",
+                "outcome": "failure",
+            },
+        )
+        st.error(user_error_message(error_reference_id))
         return
 
     st.subheader("Preview")
@@ -196,7 +227,17 @@ def render_excel_import(auth_user: dict) -> None:
             neon.insert_import_records(records, batch_size=BATCH_SIZE)
             progress.progress(1.0)
         except Exception as exc:
-            st.error(f"Import ไม่สำเร็จ และ rollback batch นี้แล้ว: {exc}")
+            error_reference_id = log_exception(
+                "import_excel_save_failed",
+                exc,
+                safe_metadata_values={
+                    "page": "import_excel",
+                    "action": "save",
+                    "component": "excel_import",
+                    "outcome": "failure",
+                },
+            )
+            st.error(user_error_message(error_reference_id))
             return
         st.info(f"สรุป import: นำเข้า {summary['insert']:,} แถว / merge เบอร์ซ้ำ {summary['phone_duplicate']:,} รายการ / กันออก {summary['skip']:,} แถว")
         st.session_state.neon_current_import_batch_id = neon.new_batch_id()
@@ -262,7 +303,17 @@ def render_import_history() -> None:
     try:
         rows = neon.fetch_import_history()
     except Exception as exc:
-        st.warning(f"ยังอ่าน import history ไม่ได้: {exc}")
+        error_reference_id = log_exception(
+            "import_excel_preview_failed",
+            exc,
+            safe_metadata_values={
+                "page": "import_excel",
+                "action": "preview",
+                "component": "excel_import",
+                "outcome": "failure",
+            },
+        )
+        st.warning(user_error_message(error_reference_id))
         return
     if not rows:
         st.info("ยังไม่มีประวัติการ import")
@@ -278,7 +329,17 @@ def render_import_history() -> None:
         try:
             deleted = neon.delete_import_batch(selected_batch)
         except Exception as exc:
-            st.error(f"ล้าง batch ไม่สำเร็จ: {exc}")
+            error_reference_id = log_exception(
+                "import_excel_save_failed",
+                exc,
+                safe_metadata_values={
+                    "page": "import_excel",
+                    "action": "save",
+                    "component": "excel_import",
+                    "outcome": "failure",
+                },
+            )
+            st.error(user_error_message(error_reference_id))
             return
         st.success(f"ล้าง batch สำเร็จ {deleted:,} แถว")
         neon.clear_cached_data_functions(
