@@ -105,16 +105,17 @@ def _can_view_all_sales(user: dict | None) -> bool:
 
 @st.cache_data(ttl=300)
 def fetch_sales_report_owner_options(user: dict | None = None) -> list[str]:
-    from neon_utils import clean, ensure_crm_data_imports_schema, neon_connection
+    from neon_utils import _normalized_text_sql, clean, ensure_crm_data_imports_schema, neon_connection
 
     ensure_crm_data_imports_schema()
     if not crm_sales_report_ready() or not _can_view_all_sales(user):
         return []
+    owner_normalized_sql = _normalized_text_sql("owner")
     with neon_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                select distinct owner
+                f"""
+                select distinct {owner_normalized_sql} as owner
                 from public.crm_data_imports
                 where import_status = 'valid'
                   and owner is not null
@@ -128,7 +129,8 @@ def fetch_sales_report_owner_options(user: dict | None = None) -> list[str]:
 
 
 def _sales_report_where(user: dict | None, owner_filter: str) -> tuple[list[str], list]:
-    from neon_utils import clean
+    from crm_data.common import collapse_whitespace
+    from neon_utils import _normalized_text_sql, clean
 
     clauses = [
         "d.import_status = 'valid'",
@@ -139,9 +141,9 @@ def _sales_report_where(user: dict | None, owner_filter: str) -> tuple[list[str]
     ]
     params: list = []
     if _can_view_all_sales(user):
-        owner = clean(owner_filter)
+        owner = collapse_whitespace(clean(owner_filter))
         if owner and owner != "ทั้งหมด":
-            clauses.append("d.owner = %s")
+            clauses.append(f"{_normalized_text_sql('d.owner')} = %s")
             params.append(owner)
     else:
         staff_code = clean((user or {}).get("staff_code"))

@@ -143,9 +143,10 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
                     staff_code = ""
             else:
                 staff_code = normalize_staff_code(staff_code)
-                owner = strip_duplicate_staff_suffix(owner or staff_code, staff_code)
+                owner = neon.collapse_whitespace(strip_duplicate_staff_suffix(owner or staff_code, staff_code))
                 st.text_input("ผู้ดูแล", value=owner or "-", disabled=True, key="manual_owner_disabled")
 
+            owner = neon.collapse_whitespace(owner)
             submitted = st.form_submit_button("บันทึกคำสั่งซื้อ", use_container_width=True)
 
         if open_product_selector_submitted:
@@ -669,7 +670,7 @@ def build_staff_choices(rows: list[dict]) -> list[tuple[str, dict]]:
 
 
 def display_staff_name(row: dict) -> str:
-    name = neon.clean(row.get("staff_name"))
+    name = neon.collapse_whitespace(neon.clean(row.get("staff_name")))
     code = normalize_staff_code(neon.clean(row.get("staff_code")))
     return strip_duplicate_staff_suffix(name, code)
 

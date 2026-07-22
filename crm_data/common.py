@@ -1,4 +1,5 @@
 import hashlib
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -8,6 +9,8 @@ import pandas as pd
 
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+
 
 def clean(value) -> str:
     if value is None:
@@ -16,6 +19,21 @@ def clean(value) -> str:
         return ""
     text = str(value).strip()
     return "" if text.upper() in {"NULL", "NONE", "NAN", "NAT"} else text
+
+
+def collapse_whitespace(value) -> str:
+    """Trim and collapse runs of internal whitespace to a single space.
+
+    Narrow, display/identity-name-only normalization -- distinct from
+    clean(), which only strips leading/trailing whitespace and handles
+    null-like sentinels. Two names that differ only by whitespace run
+    length (e.g. one vs two spaces between words) normalize to the same
+    string; names that differ in any other way do not.
+    """
+    text = clean(value)
+    if not text:
+        return text
+    return _WHITESPACE_RUN_RE.sub(" ", text)
 
 
 def normalize_phone(value) -> str:

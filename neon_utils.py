@@ -13,6 +13,7 @@ from crm_data.common import (
     BANGKOK_TZ,
     PHONE_RULE_MESSAGE,
     clean,
+    collapse_whitespace,
     make_dedupe_key,
     new_batch_id,
     normalize_phone,
@@ -3708,6 +3709,7 @@ def fetch_staff_options(active_only: bool = False) -> list[dict]:
 def fetch_owner_user_options(active_only: bool = False) -> list[dict]:
     ensure_crm_data_imports_schema()
     active_clause = "and is_active = true" if active_only else ""
+    normalized_staff_name_sql = _normalized_text_sql("staff_name")
     with neon_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -3734,6 +3736,15 @@ def fetch_owner_user_options(active_only: bool = False) -> list[dict]:
                   where staff_name is not null
                     and staff_name <> ''
                     {active_clause}
+                ),
+                normalized_rows as (
+                  select
+                    staff_code,
+                    {normalized_staff_name_sql} as staff_name,
+                    is_active,
+                    sort_order,
+                    updated_at
+                  from source_rows
                 )
                 select
                   min(md5(coalesce(staff_code, '') || '|' || staff_name)) as id,
@@ -3742,7 +3753,7 @@ def fetch_owner_user_options(active_only: bool = False) -> list[dict]:
                   bool_or(is_active) as is_active,
                   min(sort_order) as sort_order,
                   max(updated_at) as updated_at
-                from source_rows
+                from normalized_rows
                 group by staff_code, staff_name
                 order by min(sort_order) asc, staff_name asc
                 """
