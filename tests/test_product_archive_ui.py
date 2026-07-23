@@ -45,7 +45,7 @@ assert "render_product_archive_actions(" in render_table
 render_row = function_source("render_product_row")
 assert 'is_archived = bool(row.get("archived_at"))' in render_row
 assert "if is_editor and not is_archived" in render_row
-assert 'cols[4].write("เก็บถาวร")' in render_row
+assert 'cols[5].write("เก็บถาวร")' in render_row
 
 assert "delete from" not in LOWER_SOURCE
 assert "delete_product_option(" not in LOWER_SOURCE

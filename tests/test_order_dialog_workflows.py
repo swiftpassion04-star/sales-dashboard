@@ -1,5 +1,4 @@
 import ast
-import py_compile
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -18,7 +17,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #    and the canonical Manual Order page must all still compile).
 # ---------------------------------------------------------------------------
 for relative_path in ("pages/followup.py", "ui/manual_order_ui.py", "pages/import_excel.py"):
-    py_compile.compile(str(REPO_ROOT / relative_path), doraise=True)
+    source_path = REPO_ROOT / relative_path
+    compile(source_path.read_text(encoding="utf-8"), str(source_path), "exec")
 
 followup_source = (REPO_ROOT / "pages/followup.py").read_text(encoding="utf-8")
 manual_source = (REPO_ROOT / "ui/manual_order_ui.py").read_text(encoding="utf-8")

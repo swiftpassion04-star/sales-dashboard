@@ -68,6 +68,7 @@ original_neon_utils = sys.modules.get("neon_utils")
 sys.modules["neon_utils"] = types.SimpleNamespace(
     ensure_crm_data_imports_schema=lambda: None,
     neon_connection=fake_neon_connection,
+    fetch_order_product_options=types.SimpleNamespace(clear=lambda: None),
 )
 try:
     updated_count = bulk_update_product_active([1, 2], False, "editor@example.com")
