@@ -11,6 +11,7 @@ from neon_utils import (
     FOLLOWUP_PRIORITY_OPTIONS,
     fetch_followup_filter_options,
     fetch_followup_page,
+    fetch_followup_summary_counts,
     fetch_existing_owner_rows_by_phones,
     fetch_order_product_options,
     normalize_followup_priority,
@@ -114,7 +115,9 @@ def _render_followup_page() -> None:
         page_size_key="followup_page_size_v2",
     )
     render_summary(rows, total, page_size, page)
-    render_followup_sections(rows)
+    with perf_trace("followup.fetch_summary_counts", role=user.get("role")):
+        summary_counts = fetch_followup_summary_counts(filters, user)
+    render_followup_sections(summary_counts)
     if not rows:
         st.info("ไม่พบข้อมูลตามตัวกรอง")
         return
@@ -334,7 +337,14 @@ def render_filters(user: dict) -> dict[str, str]:
         product = c4.selectbox('สินค้า / SKU', [ALL] + options.get('products', []), key='followup_filter_product')
         owner = ALL
         if can_view_followup_owner_filter(user):
-            owner = c5.selectbox('ผู้ดูแล', [ALL] + options.get('owners', []), key='followup_filter_owner')
+            owner_choices = options.get('owners', [])
+            owner_name_by_code = dict(owner_choices)
+            owner = c5.selectbox(
+                'ผู้ดูแล',
+                [ALL] + [code for code, _name in owner_choices],
+                format_func=lambda code: ALL if code == ALL else owner_name_by_code.get(code, code),
+                key='followup_filter_owner',
+            )
         else:
             st.session_state['followup_filter_owner'] = ALL
 
@@ -378,17 +388,12 @@ def render_summary(rows: list[dict], total: int, page_size: int, page: int) -> N
     c3.metric("หน้า", f"{page:,} / {total_pages:,}")
 
 
-def render_followup_sections(rows: list[dict]) -> None:
-    today = date.today().isoformat()
-    due_today = sum(1 for row in rows if clean(row.get("next_followup_date"))[:10] == today and clean(row.get("followup_status")) != "done")
-    overdue = sum(1 for row in rows if clean(row.get("next_followup_date")) and clean(row.get("next_followup_date"))[:10] < today and clean(row.get("followup_status")) != "done")
-    done = sum(1 for row in rows if clean(row.get("followup_status")) == "done")
-    week = max(len(rows) - due_today - overdue - done, 0)
+def render_followup_sections(summary_counts: dict) -> None:
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("ต้องติดตามวันนี้", f"{due_today:,}")
-    c2.metric("ค้างเกินกำหนด", f"{overdue:,}")
-    c3.metric("สัปดาห์นี้", f"{week:,}")
-    c4.metric("เสร็จแล้ว", f"{done:,}")
+    c1.metric("ต้องติดตามวันนี้", f"{int(summary_counts.get('due_today') or 0):,}")
+    c2.metric("ค้างเกินกำหนด", f"{int(summary_counts.get('overdue') or 0):,}")
+    c3.metric("สัปดาห์นี้", f"{int(summary_counts.get('week') or 0):,}")
+    c4.metric("เสร็จแล้ว", f"{int(summary_counts.get('done') or 0):,}")
 
 
 def select_followup_row(next_id: str) -> None:

@@ -8,6 +8,7 @@ from uuid import UUID
 import pandas as pd
 import streamlit as st
 
+import staff_identity
 from crm_data.cache import clear_cached_data_functions
 from crm_data.common import (
     BANGKOK_TZ,
@@ -996,6 +997,11 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     errors.extend(phone_errors)
     if not owner:
         errors.append("owner ว่าง")
+    elif staff_code:
+        staff_directory = staff_identity.build_master_staff_directory(fetch_owner_user_options())
+        mapping_error = staff_identity.validate_owner_staff_code(owner, staff_code, staff_directory)
+        if mapping_error:
+            errors.append(mapping_error)
     if not staff_code:
         errors.append("staff_code เธงเนเธฒเธ")
     normalized_items = []
@@ -2830,6 +2836,11 @@ def assign_owner_to_order_record(
         return 0
     if not staff_code and not allow_owner_only:
         raise ValueError("staff_code is required when assigning an owner")
+    if staff_code:
+        staff_directory = staff_identity.build_master_staff_directory(fetch_owner_user_options())
+        mapping_error = staff_identity.validate_owner_staff_code(owner, staff_code, staff_directory)
+        if mapping_error:
+            raise ValueError(mapping_error)
     ensure_crm_data_imports_schema()
     with neon_connection() as conn:
         try:
@@ -3166,6 +3177,13 @@ def upsert_lead_followup(payload: dict) -> None:
     ensure_crm_data_imports_schema()
     payload = dict(payload)
     payload["priority"] = normalize_followup_priority(payload.get("priority"))
+    staff_code = clean(payload.get("staff_code"))
+    owner = clean(payload.get("owner"))
+    if staff_code and owner:
+        staff_directory = staff_identity.build_master_staff_directory(fetch_owner_user_options())
+        mapping_error = staff_identity.validate_owner_staff_code(owner, staff_code, staff_directory)
+        if mapping_error:
+            raise ValueError(mapping_error)
     columns = [
         "customer_key",
         "crm_data_import_id",
@@ -3247,10 +3265,10 @@ def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list
         )
         params.extend([like, like, like, like])
 
-    owner = clean(filters.get("owner"))
-    if owner and owner != "ทั้งหมด":
-        clauses.append("d.owner = %s")
-        params.append(owner)
+    owner_staff_code = clean(filters.get("owner"))
+    if owner_staff_code and owner_staff_code != "ทั้งหมด":
+        clauses.append("nullif(trim(coalesce(d.staff_code, '')), '') = %s")
+        params.append(owner_staff_code)
 
     lead_status = clean(filters.get("lead_status"))
     if lead_status and lead_status != "ทั้งหมด":
@@ -3290,7 +3308,7 @@ def build_followup_where(filters: dict[str, str], user: dict) -> tuple[str, list
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_followup_filter_options(user: dict) -> dict[str, list[str]]:
+def fetch_followup_filter_options(user: dict) -> dict:
     ensure_crm_data_imports_schema()
     clauses = ["d.import_status = 'valid'"]
     params: list = []
@@ -3303,17 +3321,18 @@ def fetch_followup_filter_options(user: dict) -> dict[str, list[str]]:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                select distinct d.owner
+                select distinct
+                  nullif(trim(coalesce(d.staff_code, '')), '') as staff_code,
+                  d.owner
                 from public.crm_data_imports d
                 {where}
-                  and d.owner is not null
-                  and d.owner <> ''
+                  and nullif(trim(coalesce(d.staff_code, '')), '') is not null
                 order by d.owner
                 limit 500
                 """,
                 params,
             )
-            owners = [row["owner"] for row in cur.fetchall()]
+            owner_rows = cur.fetchall()
             cur.execute(
                 f"""
                 select distinct concat_ws(' ', nullif(d.sku, ''), nullif(d.product_name, '')) as product
@@ -3326,7 +3345,10 @@ def fetch_followup_filter_options(user: dict) -> dict[str, list[str]]:
                 params,
             )
             products = [row["product"] for row in cur.fetchall() if clean(row.get("product"))]
-    return {"owners": owners, "products": products}
+    owner_choices = staff_identity.build_staff_directory_choices(
+        [{"staff_code": row.get("staff_code"), "staff_name": row.get("owner")} for row in owner_rows]
+    )
+    return {"owners": owner_choices, "products": products}
 
 
 def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, page: int) -> tuple[list[dict], int]:
@@ -3495,6 +3517,92 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
             for row in rows:
                 row["priority"] = normalize_followup_priority(row.get("priority"))
             return rows, total
+
+
+def fetch_followup_summary_counts(filters: dict[str, str], user: dict) -> dict:
+    """Aggregate due/overdue/week/done counts across the FULL filtered
+    result set (respecting the same WHERE clause and permission scope as
+    fetch_followup_page), not just whatever rows happen to be on the
+    current page. Must be called separately from fetch_followup_page since
+    that function only returns one page of rows."""
+    ensure_crm_data_imports_schema()
+    where, params = build_followup_where(filters, user)
+    today = date.today().isoformat()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                with ranked as (
+                  select
+                         d.id,
+                         d.phone_key,
+                         d.customer_name,
+                         d.phone1,
+                         d.phone2,
+                         d.order_id,
+                         d.sku,
+                         d.product_name,
+                         d.url,
+                         d.owner,
+                         d.staff_code,
+                         d.import_status,
+                         row_number() over (
+                           partition by d.phone_key
+                           order by d.order_date desc nulls last, d.uploaded_at desc, d.id desc
+                         ) as rn
+                  from (
+                    select
+                      id,
+                      customer_name,
+                      phone1,
+                      phone2,
+                      order_id,
+                      sku,
+                      product_name,
+                      url,
+                      owner,
+                      staff_code,
+                      order_date,
+                      uploaded_at,
+                      updated_at,
+                      import_status,
+                      case
+                        when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+                        else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+                      end as phone_key
+                    from public.crm_data_imports
+                    where import_status = 'valid'
+                  ) d
+                )
+                select
+                  count(*) as total,
+                  count(*) filter (
+                    where coalesce(l.next_followup_date, l.follow_up_date) = %s::date
+                      and coalesce(l.followup_status, l.follow_up_status, 'none') <> 'done'
+                  ) as due_today,
+                  count(*) filter (
+                    where coalesce(l.next_followup_date, l.follow_up_date) is not null
+                      and coalesce(l.next_followup_date, l.follow_up_date) < %s::date
+                      and coalesce(l.followup_status, l.follow_up_status, 'none') <> 'done'
+                  ) as overdue,
+                  count(*) filter (
+                    where coalesce(l.followup_status, l.follow_up_status, 'none') = 'done'
+                  ) as done
+                from ranked d
+                left join public.crm_lead_followups l
+                  on l.customer_key = concat('customer_id:', d.id::text)
+                {where}
+                  and d.rn = 1
+                """,
+                [today, today] + params,
+            )
+            row = cur.fetchone() or {}
+    total = int(row.get("total") or 0)
+    due_today = int(row.get("due_today") or 0)
+    overdue = int(row.get("overdue") or 0)
+    done = int(row.get("done") or 0)
+    week = max(total - due_today - overdue - done, 0)
+    return {"due_today": due_today, "overdue": overdue, "week": week, "done": done, "total": total}
 
 
 def fetch_user_role_from_neon(email: str) -> dict | None:
