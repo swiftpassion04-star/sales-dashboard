@@ -1,7 +1,11 @@
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+import sys
 from uuid import UUID
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from neon_utils import (
     BANGKOK_TZ,

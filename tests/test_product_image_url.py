@@ -49,6 +49,7 @@ assert "st.image" in products_page or "container.image" in products_page
 assert "requests." not in products_page
 assert "urlopen" not in products_page
 assert "httpx." not in products_page
-assert "fetch_order_product_options" not in products_page
+assert "fetch_order_product_options" in products_page
+assert "clear_cached_data_functions(" in products_page
 
 print("product image URL safety OK")

@@ -49,7 +49,8 @@ customers_page = (root / "pages" / "customers.py").read_text(encoding="utf-8", e
 
 assert "PRIORITY_OPTIONS = {priority: priority for priority in FOLLOWUP_PRIORITY_OPTIONS}" in followup_page
 assert "PRIORITY_OPTIONS = {priority: priority for priority in FOLLOWUP_PRIORITY_OPTIONS}" in customer_detail_page
-assert '"priority": DEFAULT_FOLLOWUP_PRIORITY' in customers_page
+assert 'priority = clean(current_followup.get("priority")) or DEFAULT_FOLLOWUP_PRIORITY' in customers_page
+assert '"priority": priority' in customers_page
 assert "normalize_followup_priority" in followup_page
 assert "normalize_followup_priority" in customer_detail_page
 
