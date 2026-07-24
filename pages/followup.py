@@ -547,17 +547,23 @@ def build_popup_followup_payload(row: dict, user: dict, prefix: str) -> tuple[di
         errors.append(date_error)
     phone1 = clean(st.session_state.get(f"{prefix}_phone1"))
     phone2 = clean(st.session_state.get(f"{prefix}_phone2"))
+    items = st.session_state.get(f"{prefix}_items") or []
+    first_item = items[0] if items and isinstance(items[0], dict) else {}
+    saved_item = row.get("_popup_saved_order_item")
+    if not isinstance(saved_item, dict):
+        saved_item = {}
+    payload_item = saved_item or first_item
     payload = {
         "customer_key": clean(row.get("customer_key")),
         "crm_data_import_id": clean(row.get("crm_data_import_id")),
-        "order_id": clean(row.get("order_id")),
+        "order_id": clean(st.session_state.get(f"{prefix}_order_id")) or clean(row.get("order_id")),
         "customer_id": clean(row.get("crm_data_import_id")),
         "customer_name": clean(st.session_state.get(f"{prefix}_customer_name")),
         "phone_key": phone1 or phone2,
         "phone1": phone1,
         "phone2": phone2,
-        "product_name": clean(row.get("product_name")),
-        "sku": clean(row.get("sku")),
+        "product_name": clean(payload_item.get("product_name")) or clean(row.get("product_name")),
+        "sku": clean(payload_item.get("sku")) or clean(row.get("sku")),
         "url": clean(st.session_state.get(f"{prefix}_url")),
         "staff_code": clean(row.get("staff_code")),
         "owner": clean(row.get("owner")),
@@ -573,6 +579,28 @@ def build_popup_followup_payload(row: dict, user: dict, prefix: str) -> tuple[di
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
     return payload, errors
+
+
+def popup_followup_row_for_saved_order(row: dict, order_result: dict, items: list[dict] | None = None) -> dict:
+    record_ids = [clean(record_id) for record_id in (order_result.get("ids") or [])]
+    record_ids = [record_id for record_id in record_ids if record_id]
+    if not record_ids:
+        return row
+
+    numeric_pairs = [(index, int(record_id)) for index, record_id in enumerate(record_ids) if record_id.isdigit()]
+    if numeric_pairs:
+        selected_index, selected_number = max(numeric_pairs, key=lambda pair: pair[1])
+        selected_id = str(selected_number)
+    else:
+        selected_index = len(record_ids) - 1
+        selected_id = record_ids[-1]
+    updated_row = dict(row)
+    updated_row["crm_data_import_id"] = selected_id
+    updated_row["customer_id"] = selected_id
+    updated_row["customer_key"] = f"customer_id:{selected_id}"
+    if items and selected_index < len(items) and isinstance(items[selected_index], dict):
+        updated_row["_popup_saved_order_item"] = dict(items[selected_index])
+    return updated_row
 
 
 def row_key(row: dict) -> str:
@@ -842,7 +870,8 @@ def _render_order_dialog(row: dict, user: dict) -> None:
     if duplicate_lock_warning:
         st.warning(duplicate_lock_warning)
 
-    followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)
+    followup_row = popup_followup_row_for_saved_order(row, result, st.session_state.get(f"{prefix}_items") or [])
+    followup_payload, followup_update_errors = build_popup_followup_payload(followup_row, user, prefix)
     if followup_update_errors:
         st.error(
             "\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e04\u0e33\u0e2a\u0e31\u0e48\u0e07\u0e0b\u0e37\u0e49\u0e2d\u0e41\u0e25\u0e49\u0e27 \u0e41\u0e15\u0e48\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e44\u0e21\u0e48\u0e16\u0e39\u0e01\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15: "

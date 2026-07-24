@@ -460,14 +460,21 @@ assert '"qty": qty' in followup_source
 assert '"amount": amount_value' in followup_source
 assert '"image_url": image_url' in followup_source
 assert "def build_popup_followup_payload(row: dict, user: dict, prefix: str)" in followup_source
+assert "def popup_followup_row_for_saved_order(row: dict, order_result: dict, items: list[dict] | None = None) -> dict:" in followup_source
 assert "def serialize_popup_followup_date(value)" in followup_source
-assert "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)" in order_dialog_source
+assert "followup_row = popup_followup_row_for_saved_order(row, result, st.session_state.get(f\"{prefix}_items\") or [])" in order_dialog_source
+assert "followup_payload, followup_update_errors = build_popup_followup_payload(followup_row, user, prefix)" in order_dialog_source
 assert "upsert_lead_followup(followup_payload)" in order_dialog_source
 assert order_dialog_source.index("result = upsert_manual_order_items(") < order_dialog_source.index(
-    "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)"
+    "followup_row = popup_followup_row_for_saved_order(row, result, st.session_state.get(f\"{prefix}_items\") or [])"
 )
 assert order_dialog_source.index(
-    "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)"
+    "followup_row = popup_followup_row_for_saved_order(row, result, st.session_state.get(f\"{prefix}_items\") or [])"
+) < order_dialog_source.index(
+    "followup_payload, followup_update_errors = build_popup_followup_payload(followup_row, user, prefix)"
+)
+assert order_dialog_source.index(
+    "followup_payload, followup_update_errors = build_popup_followup_payload(followup_row, user, prefix)"
 ) < order_dialog_source.index("upsert_lead_followup(followup_payload)")
 assert order_dialog_source.index("upsert_lead_followup(followup_payload)") < order_dialog_source.index(
     "clear_popup_order_state(prefix, row)"
