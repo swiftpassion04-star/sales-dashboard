@@ -134,10 +134,15 @@ print("follow-up note field wiring OK")
 #    tests/test_product_order_options.py, re-asserted here for this task).
 # ---------------------------------------------------------------------------
 assert order_dialog_source.index("result = upsert_manual_order_items(") < order_dialog_source.index(
-    "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)"
+    "followup_row = popup_followup_row_for_saved_order(row, result, st.session_state.get(f\"{prefix}_items\") or [])"
 )
 assert order_dialog_source.index(
-    "followup_payload, followup_update_errors = build_popup_followup_payload(row, user, prefix)"
+    "followup_row = popup_followup_row_for_saved_order(row, result, st.session_state.get(f\"{prefix}_items\") or [])"
+) < order_dialog_source.index(
+    "followup_payload, followup_update_errors = build_popup_followup_payload(followup_row, user, prefix)"
+)
+assert order_dialog_source.index(
+    "followup_payload, followup_update_errors = build_popup_followup_payload(followup_row, user, prefix)"
 ) < order_dialog_source.index("upsert_lead_followup(followup_payload)")
 assert order_dialog_source.index("upsert_lead_followup(followup_payload)") < order_dialog_source.index(
     "clear_popup_order_state(prefix, row)"
@@ -178,6 +183,7 @@ needed_defs = {
     "prepare_popup_order_state",
     "build_popup_followup_payload",
     "clear_popup_order_state",
+    "popup_followup_row_for_saved_order",
     "select_popup_product",
     "add_popup_order_item",
 }
@@ -363,6 +369,7 @@ dialog_needed_defs = {
     "prepare_popup_order_state",
     "build_popup_followup_payload",
     "clear_popup_order_state",
+    "popup_followup_row_for_saved_order",
     "select_popup_product",
     "add_popup_order_item",
     "_render_order_dialog",
@@ -499,6 +506,7 @@ class _DialogHarness:
         self.errors = []
         self.order_fail = False
         self.followup_fail = False
+        self.saved_record_ids = []
         self.product = {
             "sku": "SP680",
             "product_name": "Coffee Premium",
@@ -537,7 +545,11 @@ def _fake_upsert_manual_order_items(order_payload, items):
         raise RuntimeError("order write failed")
     captured_items = [dict(item) for item in items]
     harness.order_writes.append((dict(order_payload), captured_items))
-    return {"item_count": len(captured_items), "actions": {"inserted": len(captured_items), "updated": 0}}
+    return {
+        "item_count": len(captured_items),
+        "actions": {"inserted": len(captured_items), "updated": 0},
+        "ids": list(harness.saved_record_ids),
+    }
 
 
 def _fake_upsert_lead_followup(payload):
@@ -673,6 +685,41 @@ assert order_payload_d["phone1"] == "0899999999"
 assert order_items_d[0]["qty"] == 2
 assert order_items_d[0]["amount"] == 120.0
 assert harness_d.followup_writes[0]["next_followup_date"] == "2026-08-09"
+
+# Scenario D2: after saving a new order row, follow-up metadata must attach
+# to the crm_data_imports record returned by the order save result. The
+# follow-up table joins on customer_id:<id>, so keeping the old row key makes
+# the selected date appear to disappear after the table reloads.
+harness_d2 = _DialogHarness(sample_row)
+harness_d2.saved_record_ids = ["901", "902"]
+prefix_d2 = harness_d2.prefix
+harness_d2.render()
+harness_d2.state[f"{prefix_d2}_items"] = [
+    dict(harness_d2.product, qty=1, amount="120"),
+    {
+        "sku": "SP681",
+        "product_name": "Tea Economy",
+        "product_group": "Drink",
+        "image_url": "",
+        "qty": 1,
+        "amount": "80",
+    },
+]
+result_d2 = harness_d2.render(
+    values={
+        **_valid_order_values(prefix_d2, order_id="ORDER-D2"),
+        f"{prefix_d2}_next_followup_date": date(2026, 8, 10),
+    },
+    clicks=_submit_click(prefix_d2),
+)
+assert result_d2 == "rerun", (result_d2, harness_d2.errors, harness_d2.followup_writes)
+assert harness_d2.followup_writes[0]["crm_data_import_id"] == "902"
+assert harness_d2.followup_writes[0]["customer_id"] == "902"
+assert harness_d2.followup_writes[0]["customer_key"] == "customer_id:902"
+assert harness_d2.followup_writes[0]["order_id"] == "ORDER-D2"
+assert harness_d2.followup_writes[0]["sku"] == "SP681"
+assert harness_d2.followup_writes[0]["product_name"] == "Tea Economy"
+assert harness_d2.followup_writes[0]["next_followup_date"] == "2026-08-10"
 
 # Scenario E: order fields before product selection remain in captured order payload.
 harness_e = _DialogHarness(sample_row)
