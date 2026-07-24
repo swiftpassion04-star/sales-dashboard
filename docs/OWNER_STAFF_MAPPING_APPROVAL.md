@@ -18,7 +18,7 @@
 | สายฝน ราวิชัย (สายฝน) | 6,502 | `สายฝน`, `สายฝน ราวิชัย (สายฝน)` | `SAIFON` | `swiftpassion.com18@gmail.com` | PENDING |
 | พรณกมล ดวงจันทร์ (แต้ว) | 4,669 | `แต้ว`, `พรณกมล ดวงจันทร์ (แต้ว)` | `TAEW` | `swiftpassion.com17@gmail.com` | PENDING |
 | พรธนนันท์ กานต์รพีพร (หญิง) | 3,100 | `หญิง`, `พรธนนันท์ กานต์รพีพร (หญิง)` | `YING` | `swiftpassion.com21@gmail.com` | PENDING |
-| กัญญพักฒ์ อิ่มยวง (เจี๊ยบ) | 3,087 | `เจี๊ยบ` | `JEEB` | NEED_CONFIRM | NEED_CONFIRM |
+| กัญญพักฒ์ อิ่มยวง (เจี๊ยบ) | 3,087 | `เจี๊ยบ` | merge → `NOONA` (JEEB retired) | N/A — merge decision | **APPROVED (2026-07-23)** |
 | ธัญญรัตน์ หอมระรื่น (เล็ก) | 9 | `ธัญญรัตน์ หอมระรื่น (เล็ก)` | `LEK` | `swiftpassion.com03@gmail.com` | PENDING |
 | จินดามณี คงมี (ครีม) | 1 | `จินดามณี คงมี (ครีม)` | `CREAM` | `swiftpassion.com16@gmail.com` | PENDING |
 | สุมนตรา ทัศน์ศรี (โก้) | 1 | `สุมนตรา ทัศน์ศรี (โก้)` | `KO` | `swiftpassion.com14@gmail.com` | PENDING |
@@ -30,9 +30,9 @@
 
 | รายการ | เหตุผล | Action ที่ต้องการ |
 |---|---|---|
-| กัญญพักฒ์ อิ่มยวง (เจี๊ยบ) | มีข้อมูล 3,087 records แต่ยังไม่พบ email/user role ที่ match ชัดเจน | ยืนยัน email ที่ต้องผูกกับ `JEEB` |
+| กัญญพักฒ์ อิ่มยวง (เจี๊ยบ) | **APPROVED (2026-07-23)** — merge ข้อมูล 3,087 records ทั้งหมดเข้า `staff_code = NOONA` และปิดการใช้งาน `JEEB` ถาวร | ดำเนินการผ่าน `neon/manual_sql/202607_jeeb_to_noona_merge.sql` (ยังไม่ได้รัน — รอสิทธิ์เข้าถึงฐานข้อมูลจริง) |
 | `swiftpassion.com22@gmail.com` / ศิวพร ถีติปริวัตร (อุ๊) | มี user role แต่ยังไม่พบ owner/import records ที่ตรงกัน | ยืนยันว่าจะคงไว้เป็น user ว่าง หรือ map กับ owner อื่น |
-| `swiftpassion.com19@gmail.com` / พรนภา นันที (หนูนา) | มี user role แต่ยังไม่พบ owner/import records ที่ตรงกัน | ยืนยันว่าจะคงไว้เป็น user ว่าง หรือ map กับ owner อื่น |
+| `swiftpassion.com19@gmail.com` / พรนภา นันที (หนูนา) | บัญชี login เดิมของหนูนา — **ยังคงเป็นเจ้าของ `staff_code = NOONA` ตามเดิม** ตอนนี้จะรวมถึงข้อมูล 3,087 records ที่ merge มาจาก JEEB ด้วย (ตาม decision ด้านบน) | ตรวจสอบสิทธิ์การมองเห็นข้อมูลของหนูนาอีกครั้งหลัง migration รันจริง |
 | owner ว่าง 730 rows | ไม่สามารถระบุเจ้าของจากข้อมูลปัจจุบันได้ | คง `owner = NULL`, `staff_code = NULL` จนกว่าจะมีหลักฐาน |
 
 ## กติกามาตรฐาน
@@ -123,7 +123,7 @@ order by records desc;
 | ผู้บริหารยืนยัน `SAIFON` | PENDING |
 | ผู้บริหารยืนยัน `TAEW` | PENDING |
 | ผู้บริหารยืนยัน `YING` | PENDING |
-| ผู้บริหารยืนยัน `JEEB` และ email ที่ถูกต้อง | NEED_CONFIRM |
+| ผู้บริหารยืนยัน `JEEB` และ email ที่ถูกต้อง | N/A — `JEEB` retired, merged into `NOONA` (APPROVED 2026-07-23, see Owner Mapping review) |
 | ผู้บริหารยืนยัน `LEK` | PENDING |
 | ผู้บริหารยืนยัน `CREAM` | PENDING |
 | ผู้บริหารยืนยัน `KO` | PENDING |
