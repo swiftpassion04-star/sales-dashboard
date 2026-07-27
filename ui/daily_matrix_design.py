@@ -37,7 +37,7 @@ def inject_daily_matrix_design() -> None:
 }}
 .stApp:has(.{_MARKER}) .dm-table th,
 .stApp:has(.{_MARKER}) .dm-table td {{
-  padding:8px 10px;
+  padding:6px 7px;
   border-bottom:1px solid rgba(249,115,22,.12);
   border-right:1px solid rgba(249,115,22,.08);
   white-space:nowrap;
@@ -47,6 +47,12 @@ def inject_daily_matrix_design() -> None:
 .stApp:has(.{_MARKER}) .dm-table thead th {{
   font-weight:750;
   color:#7C2D12;
+  font-size:11px;
+}}
+.stApp:has(.{_MARKER}) .dm-table .dm-col-staff {{
+  max-width:72px;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-group-upsell {{
   background:#DBEAFE;
@@ -55,6 +61,10 @@ def inject_daily_matrix_design() -> None:
 .stApp:has(.{_MARKER}) .dm-table .dm-group-crm {{
   background:#EDE9FE;
   color:#5B21B6;
+}}
+.stApp:has(.{_MARKER}) .dm-table .dm-group-unassigned {{
+  background:#F1F5F9;
+  color:#475569;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-col-date {{
   text-align:left;
@@ -85,6 +95,12 @@ def inject_daily_matrix_design() -> None:
 .stApp:has(.{_MARKER}) .dm-table tr.dm-row-holiday td {{
   background:#FDE4E4 !important;
   color:#B91C1C !important;
+}}
+.stApp:has(.{_MARKER}) .dm-table td.dm-cell-personal-off {{
+  background:#FDE4E4 !important;
+  color:#B91C1C !important;
+  font-weight:650;
+  cursor:help;
 }}
 .stApp:has(.{_MARKER}) .dm-table tfoot td {{
   font-weight:750;
