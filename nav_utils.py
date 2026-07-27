@@ -16,6 +16,7 @@ NAV_GROUPS = [
         [
             ("📊Dashboard", "pages/dashboard.py"),
             ("🎖️ยอดขายทีม", "pages/team_sales.py"),
+            ("📅ตารางยอดขายรายวัน", "pages/daily_matrix.py"),
         ],
     ),
     (
