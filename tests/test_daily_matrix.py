@@ -40,6 +40,7 @@ class FakeCursor:
     def __init__(self, fetchone_result=None, rowcount=1):
         self.executed = []
         self._fetchone_result = fetchone_result
+        self._fetchall_result = None
         self.rowcount = rowcount
 
     def __enter__(self):
@@ -55,12 +56,13 @@ class FakeCursor:
         return self._fetchone_result
 
     def fetchall(self):
-        return []
+        return self._fetchall_result or []
 
 
 class FakeConnection:
-    def __init__(self, fetchone_result=None, rowcount=1):
+    def __init__(self, fetchone_result=None, rowcount=1, fetchall_result=None):
         self.cursor_instance = FakeCursor(fetchone_result, rowcount)
+        self.cursor_instance._fetchall_result = fetchall_result
         self.committed = False
         self.rolled_back = False
 
@@ -244,17 +246,25 @@ def test_fetch_daily_matrix_reuses_team_sales_predicates():
 
 
 def test_fetch_daily_matrix_normalizes_staff_code_both_sides():
+    # The roster side (unprefixed staff_code) is normalized once in the
+    # shared _ROSTER_CTE_SQL constant; the sales side (d.staff_code) is
+    # normalized once in fetch_daily_matrix's own sales CTE.
+    # matrix_source/data_source are raw source TEXT (via ast.get_source_segment
+    # / file read), so the needle must be a raw string too -- the .py file
+    # literally contains two backslash characters before "s+" (it evaluates
+    # to one at runtime).
+    assert data_source.count(r"regexp_replace(trim(coalesce(staff_code, '')), '\\s+', ' ', 'g')") == 1
     matrix_source = function_source(data_source, data_tree, "fetch_daily_matrix")
-    # matrix_source is raw source TEXT (via ast.get_source_segment), so the
-    # needle must be a raw string too -- the .py file literally contains two
-    # backslash characters before "s+" (it evaluates to one at runtime).
-    assert matrix_source.count(r"regexp_replace(trim(coalesce(staff_code, '')), '\\s+', ' ', 'g')") == 1
     assert matrix_source.count(r"regexp_replace(trim(coalesce(d.staff_code, '')), '\\s+', ' ', 'g')") == 1
+
+
+def test_roster_cte_dedupes_ambiguous_staff_code_deterministically():
+    assert "distinct on (staff_code_norm)" in daily_matrix._ROSTER_CTE_SQL
+    assert "having count(*) > 1" in daily_matrix._ROSTER_CTE_SQL
 
 
 def test_fetch_daily_matrix_handles_ambiguous_staff_code_without_dropping_rows():
     matrix_source = function_source(data_source, data_tree, "fetch_daily_matrix")
-    assert "distinct on (staff_code_norm)" in matrix_source
     assert "left join" in matrix_source.lower()
     assert "ambiguous_staff_codes" in data_source
 
@@ -267,6 +277,116 @@ def test_clear_daily_matrix_caches_clears_both_fetchers():
     clear_source = function_source(data_source, data_tree, "clear_daily_matrix_caches")
     assert "fetch_daily_matrix.clear()" in clear_source
     assert "fetch_day_statuses.clear()" in clear_source
+
+
+# ---------------------------------------------------------------------------
+# Regression coverage for the "zero-sales staff member disappears from their
+# team's columns" bug: columns must be seeded from roster+assignments, not
+# derived only from staff who happened to have a sale that month.
+# ---------------------------------------------------------------------------
+
+
+def test_team_columns_are_seeded_before_sales_rows_are_fetched():
+    matrix_node = function_node(data_tree, "fetch_daily_matrix")
+    call_names_in_order = []
+    for statement in matrix_node.body:
+        for node in ast.walk(statement):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                call_names_in_order.append(node.func.id)
+    assert "_fetch_team_roster_columns" in call_names_in_order
+    assert "_fetch_all" in call_names_in_order
+    assert call_names_in_order.index("_fetch_team_roster_columns") < call_names_in_order.index("_fetch_all")
+
+
+def test_team_roster_columns_query_is_not_driven_by_sales():
+    roster_columns_source = function_source(data_source, data_tree, "_fetch_team_roster_columns")
+    assert "crm_data_imports" not in roster_columns_source
+    assert "public.crm_user_team_assignments" in roster_columns_source
+    assert "join public.crm_user_team_assignments" in roster_columns_source  # inner join: must have a real assignment
+    assert "select distinct" in roster_columns_source
+
+
+def test_team_roster_columns_uses_month_level_overlap_not_per_day():
+    roster_columns_source = function_source(data_source, data_tree, "_fetch_team_roster_columns")
+    assert "_date_bounds(" in roster_columns_source
+    assert "at time zone" not in roster_columns_source.lower()
+
+
+def test_fetch_team_roster_columns_returns_zero_sales_staff():
+    # _fetch_team_roster_columns is plain (uncached), safe to invoke
+    # directly with a fake connection -- unlike fetch_daily_matrix, which is
+    # @st.cache_data-decorated and would route a custom fake object through
+    # Streamlit's argument-hashing machinery.
+    fake_conn = FakeConnection(
+        fetchall_result=[
+            {"team_code": "UPSELL_TEAM", "staff_code_norm": "ZERO", "staff_name": "Zero Sales Person"}
+        ]
+    )
+    rows = daily_matrix._fetch_team_roster_columns(
+        date(2031, 3, 1), date(2031, 4, 1), conn_or_none=fake_conn
+    )
+    assert rows == [
+        {"team_code": "UPSELL_TEAM", "staff_code_norm": "ZERO", "staff_name": "Zero Sales Person"}
+    ]
+    sql, params = fake_conn.cursor_instance.executed[0]
+    assert "crm_data_imports" not in sql
+    assert len(params) == 2
+
+
+# ---------------------------------------------------------------------------
+# Regression coverage for the "missing crm_daily_status table kills the
+# whole page" bug: fetch_daily_matrix and fetch_day_statuses must be in
+# separate try/except blocks so a day-status failure can never hide the
+# (fully independent) sales matrix.
+# ---------------------------------------------------------------------------
+
+
+def _try_nodes_containing_call(tree_node, call_name: str) -> list[ast.Try]:
+    matches = []
+    for node in ast.walk(tree_node):
+        if not isinstance(node, ast.Try):
+            continue
+        for inner in ast.walk(node):
+            if (
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Name)
+                and inner.func.id == call_name
+            ):
+                matches.append(node)
+                break
+    return matches
+
+
+def test_matrix_and_day_status_fetches_are_in_separate_try_blocks():
+    main_node = function_node(page_tree, "main")
+    matrix_try_nodes = _try_nodes_containing_call(main_node, "fetch_daily_matrix")
+    status_try_nodes = _try_nodes_containing_call(main_node, "fetch_day_statuses")
+    assert len(matrix_try_nodes) == 1
+    assert len(status_try_nodes) == 1
+    assert matrix_try_nodes[0] is not status_try_nodes[0]
+
+
+def test_day_status_fetch_failure_does_not_return_early():
+    main_node = function_node(page_tree, "main")
+    status_try_node = _try_nodes_containing_call(main_node, "fetch_day_statuses")[0]
+    for handler in status_try_node.handlers:
+        for statement in ast.walk(handler):
+            assert not isinstance(statement, ast.Return), (
+                "the day-status except handler must not return -- doing so "
+                "would hide the sales matrix whenever crm_daily_status "
+                "hasn't been migrated yet"
+            )
+
+
+def test_matrix_fetch_failure_still_returns_early():
+    main_node = function_node(page_tree, "main")
+    matrix_try_node = _try_nodes_containing_call(main_node, "fetch_daily_matrix")[0]
+    has_return = any(
+        isinstance(statement, ast.Return)
+        for handler in matrix_try_node.handlers
+        for statement in ast.walk(handler)
+    )
+    assert has_return
 
 
 # ---------------------------------------------------------------------------

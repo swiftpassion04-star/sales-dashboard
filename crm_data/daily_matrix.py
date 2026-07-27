@@ -7,11 +7,11 @@ new roster table. See pages/daily_matrix.py for the rendering side.
 """
 
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 
 import streamlit as st
 
-from crm_data.team_sales import TEAM_CODES, _MANUAL_ROW_SQL
+from crm_data.team_sales import TEAM_CODES, _MANUAL_ROW_SQL, _date_bounds
 
 # Individual UPSELL cell: light-yellow above this, blue above the next one.
 UPSELL_YELLOW_THRESHOLD = 3000
@@ -84,33 +84,85 @@ def _empty_team_bucket(team_code: str) -> dict:
     }
 
 
+# Shared by both queries below so a staff_code/email is resolved identically
+# whether we're asking "who's on this team this month" or "whose sale is
+# this". staff_code has no unique constraint on crm_user_roles -- resolve
+# any duplicate deterministically (never silently drop or silently pick one
+# without recording it) via the `ambiguous` CTE, surfaced to the caller.
+_ROSTER_CTE_SQL = """
+roster_raw as (
+  select
+    regexp_replace(trim(coalesce(staff_code, '')), '\\s+', ' ', 'g') as staff_code_norm,
+    lower(btrim(email)) as email,
+    staff_name
+  from public.crm_user_roles
+  where is_active = true
+    and nullif(trim(coalesce(staff_code, '')), '') is not null
+),
+roster as (
+  select distinct on (staff_code_norm)
+    staff_code_norm, email, staff_name
+  from roster_raw
+  order by staff_code_norm, email
+),
+ambiguous as (
+  select staff_code_norm
+  from roster_raw
+  group by staff_code_norm
+  having count(*) > 1
+)
+""".strip()
+
+
+def _fetch_team_roster_columns(month_start: date, month_end: date, conn_or_none=None) -> list[dict]:
+    """Every staff_code with a team assignment overlapping the month.
+
+    Driven by roster + team assignments, NOT by sales -- a staff member who
+    made zero sales all month must still appear as a (zero-filled) column,
+    never silently vanish from the matrix.
+    """
+    last_day = month_end - timedelta(days=1)
+    month_start_ts, month_end_ts = _date_bounds(month_start, last_day)
+    return _fetch_all(
+        f"""
+        with {_ROSTER_CTE_SQL}
+        select distinct
+          a.team_code,
+          r.staff_code_norm,
+          r.staff_name
+        from roster r
+        join public.crm_user_team_assignments a on a.user_email = r.email
+        where a.team_code in ('CRM_TEAM', 'UPSELL_TEAM')
+          and a.effective_from < %s
+          and (a.effective_to is null or a.effective_to > %s)
+        order by 1, 3, 2
+        """,
+        [month_end_ts, month_start_ts],
+        conn_or_none,
+    )
+
+
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
     month_start, month_end = _month_bounds(year, month)
 
+    teams = {code: _empty_team_bucket(code) for code in TEAM_CODES}
+    team_columns_seen = {code: {} for code in TEAM_CODES}
+    ambiguous_staff_codes: set[str] = set()
+
+    # Seed every team's column set from roster+assignments FIRST, so a
+    # zero-sales staff member still gets a (zero-filled) column below.
+    for roster_row in _fetch_team_roster_columns(month_start, month_end, conn_or_none):
+        team_code = roster_row["team_code"]
+        if team_code in TEAM_CODES:
+            team_columns_seen[team_code].setdefault(
+                roster_row["staff_code_norm"],
+                roster_row.get("staff_name") or roster_row["staff_code_norm"],
+            )
+
     rows = _fetch_all(
         f"""
-        with roster_raw as (
-          select
-            regexp_replace(trim(coalesce(staff_code, '')), '\\s+', ' ', 'g') as staff_code_norm,
-            lower(btrim(email)) as email,
-            staff_name
-          from public.crm_user_roles
-          where is_active = true
-            and nullif(trim(coalesce(staff_code, '')), '') is not null
-        ),
-        roster as (
-          select distinct on (staff_code_norm)
-            staff_code_norm, email, staff_name
-          from roster_raw
-          order by staff_code_norm, email
-        ),
-        ambiguous as (
-          select staff_code_norm
-          from roster_raw
-          group by staff_code_norm
-          having count(*) > 1
-        ),
+        with {_ROSTER_CTE_SQL},
         sales as (
           select
             regexp_replace(trim(coalesce(d.staff_code, '')), '\\s+', ' ', 'g') as staff_code_norm,
@@ -144,11 +196,8 @@ def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
         conn_or_none,
     )
 
-    teams = {code: _empty_team_bucket(code) for code in TEAM_CODES}
-    team_columns_seen = {code: {} for code in TEAM_CODES}
     unassigned_days: dict[date, float] = {}
     unassigned_total = 0.0
-    ambiguous_staff_codes: set[str] = set()
 
     for row in rows:
         staff_code = row["staff_code_norm"]
@@ -159,6 +208,9 @@ def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
             ambiguous_staff_codes.add(staff_code)
 
         if team_code in TEAM_CODES:
+            # Defensive only: _fetch_team_roster_columns already covers any
+            # team_code active on this order_date, since its month-level
+            # overlap window is always a superset of any single day in it.
             team_columns_seen[team_code].setdefault(
                 staff_code, row.get("staff_name") or staff_code
             )

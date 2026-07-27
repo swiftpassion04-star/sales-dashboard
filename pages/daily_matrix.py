@@ -256,10 +256,21 @@ def main() -> None:
     try:
         with st.spinner("กำลังโหลดยอดขายรายวัน..."):
             matrix = fetch_daily_matrix(year, month)
-            day_statuses = fetch_day_statuses(year, month)
     except Exception:
         st.error("โหลดข้อมูลยอดขายรายวันไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
         return
+
+    # Independent from the sales matrix on purpose: crm_daily_status is a
+    # separate table that may not be migrated yet. A failure here must never
+    # hide the (fully independent) sales figures above.
+    try:
+        day_statuses = fetch_day_statuses(year, month)
+    except Exception:
+        day_statuses = {}
+        st.caption(
+            "ยังไม่สามารถโหลดสถานะวันหยุด/วันลาได้ (อาจยังไม่ได้รัน migration "
+            "crm_daily_status) — ตารางยอดขายด้านล่างยังแสดงผลได้ตามปกติ"
+        )
 
     if matrix["ambiguous_staff_codes"]:
         st.warning(
