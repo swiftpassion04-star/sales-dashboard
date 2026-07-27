@@ -6,6 +6,7 @@ crm_user_roles.staff_code -> email -> crm_user_team_assignments chain -- no
 new roster table. See pages/daily_matrix.py for the rendering side.
 """
 
+import re
 from contextlib import contextmanager
 from datetime import date, timedelta
 
@@ -24,6 +25,58 @@ CRM_INDIVIDUAL_THRESHOLD = 11000
 CRM_TEAM_TOTAL_THRESHOLD = 40000
 
 DAY_STATUS_VALUES = {"HOLIDAY", "LEAVE"}
+
+# staff_code values with real sales but no active (or no) team assignment
+# for that day -- kept as a full team-shaped block (not a flat total) so
+# attribution can still be audited per person/day, exactly like a real team.
+UNASSIGNED_TEAM_CODE = "UNASSIGNED_TEAM"
+UNASSIGNED_TEAM_NAME = "ไม่มีทีม"
+
+# All three matrix blocks share the same {code: name} shape. UPSELL_TEAM/
+# CRM_TEAM come from crm_data.team_sales (the real, shared team concept);
+# UNASSIGNED_TEAM only exists inside this module -- it isn't a real team.
+TEAM_BUCKET_NAMES = {**TEAM_CODES, UNASSIGNED_TEAM_CODE: UNASSIGNED_TEAM_NAME}
+
+# Matches a parenthesized group at the very end of a name, e.g.
+# "พรนภา นันที (หนูนา)" -> "หนูนา". Only the trailing group counts -- a
+# parenthesized aside in the middle of a name is left alone.
+_TRAILING_PAREN_RE = re.compile(r"\(([^()]*)\)\s*$")
+
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+
+
+def format_staff_display_name(staff_name, staff_code) -> str:
+    """Short display label for a matrix column header.
+
+    Never used for aggregation -- staff_code stays the join/dict key
+    everywhere else in this module. This only decides what text a human
+    reads in the header.
+    """
+    name = str(staff_name or "").strip()
+    match = _TRAILING_PAREN_RE.search(name)
+    if match:
+        inner = match.group(1).strip()
+        if inner:
+            return inner
+    if name:
+        return name
+    return str(staff_code or "").strip()
+
+
+def resolve_cell_status_highlight(all_status, staff_statuses: dict, staff_code: str):
+    """Decide whether one staff's cell on one day gets a personal (STAFF-scope)
+    day-off highlight, as opposed to a company-wide (ALL-scope) day-off which
+    highlights the whole row instead (handled at the row level, not here).
+
+    Returns None when no personal highlight applies -- either nothing is
+    set for this staff_code, or an ALL-scope status already covers the
+    whole row so a duplicate per-cell highlight would be redundant. Looks
+    up ONLY the exact staff_code passed in, so one person's STAFF-scope
+    status can never bleed into another person's cell on the same day.
+    """
+    if all_status:
+        return None
+    return staff_statuses.get(staff_code)
 
 
 def classify_upsell_cell_tone(amount) -> str:
@@ -76,9 +129,9 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     return start, end
 
 
-def _empty_team_bucket(team_code: str) -> dict:
+def _empty_team_bucket(bucket_code: str) -> dict:
     return {
-        "team_name": TEAM_CODES[team_code],
+        "team_name": TEAM_BUCKET_NAMES[bucket_code],
         "columns": [],
         "days": {},
     }
@@ -142,17 +195,24 @@ def _fetch_team_roster_columns(month_start: date, month_end: date, conn_or_none=
     )
 
 
-@st.cache_data(ttl=120, show_spinner=False)
-def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
-    month_start, month_end = _month_bounds(year, month)
+def _build_matrix_from_rows(
+    roster_rows: list[dict],
+    sales_rows: list[dict],
+    month_start: date,
+    month_end: date,
+) -> dict:
+    """Pure transform: roster rows + sales-attribution rows -> matrix dict.
 
-    teams = {code: _empty_team_bucket(code) for code in TEAM_CODES}
-    team_columns_seen = {code: {} for code in TEAM_CODES}
+    Deliberately DB/cache-free so this can be unit tested directly, without
+    routing a fake connection through @st.cache_data's argument hashing.
+    """
+    teams = {code: _empty_team_bucket(code) for code in TEAM_BUCKET_NAMES}
+    team_columns_seen = {code: {} for code in TEAM_BUCKET_NAMES}
     ambiguous_staff_codes: set[str] = set()
 
     # Seed every team's column set from roster+assignments FIRST, so a
     # zero-sales staff member still gets a (zero-filled) column below.
-    for roster_row in _fetch_team_roster_columns(month_start, month_end, conn_or_none):
+    for roster_row in roster_rows:
         team_code = roster_row["team_code"]
         if team_code in TEAM_CODES:
             team_columns_seen[team_code].setdefault(
@@ -160,7 +220,63 @@ def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
                 roster_row.get("staff_name") or roster_row["staff_code_norm"],
             )
 
-    rows = _fetch_all(
+    for row in sales_rows:
+        staff_code = row["staff_code_norm"]
+        order_date = row["order_date"]
+        amount = float(row["day_amount"] or 0)
+        team_code = row.get("team_code")
+        if row.get("is_ambiguous"):
+            ambiguous_staff_codes.add(staff_code)
+
+        # A real team_code routes here exactly like before. Anything else
+        # (no roster match, no active assignment that day) routes to
+        # UNASSIGNED_TEAM instead of a flat total -- same per-staff/day
+        # shape as a real team, so the sale is never lost and attribution
+        # stays auditable. _fetch_team_roster_columns already covers any
+        # team_code active on this order_date for UPSELL_TEAM/CRM_TEAM
+        # (its month-level overlap window is always a superset of any
+        # single day in it) -- this setdefault is defensive only for those
+        # two, and the sole source of columns for UNASSIGNED_TEAM (there is
+        # no "roster of unassigned people" to pre-seed from).
+        bucket_code = team_code if team_code in TEAM_CODES else UNASSIGNED_TEAM_CODE
+
+        team_columns_seen[bucket_code].setdefault(
+            staff_code, row.get("staff_name") or staff_code
+        )
+        day_bucket = teams[bucket_code]["days"].setdefault(
+            order_date, {"per_staff": {}, "team_total": 0.0}
+        )
+        day_bucket["per_staff"][staff_code] = amount
+        day_bucket["team_total"] += amount
+
+    for bucket_code in TEAM_BUCKET_NAMES:
+        columns = [
+            {"staff_code": code, "staff_name": name}
+            for code, name in team_columns_seen[bucket_code].items()
+        ]
+        columns.sort(key=lambda item: (item["staff_name"], item["staff_code"]))
+        teams[bucket_code]["columns"] = columns
+
+    unassigned_total = sum(
+        day["team_total"] for day in teams[UNASSIGNED_TEAM_CODE]["days"].values()
+    )
+
+    return {
+        "month_start": month_start,
+        "month_end_exclusive": month_end,
+        "teams": teams,
+        "unassigned": {"total": unassigned_total},
+        "ambiguous_staff_codes": sorted(ambiguous_staff_codes),
+    }
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
+    month_start, month_end = _month_bounds(year, month)
+
+    roster_rows = _fetch_team_roster_columns(month_start, month_end, conn_or_none)
+
+    sales_rows = _fetch_all(
         f"""
         with {_ROSTER_CTE_SQL},
         sales as (
@@ -196,64 +312,49 @@ def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
         conn_or_none,
     )
 
-    unassigned_days: dict[date, float] = {}
-    unassigned_total = 0.0
+    return _build_matrix_from_rows(roster_rows, sales_rows, month_start, month_end)
 
+
+DAY_STATUS_SCOPES = {"ALL", "STAFF"}
+
+
+def _build_day_statuses_from_rows(rows: list[dict]) -> dict:
+    """Pure transform: crm_daily_status rows -> {date: {"all", "staff"}}.
+
+    DB/cache-free so this can be unit tested directly, without routing a
+    fake connection through @st.cache_data's argument hashing.
+    """
+    result: dict = {}
     for row in rows:
-        staff_code = row["staff_code_norm"]
-        order_date = row["order_date"]
-        amount = float(row["day_amount"] or 0)
-        team_code = row.get("team_code")
-        if row.get("is_ambiguous"):
-            ambiguous_staff_codes.add(staff_code)
-
-        if team_code in TEAM_CODES:
-            # Defensive only: _fetch_team_roster_columns already covers any
-            # team_code active on this order_date, since its month-level
-            # overlap window is always a superset of any single day in it.
-            team_columns_seen[team_code].setdefault(
-                staff_code, row.get("staff_name") or staff_code
-            )
-            day_bucket = teams[team_code]["days"].setdefault(
-                order_date, {"per_staff": {}, "team_total": 0.0}
-            )
-            day_bucket["per_staff"][staff_code] = amount
-            day_bucket["team_total"] += amount
+        bucket = result.setdefault(row["status_date"], {"all": None, "staff": {}})
+        entry = {"status": row["status"], "note": row["note"]}
+        if row["scope_type"] == "ALL":
+            bucket["all"] = entry
         else:
-            unassigned_days[order_date] = unassigned_days.get(order_date, 0.0) + amount
-            unassigned_total += amount
-
-    for team_code in TEAM_CODES:
-        columns = [
-            {"staff_code": code, "staff_name": name}
-            for code, name in team_columns_seen[team_code].items()
-        ]
-        columns.sort(key=lambda item: (item["staff_name"], item["staff_code"]))
-        teams[team_code]["columns"] = columns
-
-    return {
-        "month_start": month_start,
-        "month_end_exclusive": month_end,
-        "teams": teams,
-        "unassigned": {"days": unassigned_days, "total": unassigned_total},
-        "ambiguous_staff_codes": sorted(ambiguous_staff_codes),
-    }
+            bucket["staff"][row["staff_code"]] = entry
+    return result
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_day_statuses(year: int, month: int, conn_or_none=None) -> dict:
+    """{date: {"all": {"status","note"} | None, "staff": {staff_code: {"status","note"}}}}
+
+    A date can carry one company-wide (ALL) status and any number of
+    independent per-staff (STAFF) statuses at once -- both are surfaced
+    together, never collapsed into a single value.
+    """
     month_start, month_end = _month_bounds(year, month)
     rows = _fetch_all(
         """
-        select status_date, status, note
+        select status_date, scope_type, staff_code, status, note
         from public.crm_daily_status
         where status_date >= %s and status_date < %s
-        order by status_date
+        order by status_date, scope_type, staff_code
         """,
         [month_start, month_end],
         conn_or_none,
     )
-    return {row["status_date"]: {"status": row["status"], "note": row["note"]} for row in rows}
+    return _build_day_statuses_from_rows(rows)
 
 
 def _normalized_actor_email(value: str | None) -> str | None:
@@ -261,17 +362,48 @@ def _normalized_actor_email(value: str | None) -> str | None:
     return email or None
 
 
+def _normalize_staff_code(value) -> str:
+    text = str(value or "").strip()
+    return _WHITESPACE_RUN_RE.sub(" ", text) if text else ""
+
+
+def _validate_status_scope(status: str, scope_type: str, staff_code) -> tuple[str, str, str]:
+    """Shared validation for save/clear -- returns (status, scope_type, staff_code_or_empty).
+
+    Mirrors the DB CHECK constraint exactly (crm_daily_status_scope_staff_code_chk)
+    so a caller gets the same rejection locally, before ever touching the DB.
+    """
+    normalized_status = str(status or "").strip().upper()
+    if normalized_status not in DAY_STATUS_VALUES:
+        raise ValueError("status must be HOLIDAY or LEAVE")
+
+    normalized_scope = str(scope_type or "").strip().upper()
+    if normalized_scope not in DAY_STATUS_SCOPES:
+        raise ValueError("scope_type must be ALL or STAFF")
+
+    normalized_staff_code = _normalize_staff_code(staff_code)
+    if normalized_scope == "STAFF" and not normalized_staff_code:
+        raise ValueError("staff_code is required when scope_type is STAFF")
+    if normalized_scope == "ALL" and normalized_staff_code:
+        raise ValueError("staff_code must not be set when scope_type is ALL")
+
+    return normalized_status, normalized_scope, normalized_staff_code
+
+
 def save_day_status(
     *,
     status_date: date,
     status: str,
+    scope_type: str,
+    staff_code: str | None = None,
     note: str | None = None,
     actor_email: str | None = None,
     conn_or_none=None,
 ) -> dict:
-    normalized_status = str(status or "").strip().upper()
-    if normalized_status not in DAY_STATUS_VALUES:
-        raise ValueError("status must be HOLIDAY or LEAVE")
+    normalized_status, normalized_scope, normalized_staff_code = _validate_status_scope(
+        status, scope_type, staff_code
+    )
+    staff_code_param = normalized_staff_code or None
     normalized_note = str(note or "").strip() or None
     normalized_actor = _normalized_actor_email(actor_email)
 
@@ -281,17 +413,26 @@ def save_day_status(
                 cur.execute(
                     """
                     insert into public.crm_daily_status (
-                      status_date, status, note, created_by, updated_by
+                      status_date, scope_type, staff_code, status, note, created_by, updated_by
                     )
-                    values (%s, %s, %s, %s, %s)
-                    on conflict (status_date) do update
+                    values (%s, %s, %s, %s, %s, %s, %s)
+                    on conflict (status_date, scope_type, (coalesce(staff_code, '')))
+                    do update
                     set status = excluded.status,
                         note = excluded.note,
                         updated_at = now(),
                         updated_by = excluded.updated_by
-                    returning status_date, status, note
+                    returning status_date, scope_type, staff_code, status, note
                     """,
-                    [status_date, normalized_status, normalized_note, normalized_actor, normalized_actor],
+                    [
+                        status_date,
+                        normalized_scope,
+                        staff_code_param,
+                        normalized_status,
+                        normalized_note,
+                        normalized_actor,
+                        normalized_actor,
+                    ],
                 )
                 result = dict(cur.fetchone())
             conn.commit()
@@ -301,17 +442,44 @@ def save_day_status(
             raise
 
 
-def clear_day_status(*, status_date: date, actor_email: str | None = None, conn_or_none=None) -> dict:
+def clear_day_status(
+    *,
+    status_date: date,
+    scope_type: str,
+    staff_code: str | None = None,
+    actor_email: str | None = None,
+    conn_or_none=None,
+) -> dict:
+    normalized_scope = str(scope_type or "").strip().upper()
+    if normalized_scope not in DAY_STATUS_SCOPES:
+        raise ValueError("scope_type must be ALL or STAFF")
+    normalized_staff_code = _normalize_staff_code(staff_code)
+    if normalized_scope == "STAFF" and not normalized_staff_code:
+        raise ValueError("staff_code is required when scope_type is STAFF")
+    if normalized_scope == "ALL" and normalized_staff_code:
+        raise ValueError("staff_code must not be set when scope_type is ALL")
+    staff_code_param = normalized_staff_code or None
+
     with _connection(conn_or_none) as conn:
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "delete from public.crm_daily_status where status_date = %s",
-                    [status_date],
+                    """
+                    delete from public.crm_daily_status
+                    where status_date = %s
+                      and scope_type = %s
+                      and coalesce(staff_code, '') = coalesce(%s, '')
+                    """,
+                    [status_date, normalized_scope, staff_code_param],
                 )
                 deleted = cur.rowcount
             conn.commit()
-            return {"status_date": status_date, "deleted": bool(deleted)}
+            return {
+                "status_date": status_date,
+                "scope_type": normalized_scope,
+                "staff_code": staff_code_param,
+                "deleted": bool(deleted),
+            }
         except Exception:
             conn.rollback()
             raise
