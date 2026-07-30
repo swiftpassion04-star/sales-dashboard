@@ -196,7 +196,7 @@ assert clauses_1sp == clauses_2sp, "generated SQL clause text must be identical 
 
 # Non-admin/editor path is untouched: still filters by staff_code, not owner.
 clauses_staff, params_staff = crm_dashboard._sales_report_where(staff_user, "anything")
-assert clauses_staff == ["d.import_status = 'valid'", "d.created_at >= %s", "d.created_at < %s", "d.amount is not null",
+assert clauses_staff == ["d.import_status = 'valid'", "d.order_date >= %s", "d.order_date <= %s", "d.amount is not null",
                           "coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')",
                           "d.staff_code = %s"]
 assert params_staff == ["TAEW"]
@@ -840,6 +840,164 @@ admin_clauses, admin_params = crm_dashboard._sales_report_where(admin_user, "พ
 assert "d.staff_code" not in " ".join(admin_clauses), "admin/editor path must not filter by staff_code at all"
 
 print("Permission/data-visibility regression: TAEW/NOONA/JEEB staff_code scoping OK")
+
+
+# ---------------------------------------------------------------------------
+# 22. Dashboard sales report now filters/groups by order_date, not created_at,
+#     so its daily figures agree with the Daily Sales Matrix page. Source-level
+#     coverage first (no remaining created_at date-range usage anywhere).
+# ---------------------------------------------------------------------------
+assert "d.created_at >= %s" not in DASHBOARD_SOURCE
+assert "d.created_at < %s" not in DASHBOARD_SOURCE
+assert "at time zone 'Asia/Bangkok')::date" not in DASHBOARD_SOURCE, (
+    "no remaining Bangkok-shifted created_at date-bucketing -- order_date "
+    "is already a plain date, no timezone conversion needed"
+)
+
+fetch_rows_source = DASHBOARD_SOURCE.split("def _fetch_sales_report_rows", 1)[1].split(
+    "def delete_sales_report_records", 1
+)[0]
+# The rows-level query keeps created_at ONLY for the "sale_time"/ordering
+# display columns -- never reintroduced as a date-range filter.
+assert "min(d.created_at) as created_at" in fetch_rows_source
+assert "to_char(created_at at time zone 'Asia/Bangkok', 'HH24:MI') as sale_time" in fetch_rows_source
+assert "order by created_at asc, first_id asc" in fetch_rows_source
+assert "params = [start_date, end_date, *extra_params, int(limit)]" in fetch_rows_source
+
+fetch_report_source = DASHBOARD_SOURCE.split("def _fetch_sales_report(", 1)[1].split(
+    "def fetch_sales_report_rows(", 1
+)[0]
+assert "params = [start_date, end_date, *extra_params]" in fetch_report_source
+assert "group by d.order_date, coalesce(nullif(d.sale_type, ''), 'NEW_ORDER')" in fetch_report_source
+assert "order by d.order_date asc" in fetch_report_source
+assert "d.order_date as sales_date" in fetch_report_source
+
+print("Dashboard sales report source-level order_date coverage OK")
+
+
+# ---------------------------------------------------------------------------
+# 23. Behavioral regression: a row with order_date=2026-07-30 but
+#     created_at=2026-07-29 must be counted on day 30, never day 29. The fake
+#     cursor below enforces (does not merely assume) that the daily query
+#     text actually groups by order_date, not created_at, before it will
+#     even compute a result -- a regression back to created_at grouping
+#     would fail the query-shape assertion inside execute(), not just the
+#     final day-bucket assertion.
+# ---------------------------------------------------------------------------
+from datetime import date as _date, datetime as _datetime
+
+
+class FakeCursorSalesReportDaily:
+    def __init__(self, fake_rows):
+        self.fake_rows = fake_rows
+        self.last_sql = ""
+        self.last_params = None
+        self._rows = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, params=None):
+        self.last_sql = " ".join(sql.split())
+        self.last_params = params
+        assert "d.created_at" not in self.last_sql, (
+            "daily sales report query must not reference created_at at all -- "
+            "filtering and grouping must be order_date-only"
+        )
+        assert "group by d.order_date" in self.last_sql
+
+        start, end = params[0], params[1]
+        buckets: dict = {}
+        for row in self.fake_rows:
+            if not (start <= row["order_date"] <= end):
+                continue
+            buckets[row["order_date"]] = buckets.get(row["order_date"], 0.0) + row["amount"]
+        self._rows = [
+            {"sales_date": bucket_date, "sale_type": "NEW_ORDER", "sales_amount": amount}
+            for bucket_date, amount in sorted(buckets.items())
+        ]
+
+    def fetchall(self):
+        return self._rows
+
+
+class FakeConnSalesReportDaily:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+fake_rows_order_vs_created = [
+    # order_date says the 30th; created_at (row-insert time) says the 29th.
+    # The daily report must bucket this under the 30th.
+    {"order_date": _date(2026, 7, 30), "created_at": _datetime(2026, 7, 29, 23, 0, 0), "amount": 500.0},
+]
+fake_cursor_daily = FakeCursorSalesReportDaily(fake_rows_order_vs_created)
+
+original_ensure_schema2 = neon.ensure_crm_data_imports_schema
+original_neon_connection2 = neon.neon_connection
+original_crm_sales_report_ready2 = crm_dashboard.crm_sales_report_ready
+original_fetch_rows2 = crm_dashboard.fetch_sales_report_rows
+try:
+    neon.ensure_crm_data_imports_schema = lambda: True
+    neon.neon_connection = lambda: FakeConnSalesReportDaily(fake_cursor_daily)
+    crm_dashboard.crm_sales_report_ready = lambda: True
+    crm_dashboard.fetch_sales_report_rows = lambda *a, **k: []  # rows path covered separately
+    report = crm_dashboard.fetch_sales_report(
+        admin_user, _date(2026, 7, 29), _date(2026, 7, 30), "ทั้งหมด"
+    )
+finally:
+    neon.ensure_crm_data_imports_schema = original_ensure_schema2
+    neon.neon_connection = original_neon_connection2
+    crm_dashboard.crm_sales_report_ready = original_crm_sales_report_ready2
+    crm_dashboard.fetch_sales_report_rows = original_fetch_rows2
+
+assert report["ready"] is True
+daily = report["daily"]
+assert len(daily) == 1, f"expected exactly 1 day bucket, got {daily}"
+assert daily[0]["sales_date"] == _date(2026, 7, 30), (
+    f"a row with order_date=2026-07-30 (created_at=2026-07-29) must be counted "
+    f"on day 30, got {daily[0]['sales_date']}"
+)
+assert daily[0]["sales_amount"] == 500.0
+
+# The bound params must be plain `date` objects, never Bangkok-shifted
+# `datetime`/timestamptz values -- order_date is already a plain date
+# column, so no timezone conversion belongs in the param list at all.
+assert type(fake_cursor_daily.last_params[0]) is _date, (
+    f"expected a plain date param, got {type(fake_cursor_daily.last_params[0])!r}"
+)
+assert fake_cursor_daily.last_params[0] == _date(2026, 7, 29)
+assert fake_cursor_daily.last_params[1] == _date(2026, 7, 30)
+
+print("Dashboard daily sales report buckets by order_date, not created_at: regression test OK")
+
+
+# ---------------------------------------------------------------------------
+# 24. Unrelated logic must remain untouched by the order_date change:
+#     sale_type filter, manual/owner/staff_code scoping, and delete-order
+#     permission logic are all unaffected.
+# ---------------------------------------------------------------------------
+assert "coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')" in DASHBOARD_SOURCE
+assert "from permissions import can_delete_order" in DASHBOARD_SOURCE
+assert "if not can_delete_order(user):" in DASHBOARD_SOURCE
+assert "raise PermissionError(\"User cannot delete sales report records\")" in DASHBOARD_SOURCE
+delete_source = DASHBOARD_SOURCE.split("def _delete_sales_report_records", 1)[1]
+assert "order_date" not in delete_source, "delete logic must remain purely id-based, untouched by the date-basis change"
+assert "d.created_at" not in delete_source
+
+print("Unrelated dashboard logic (sale_type/permissions/delete) unaffected by order_date change OK")
 
 
 print("owner/staff-name whitespace normalization safety OK")
