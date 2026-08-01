@@ -369,10 +369,100 @@ def test_clear_day_status_reports_not_deleted_when_no_row_matched():
 # ---------------------------------------------------------------------------
 
 
-def test_fetch_daily_matrix_uses_order_date_not_created_at():
+def test_fetch_daily_matrix_uses_created_at_bangkok_date_not_order_date():
+    # The order-entry UI has no date picker, so created_at (the real save
+    # moment, converted to Asia/Bangkok) is the only honest sales date --
+    # order_date must never be read as the matrix's date axis.
     matrix_source = function_source(data_source, data_tree, "fetch_daily_matrix")
-    assert "d.order_date" in matrix_source
-    assert "d.created_at" not in matrix_source
+    assert "d.created_at" in matrix_source
+    assert "d.order_date" not in matrix_source
+    assert "at time zone 'Asia/Bangkok')::date" in matrix_source
+    assert "_date_bounds(" in matrix_source
+
+
+def test_fetch_daily_matrix_buckets_by_created_at_bangkok_date_not_order_date():
+    # Behavioral regression, not just source text: a UTC created_at that
+    # crosses midnight into the next Thai day must be bucketed on the THAI
+    # day, and a wildly different order_date on the same row must be
+    # ignored entirely. fetch_daily_matrix is @st.cache_data-decorated --
+    # .__wrapped__ bypasses Streamlit's argument-hashing machinery so a
+    # fake connection can be routed through directly (same trick already
+    # used for fetch_sales_report_owner_options in
+    # tests/test_owner_staff_name_whitespace.py).
+    from datetime import datetime as _datetime, timezone as _timezone
+
+    from crm_data.common import BANGKOK_TZ as _BANGKOK_TZ
+
+    fake_sales_rows = [
+        # UTC 2026-06-30 18:00 = Bangkok 2026-07-01 01:00 -- must land in
+        # July, never June. order_date is a decoy pointing at mid-July.
+        {
+            "staff_code_norm": "GHOST",
+            "created_at": _datetime(2026, 6, 30, 18, 0, 0, tzinfo=_timezone.utc),
+            "order_date": date(2026, 7, 15),
+            "amount": 777.0,
+        },
+    ]
+
+    class FakeCursorFetchDailyMatrix:
+        def __init__(self):
+            self._rows = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql, params):
+            flat_sql = " ".join(sql.split())
+            if "crm_data_imports" in flat_sql:
+                assert "d.order_date" not in flat_sql, "sales query must never reference order_date"
+                assert "d.created_at >= %s" in flat_sql
+                assert "d.created_at < %s" in flat_sql
+                assert "at time zone 'Asia/Bangkok')::date" in flat_sql
+                start_ts, end_ts = params
+                self._rows = [
+                    {
+                        "staff_code_norm": row["staff_code_norm"],
+                        "sales_date": row["created_at"].astimezone(_BANGKOK_TZ).date(),
+                        "day_amount": row["amount"],
+                        "staff_name": None,
+                        "team_code": None,
+                        "is_ambiguous": False,
+                    }
+                    for row in fake_sales_rows
+                    if start_ts <= row["created_at"] < end_ts
+                ]
+            else:
+                self._rows = []  # empty roster -- keeps this test focused on date bucketing
+
+        def fetchall(self):
+            return self._rows
+
+    class FakeConnFetchDailyMatrix:
+        def __init__(self, cursor):
+            self._cursor = cursor
+
+        def cursor(self):
+            return self._cursor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    fake_conn = FakeConnFetchDailyMatrix(FakeCursorFetchDailyMatrix())
+    matrix = daily_matrix.fetch_daily_matrix.__wrapped__(2026, 7, conn_or_none=fake_conn)
+    unassigned = matrix["teams"][daily_matrix.UNASSIGNED_TEAM_CODE]
+
+    assert date(2026, 7, 1) in unassigned["days"], (
+        f"UTC 2026-06-30 18:00 (Bangkok 2026-07-01 01:00) must land on "
+        f"2026-07-01, got days={sorted(unassigned['days'])}"
+    )
+    assert unassigned["days"][date(2026, 7, 1)]["per_staff"]["GHOST"] == 777.0
+    assert date(2026, 7, 15) not in unassigned["days"], "order_date must never be used as the bucket date"
 
 
 def test_fetch_daily_matrix_reuses_team_sales_predicates():
@@ -632,7 +722,7 @@ def test_staff_with_no_team_appear_as_columns_in_unassigned_block():
     sales_rows = [
         {
             "staff_code_norm": "GHOST",
-            "order_date": date(2026, 7, 6),
+            "sales_date": date(2026, 7, 6),
             "day_amount": 500.0,
             "staff_name": "Ghost Person",
             "team_code": None,
@@ -648,9 +738,9 @@ def test_staff_with_no_team_appear_as_columns_in_unassigned_block():
 
 def test_unassigned_daily_and_team_totals_are_correct():
     sales_rows = [
-        {"staff_code_norm": "A", "order_date": date(2026, 7, 6), "day_amount": 100.0, "staff_name": "A Name", "team_code": None, "is_ambiguous": False},
-        {"staff_code_norm": "B", "order_date": date(2026, 7, 6), "day_amount": 250.0, "staff_name": "B Name", "team_code": None, "is_ambiguous": False},
-        {"staff_code_norm": "A", "order_date": date(2026, 7, 7), "day_amount": 50.0, "staff_name": "A Name", "team_code": None, "is_ambiguous": False},
+        {"staff_code_norm": "A", "sales_date": date(2026, 7, 6), "day_amount": 100.0, "staff_name": "A Name", "team_code": None, "is_ambiguous": False},
+        {"staff_code_norm": "B", "sales_date": date(2026, 7, 6), "day_amount": 250.0, "staff_name": "B Name", "team_code": None, "is_ambiguous": False},
+        {"staff_code_norm": "A", "sales_date": date(2026, 7, 7), "day_amount": 50.0, "staff_name": "A Name", "team_code": None, "is_ambiguous": False},
     ]
     matrix = daily_matrix._build_matrix_from_rows([], sales_rows, date(2026, 7, 1), date(2026, 8, 1))
     unassigned = matrix["teams"][daily_matrix.UNASSIGNED_TEAM_CODE]
@@ -672,8 +762,8 @@ def test_team_staff_and_unassigned_staff_never_mix():
         {"team_code": "UPSELL_TEAM", "staff_code_norm": "KO", "staff_name": "สุมนตรา ทัศน์ศรี (โก้)"},
     ]
     sales_rows = [
-        {"staff_code_norm": "KO", "order_date": date(2026, 7, 6), "day_amount": 1000.0, "staff_name": "สุมนตรา ทัศน์ศรี (โก้)", "team_code": "UPSELL_TEAM", "is_ambiguous": False},
-        {"staff_code_norm": "GHOST", "order_date": date(2026, 7, 6), "day_amount": 500.0, "staff_name": None, "team_code": None, "is_ambiguous": False},
+        {"staff_code_norm": "KO", "sales_date": date(2026, 7, 6), "day_amount": 1000.0, "staff_name": "สุมนตรา ทัศน์ศรี (โก้)", "team_code": "UPSELL_TEAM", "is_ambiguous": False},
+        {"staff_code_norm": "GHOST", "sales_date": date(2026, 7, 6), "day_amount": 500.0, "staff_name": None, "team_code": None, "is_ambiguous": False},
     ]
     matrix = daily_matrix._build_matrix_from_rows(roster_rows, sales_rows, date(2026, 7, 1), date(2026, 8, 1))
 
@@ -693,7 +783,7 @@ def test_team_staff_and_unassigned_staff_never_mix():
 
 def test_unassigned_staff_missing_from_roster_still_gets_a_display_name():
     sales_rows = [
-        {"staff_code_norm": "GHOST", "order_date": date(2026, 7, 6), "day_amount": 10.0, "staff_name": None, "team_code": None, "is_ambiguous": False},
+        {"staff_code_norm": "GHOST", "sales_date": date(2026, 7, 6), "day_amount": 10.0, "staff_name": None, "team_code": None, "is_ambiguous": False},
     ]
     matrix = daily_matrix._build_matrix_from_rows([], sales_rows, date(2026, 7, 1), date(2026, 8, 1))
     col = matrix["teams"][daily_matrix.UNASSIGNED_TEAM_CODE]["columns"][0]
@@ -703,8 +793,8 @@ def test_unassigned_staff_missing_from_roster_still_gets_a_display_name():
 
 def test_ambiguous_staff_warning_still_works_with_unassigned_bucket():
     sales_rows = [
-        {"staff_code_norm": "DUP", "order_date": date(2026, 7, 6), "day_amount": 100.0, "staff_name": "Dup Name", "team_code": "CRM_TEAM", "is_ambiguous": True},
-        {"staff_code_norm": "GHOST", "order_date": date(2026, 7, 6), "day_amount": 50.0, "staff_name": None, "team_code": None, "is_ambiguous": False},
+        {"staff_code_norm": "DUP", "sales_date": date(2026, 7, 6), "day_amount": 100.0, "staff_name": "Dup Name", "team_code": "CRM_TEAM", "is_ambiguous": True},
+        {"staff_code_norm": "GHOST", "sales_date": date(2026, 7, 6), "day_amount": 50.0, "staff_name": None, "team_code": None, "is_ambiguous": False},
     ]
     matrix = daily_matrix._build_matrix_from_rows([], sales_rows, date(2026, 7, 1), date(2026, 8, 1))
     assert matrix["ambiguous_staff_codes"] == ["DUP"]
@@ -717,7 +807,7 @@ def test_zero_sales_team_member_and_unassigned_do_not_interact():
         {"team_code": "CRM_TEAM", "staff_code_norm": "ZERO", "staff_name": "Zero Sales Person"},
     ]
     sales_rows = [
-        {"staff_code_norm": "GHOST", "order_date": date(2026, 7, 6), "day_amount": 20.0, "staff_name": "Ghost", "team_code": None, "is_ambiguous": False},
+        {"staff_code_norm": "GHOST", "sales_date": date(2026, 7, 6), "day_amount": 20.0, "staff_name": "Ghost", "team_code": None, "is_ambiguous": False},
     ]
     matrix = daily_matrix._build_matrix_from_rows(roster_rows, sales_rows, date(2026, 7, 1), date(2026, 8, 1))
     crm_codes = {c["staff_code"] for c in matrix["teams"]["CRM_TEAM"]["columns"]}

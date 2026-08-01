@@ -4,6 +4,7 @@ from datetime import date, datetime
 import streamlit as st
 
 from auth_utils import current_user, require_login
+from crm_data.common import BANGKOK_TZ
 from crm_theme import badge, render_page_header
 from nav_utils import render_sidebar_nav
 import neon_utils as neon
@@ -779,7 +780,7 @@ def _render_order_dialog(row: dict, user: dict) -> None:
     address = st.text_area("ที่อยู่", key=f"{prefix}_address", height=90)
     sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW", "⭐NEW_ORDER", "⭐UPSELL"], key=f"{prefix}_sale_type")
     st.text_input("ผู้ดูแล", value=owner, disabled=True, key=f"{prefix}_owner_locked")
-    st.caption(f"วันที่สร้างคำสั่งซื้อ: {date.today().isoformat()}")
+    st.caption(f"วันที่บันทึกคำสั่งซื้อ: {datetime.now(BANGKOK_TZ).date().isoformat()}")
 
     product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
     product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")
@@ -853,7 +854,7 @@ def _render_order_dialog(row: dict, user: dict) -> None:
                     "url": url,
                     "address": address,
                     "sale_type": sale_type,
-                    "order_date": date.today().isoformat(),
+                    "order_date": datetime.now(BANGKOK_TZ).date().isoformat(),
                     "owner": owner,
                     "staff_code": staff_code,
                     "force_owner_update": False,

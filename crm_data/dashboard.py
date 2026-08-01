@@ -2,6 +2,7 @@ from datetime import date
 
 import streamlit as st
 
+from crm_data.team_sales import _date_bounds
 from ui.perf import perf_trace
 
 
@@ -134,8 +135,8 @@ def _sales_report_where(user: dict | None, owner_filter: str) -> tuple[list[str]
 
     clauses = [
         "d.import_status = 'valid'",
-        "d.order_date >= %s",
-        "d.order_date <= %s",
+        "d.created_at >= %s",
+        "d.created_at < %s",
         "d.amount is not null",
         "coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')",
     ]
@@ -213,22 +214,24 @@ def _fetch_sales_report(
     rows = fetch_sales_report_rows(user, start_date, end_date, owner_filter)
     summary = summarize_sales_report_rows(rows)
 
+    start_ts, end_ts = _date_bounds(start_date, end_date)
     clauses, extra_params = _sales_report_where(user, owner_filter)
-    params = [start_date, end_date, *extra_params]
+    params = [start_ts, end_ts, *extra_params]
     where_sql = "where " + " and ".join(clauses)
+    bangkok_date_expr = "(d.created_at at time zone 'Asia/Bangkok')::date"
 
     with neon_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
                 select
-                  d.order_date as sales_date,
+                  {bangkok_date_expr} as sales_date,
                   coalesce(nullif(d.sale_type, ''), 'NEW_ORDER') as sale_type,
                   coalesce(sum(d.amount), 0) as sales_amount
                 from public.crm_data_imports d
                 {where_sql}
-                group by d.order_date, coalesce(nullif(d.sale_type, ''), 'NEW_ORDER')
-                order by d.order_date asc
+                group by {bangkok_date_expr}, coalesce(nullif(d.sale_type, ''), 'NEW_ORDER')
+                order by {bangkok_date_expr} asc
                 """,
                 params,
             )
@@ -269,8 +272,9 @@ def _fetch_sales_report_rows(
     if not crm_sales_report_ready():
         return []
 
+    start_ts, end_ts = _date_bounds(start_date, end_date)
     clauses, extra_params = _sales_report_where(user, owner_filter)
-    params = [start_date, end_date, *extra_params, int(limit)]
+    params = [start_ts, end_ts, *extra_params, int(limit)]
     where_sql = "where " + " and ".join(clauses)
     raw_qty_expr = (
         "case when nullif(d.raw_data->>'qty', '') ~ '^[0-9]+(\\.[0-9]+)?$' "

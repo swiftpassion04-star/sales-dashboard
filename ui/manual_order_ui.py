@@ -1,9 +1,10 @@
-from datetime import date
+from datetime import datetime
 from math import isfinite
 
 import streamlit as st
 
 from app_logging import log_exception, user_error_message
+from crm_data.common import BANGKOK_TZ
 import neon_utils as neon
 from ui.perf import perf_trace
 
@@ -112,8 +113,8 @@ def _render_manual_order_form(user: dict, is_editor: bool) -> None:
             url = st.text_input("URL", key="manual_url")
             address = st.text_area("ที่อยู่", key="manual_address", height=90)
             sale_type = st.selectbox("ประเภทการขาย", ["NEW_ORDER", "UPSELL", "FOLLOW", "⭐NEW_ORDER", "⭐UPSELL"], key="manual_sale_type")
-            order_date = date.today().isoformat()
-            st.caption(f"วันที่สร้างคำสั่งซื้อ: {order_date}")
+            order_date = datetime.now(BANGKOK_TZ).date().isoformat()
+            st.caption(f"วันที่บันทึกคำสั่งซื้อ: {order_date}")
 
             product_heading, product_action = st.columns([3.0, 1.0], vertical_alignment="center")
             product_heading.markdown("#### \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32")

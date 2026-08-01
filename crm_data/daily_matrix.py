@@ -222,7 +222,7 @@ def _build_matrix_from_rows(
 
     for row in sales_rows:
         staff_code = row["staff_code_norm"]
-        order_date = row["order_date"]
+        sales_date = row["sales_date"]
         amount = float(row["day_amount"] or 0)
         team_code = row.get("team_code")
         if row.get("is_ambiguous"):
@@ -233,7 +233,7 @@ def _build_matrix_from_rows(
         # UNASSIGNED_TEAM instead of a flat total -- same per-staff/day
         # shape as a real team, so the sale is never lost and attribution
         # stays auditable. _fetch_team_roster_columns already covers any
-        # team_code active on this order_date for UPSELL_TEAM/CRM_TEAM
+        # team_code active on this sales_date for UPSELL_TEAM/CRM_TEAM
         # (its month-level overlap window is always a superset of any
         # single day in it) -- this setdefault is defensive only for those
         # two, and the sole source of columns for UNASSIGNED_TEAM (there is
@@ -244,7 +244,7 @@ def _build_matrix_from_rows(
             staff_code, row.get("staff_name") or staff_code
         )
         day_bucket = teams[bucket_code]["days"].setdefault(
-            order_date, {"per_staff": {}, "team_total": 0.0}
+            sales_date, {"per_staff": {}, "team_total": 0.0}
         )
         day_bucket["per_staff"][staff_code] = amount
         day_bucket["team_total"] += amount
@@ -273,6 +273,8 @@ def _build_matrix_from_rows(
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
     month_start, month_end = _month_bounds(year, month)
+    last_day = month_end - timedelta(days=1)
+    month_start_ts, month_end_ts = _date_bounds(month_start, last_day)
 
     roster_rows = _fetch_team_roster_columns(month_start, month_end, conn_or_none)
 
@@ -282,11 +284,11 @@ def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
         sales as (
           select
             regexp_replace(trim(coalesce(d.staff_code, '')), '\\s+', ' ', 'g') as staff_code_norm,
-            d.order_date,
+            (d.created_at at time zone 'Asia/Bangkok')::date as sales_date,
             sum(d.amount) as day_amount
           from public.crm_data_imports d
-          where d.order_date >= %s
-            and d.order_date < %s
+          where d.created_at >= %s
+            and d.created_at < %s
             and {_MANUAL_ROW_SQL}
             and d.sale_type in ('NEW_ORDER', 'UPSELL', '⭐NEW_ORDER', '⭐UPSELL')
             and nullif(trim(coalesce(d.staff_code, '')), '') is not null
@@ -294,7 +296,7 @@ def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
         )
         select
           s.staff_code_norm,
-          s.order_date,
+          s.sales_date,
           s.day_amount,
           r.staff_name,
           a.team_code,
@@ -303,12 +305,12 @@ def fetch_daily_matrix(year: int, month: int, conn_or_none=None) -> dict:
         left join roster r on r.staff_code_norm = s.staff_code_norm
         left join public.crm_user_team_assignments a
           on a.user_email = r.email
-         and a.effective_from <= (s.order_date::timestamp at time zone 'Asia/Bangkok')
-         and (a.effective_to is null or a.effective_to > (s.order_date::timestamp at time zone 'Asia/Bangkok'))
+         and a.effective_from <= (s.sales_date::timestamp at time zone 'Asia/Bangkok')
+         and (a.effective_to is null or a.effective_to > (s.sales_date::timestamp at time zone 'Asia/Bangkok'))
         left join ambiguous a2 on a2.staff_code_norm = s.staff_code_norm
-        order by s.order_date, s.staff_code_norm
+        order by s.sales_date, s.staff_code_norm
         """,
-        [month_start, month_end],
+        [month_start_ts, month_end_ts],
         conn_or_none,
     )
 

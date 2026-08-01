@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import streamlit as st
 
+from crm_data.common import BANGKOK_TZ
 import neon_utils as neon
 
 
@@ -583,6 +584,7 @@ dialog_ns = {
     "st": None,
     "date": date,
     "datetime": datetime,
+    "BANGKOK_TZ": BANGKOK_TZ,
     "neon": neon,
     "row_key": lambda _row: "customer_id_42",
     "perf_trace": lambda *_args, **_kwargs: _NoopContext(),
@@ -825,12 +827,37 @@ for required_label in (
     "ที่อยู่",                                                            # ที่อยู่
     "ประเภทการขาย",                              # ประเภทการขาย
     "ผู้ดูแล",                                                            # ผู้ดูแล
-    "วันที่สร้างคำสั่งซื้อ",  # วันที่สร้างคำสั่งซื้อ
+    "วันที่บันทึกคำสั่งซื้อ",  # วันที่บันทึกคำสั่งซื้อ
     "บันทึกคำสั่งซื้อ",       # บันทึกคำสั่งซื้อ
 ):
     assert required_label in manual_source
 
 print("manual order retains required customer/order fields OK")
+
+# ---------------------------------------------------------------------------
+# 6b. Order-entry UI must never gain a date picker for the sale date, and
+#     the displayed/saved order_date must come from datetime.now(BANGKOK_TZ)
+#     -- not date.today(), which is not guaranteed to be Bangkok-local on
+#     the server -- for both the Manual Order dialog and the Follow-up
+#     popup order dialog.
+# ---------------------------------------------------------------------------
+assert "วันที่สร้างคำสั่งซื้อ" not in manual_source, "caption wording must say 'บันทึก', not 'สร้าง'"
+assert "date.today()" not in manual_source
+assert "datetime.now(BANGKOK_TZ).date()" in manual_source
+assert "from crm_data.common import BANGKOK_TZ" in manual_source
+# order_date is a direct datetime.now(...) call, never a widget read (no
+# order/sale-date picker was added).
+assert 'order_date = datetime.now(BANGKOK_TZ).date().isoformat()' in manual_source
+
+order_dialog_date_source = order_dialog_source
+assert "วันที่สร้างคำสั่งซื้อ" not in order_dialog_date_source
+assert "วันที่บันทึกคำสั่งซื้อ" in order_dialog_date_source
+assert "date.today()" not in order_dialog_date_source
+assert "datetime.now(BANGKOK_TZ).date()" in order_dialog_date_source
+assert "from crm_data.common import BANGKOK_TZ" in followup_source
+assert '"order_date": datetime.now(BANGKOK_TZ).date().isoformat()' in order_dialog_date_source
+
+print("manual order + follow-up popup order date: Bangkok-local, no date picker OK")
 
 # ---------------------------------------------------------------------------
 # 7. Session-state safety: validation failure keeps the dialog open with
