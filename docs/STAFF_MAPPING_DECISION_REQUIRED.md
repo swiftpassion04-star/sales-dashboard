@@ -16,34 +16,41 @@
 
 | Issue | Records affected | Current value | Proposed action | Options | Recommended choice | Status |
 |---|---:|---|---|---|---|---|
-| JEEB owner ยังไม่มี email ที่ชัดเจน | 3,087 | owner = `กัญญพักฒ์ อิ่มยวง (เจี๊ยบ)`, staff_code = `เจี๊ยบ` | map เป็น canonical `JEEB` หลังยืนยัน email | 1. ผูกกับ email ที่มีอยู่ 2. สร้าง user ใหม่ 3. คงไว้ก่อน | ให้ผู้บริหารระบุ email ที่ถูกต้องก่อน update | NEED_CONFIRM |
+| JEEB owner ยังไม่มี email ที่ชัดเจน | 3,087 | owner = `กัญญพักฒ์ อิ่มยวง (เจี๊ยบ)`, staff_code = `เจี๊ยบ` | merge เข้า `NOONA` และปิดการใช้งาน `JEEB` | 1. ผูกกับ email ที่มีอยู่ 2. สร้าง user ใหม่ 3. merge เข้า `NOONA` (**เลือก**) | merge ข้อมูลทั้งหมดของ `JEEB` เข้า `staff_code = NOONA` และปิดการใช้งาน `JEEB` ถาวร | **APPROVED (2026-07-23)** |
 | owner/staff_code ว่าง | 730 | owner = NULL/ว่าง, staff_code = NULL/ว่าง | คง `staff_code = NULL` | 1. คง NULL 2. สร้าง bucket UNASSIGNED 3. assign ให้คนใดคนหนึ่ง | คง NULL และแสดงผลว่า “ยังไม่มอบหมาย” | NEED_CONFIRM |
 | หนูนา มี user role แต่ไม่มี owner records | 0 current records | `swiftpassion.com19@gmail.com` / `พรนภา นันที (หนูนา)` | คง user active ถ้ายังเป็นพนักงาน | 1. คง active 2. inactive 3. map กับ owner อื่น | คง active แต่ไม่ map กับข้อมูลใดจนกว่าจะมี owner/import records | PENDING |
 | อุ๊ มี user role แต่ไม่มี owner records | 0 current records | `swiftpassion.com22@gmail.com` / `ศิวพร ถีติปริวัตร (อุ๊)` | คง user active ถ้ายังเป็นพนักงาน | 1. คง active 2. inactive 3. map กับ owner อื่น | คง active แต่ไม่ map กับข้อมูลใดจนกว่าจะมี owner/import records | PENDING |
 | Canonical staff_code หลัก | 17,369 | ใช้ทั้งชื่อเล่นและชื่อเต็มไทย | normalize เป็น code อังกฤษตัวใหญ่ | 1. ใช้ code อังกฤษ 2. ใช้ชื่อเต็มไทย 3. ใช้ชื่อเล่นไทย | ใช้ code อังกฤษตัวใหญ่ถาวร | PENDING |
 
-## ประเด็น JEEB
+## ประเด็น JEEB — APPROVED: Merge เข้า NOONA (2026-07-23)
 
-ข้อมูลที่พบ:
+**สถานะ: อนุมัติแล้ว** ผู้บริหารยืนยันผ่านการตรวจสอบ Owner Mapping (2026-07-23) ว่า:
+
+> "APPROVE ให้ดำเนินการย้ายข้อมูลทั้งหมดจาก staff_code=JEEB ไปเป็น staff_code=NOONA และลบ JEEB ออกจากระบบได้"
+
+ข้อมูลที่พบ (ก่อนอนุมัติ):
 
 - owner: `กัญญพักฒ์ อิ่มยวง (เจี๊ยบ)`
 - records: 3,087
 - current staff_code: `เจี๊ยบ`
-- proposed canonical staff_code: `JEEB`
 - current matching user role: ยังไม่พบ email/user role ที่ match ชัดเจน
 
-สิ่งที่ต้องตัดสินใจ:
+**ขอบเขตที่อนุมัติ:**
 
-1. ผู้บริหารต้องระบุ email ที่ถูกต้องสำหรับ `JEEB`
-2. ถ้ามี user อยู่แล้ว ให้เพิ่ม/แก้ row ใน `crm_user_roles` ให้ใช้:
-   - `staff_code = JEEB`
-   - `staff_name = กัญญพักฒ์ อิ่มยวง (เจี๊ยบ)`
-3. ถ้ายังไม่มี user ให้สร้าง user ใน Supabase Auth ก่อน แล้วเพิ่ม mapping ใน `crm_user_roles`
+1. ย้ายข้อมูลของ `JEEB` ทั้งหมด 3,087 แถว รวมถึงข้อมูลที่เกี่ยวข้องทั้งหมด (`crm_data_imports`, `crm_lead_followups`, `crm_orders`) ให้เป็นของ `staff_code = NOONA`
+2. เปลี่ยน Owner/Staff code/ชื่อผู้ดูแลให้สัมพันธ์กับ `NOONA` ตาม User/Role และ Owner Mapping
+3. ลบหรือปิดการใช้งานบัญชี Login, Staff option, Alias และ Mapping ของ `JEEB` (`crm_user_roles`, `crm_staff_options`) เพื่อไม่ให้เลือกหรือเข้าใช้งานได้อีก
+4. อัปเดต governance docs ทั้งสองไฟล์ให้ตรงกับสถานะใหม่ (เอกสารนี้)
+5. ก่อนแก้ให้สำรองเฉพาะข้อมูลที่ได้รับผลกระทบ (ดูสคริปต์ migration)
+6. ดำเนินการใน Transaction เดียว หากขั้นตอนใดผิดพลาดให้ Rollback ทั้งหมด
+7. ตรวจยอดก่อน–หลัง โดยจำนวนข้อมูลต้องครบ ไม่มีข้อมูลสูญหาย ไม่มี `JEEB` ตกค้าง และ `NOONA` ต้องเห็นข้อมูลที่ย้ายมาครบ
+8. ห้ามกระทบ Staff คนอื่น (SAIFON/TAEW/YING/LEK/CREAM/KO/AU/ผู้ดูแลว่าง)
 
-Recommended choice:
+**สถานะการดำเนินการ (ณ 2026-07-23): DECISION APPROVED — DATA MIGRATION ยังไม่ได้รัน**
 
-- รอผู้บริหารยืนยัน email ก่อน
-- ห้าม normalize records 3,087 แถวนี้จนกว่าจะมี owner ของ login ที่ชัดเจน
+เหตุผล: environment ที่ใช้พัฒนา branch `feature/owner-staff-mapping` ไม่มี `NEON_DATABASE_URL` จึงไม่สามารถเชื่อมต่อฐานข้อมูลจริงเพื่อตรวจยอดก่อน–หลังหรือรัน migration ได้ สคริปต์ migration แบบ transaction-safe พร้อม backup/rollback/verification ถูกจัดเตรียมไว้ที่ `neon/manual_sql/202607_jeeb_to_noona_merge.sql` — **ต้องรันโดยผู้ที่มีสิทธิ์เข้าถึงฐานข้อมูลจริงเท่านั้น หลังตรวจสอบยอดก่อน-หลังตามสคริปต์**
+
+ไฟล์ `neon/manual_sql/202606_staff_code_normalization_plan.sql` เดิมมีการ map JEEB's records ไปเป็น `NOONA` เช่นกัน แต่ผูก `NOONA` เข้ากับ login ของหนูนาในลักษณะที่ขัดแย้งกับเอกสารนี้ (ไม่เคยถูก APPROVE) ไฟล์นั้น **ยังคงห้ามรัน** สำหรับส่วน `AU`/`อุ๊`/blank-730 — ใช้เฉพาะ `neon/manual_sql/202607_jeeb_to_noona_merge.sql` สำหรับการ merge JEEB→NOONA ที่ได้รับอนุมัติแล้วเท่านั้น
 
 ## ประเด็น owner ว่าง
 
@@ -98,7 +105,7 @@ Recommendation:
 | สายฝน ราวิชัย (สายฝน) | `SAIFON` | PENDING |
 | พรณกมล ดวงจันทร์ (แต้ว) | `TAEW` | PENDING |
 | พรธนนันท์ กานต์รพีพร (หญิง) | `YING` | PENDING |
-| กัญญพักฒ์ อิ่มยวง (เจี๊ยบ) | `JEEB` | NEED_CONFIRM |
+| กัญญพักฒ์ อิ่มยวง (เจี๊ยบ) | ~~`JEEB`~~ → merged into `NOONA` | **APPROVED — RETIRED (2026-07-23)** |
 | ธัญญรัตน์ หอมระรื่น (เล็ก) | `LEK` | PENDING |
 | จินดามณี คงมี (ครีม) | `CREAM` | PENDING |
 | สุมนตรา ทัศน์ศรี (โก้) | `KO` | PENDING |
@@ -107,7 +114,7 @@ Recommendation:
 
 | Checklist | Status |
 |---|---|
-| ยืนยัน email ที่ถูกต้องของ `JEEB` | NEED_CONFIRM |
+| ยืนยัน email ที่ถูกต้องของ `JEEB` | N/A — `JEEB` retired, merged into `NOONA` (APPROVED 2026-07-23) |
 | ยืนยันว่า owner ว่าง 730 rows ให้คง NULL | NEED_CONFIRM |
 | ยืนยัน canonical staff_code ทั้งหมด | PENDING |
 | ยืนยัน backup ก่อน update | PENDING |
@@ -139,10 +146,11 @@ DO NOT UPDATE rows WHERE owner IS NULL OR owner = '';
 
 ## Final Decision
 
-ยังไม่พร้อม update จริงจนกว่า:
+`JEEB` → `NOONA` merge: **APPROVED (2026-07-23)** — migration script prepared (`neon/manual_sql/202607_jeeb_to_noona_merge.sql`), execution pending real database access. See "ประเด็น JEEB" section above for full approved scope.
 
-1. `JEEB` มี email ที่ยืนยันแล้ว
-2. owner ว่าง 730 rows ได้รับการยืนยันว่าจะคง NULL
-3. ผู้บริหารอนุมัติ canonical staff_code ทั้งชุด
-4. มี backup และ rollback plan พร้อมใช้งาน
+ส่วนที่เหลือยังไม่พร้อม update จริงจนกว่า:
+
+1. owner ว่าง 730 rows ได้รับการยืนยันว่าจะคง NULL
+2. ผู้บริหารอนุมัติ canonical staff_code ทั้งชุด (SAIFON/TAEW/YING/LEK/CREAM/KO — code-level canonical mapping ถูก implement แล้วใน `staff_identity.py` ตามคำสั่งงาน Owner Mapping 2026-07-23 แต่ยังไม่ได้ flip DB backfill/email-binding checklist ด้านล่างเป็น APPROVED)
+3. มี backup และ rollback plan พร้อมใช้งานสำหรับส่วนที่เหลือ
 

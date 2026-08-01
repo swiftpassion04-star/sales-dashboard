@@ -7,6 +7,7 @@ from auth_utils import current_user, fetch_user_role, require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 import neon_utils as neon
+import staff_identity
 from neon_utils import (
     fetch_crm_owner_options,
     fetch_user_roles,
@@ -82,6 +83,10 @@ def render_create_user(owners: list[str]) -> None:
         if submitted:
             if not clean(email):
                 st.error("กรุณากรอก email")
+                return
+            pairing_error = staff_identity.validate_canonical_pairing(staff_code, staff_name)
+            if pairing_error:
+                st.error(pairing_error)
                 return
             upsert_user_role(
                 {
@@ -160,6 +165,10 @@ def render_user_row(row: dict, owners: list[str], can_manage: bool) -> None:
         if saved:
             if not clean(next_email):
                 st.error("กรุณากรอก email")
+                return
+            pairing_error = staff_identity.validate_canonical_pairing(staff_code, staff_name)
+            if pairing_error:
+                st.error(pairing_error)
                 return
             upsert_user_role(
                 {
