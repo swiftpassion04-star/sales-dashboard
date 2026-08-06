@@ -12,7 +12,7 @@ from neon_utils import (
     FOLLOWUP_PRIORITY_OPTIONS,
     fetch_followup_filter_options,
     fetch_followup_page,
-    fetch_existing_owner_rows_by_phones,
+    fetch_current_owner_row_by_phones,
     fetch_order_product_options,
     normalize_followup_priority,
     upsert_lead_followup,
@@ -831,7 +831,7 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         return
 
     if not can_manage_all(user):
-        owner_conflict = find_popup_order_owner_conflict(phone1, phone2, user, staff_code)
+        owner_conflict = find_popup_order_owner_conflict(phone1, phone2, user, owner, staff_code)
         if owner_conflict:
             conflict_owner = clean(owner_conflict.get("owner")) or clean(owner_conflict.get("staff_code")) or "-"
             st.error(f"มีผู้ดูแลแล้ว: {conflict_owner}")
@@ -905,22 +905,28 @@ def _render_order_dialog(row: dict, user: dict) -> None:
         st.rerun()
 
 
-def find_popup_order_owner_conflict(phone1: str, phone2: str, user: dict, staff_code: str) -> dict:
-    rows = fetch_existing_owner_rows_by_phones(phone1, phone2)
-    if not rows:
+def find_popup_order_owner_conflict(phone1: str, phone2: str, user: dict, owner: str, staff_code: str) -> dict:
+    row = fetch_current_owner_row_by_phones(phone1, phone2)
+    if not row:
         return {}
 
+    current_owner = normalize_compare_text(owner)
     allowed_codes = {
         clean(value).casefold()
         for value in [staff_code, (user or {}).get("staff_code")]
         if clean(value)
     }
-    for row in rows:
-        existing_code = clean(row.get("staff_code")).casefold()
-        if existing_code and existing_code in allowed_codes:
-            continue
-        return dict(row)
-    return {}
+    existing_code = clean(row.get("staff_code")).casefold()
+    if existing_code and existing_code in allowed_codes:
+        return {}
+    existing_owner = normalize_compare_text(row.get("owner"))
+    if current_owner and existing_owner and existing_owner == current_owner:
+        return {}
+    return dict(row)
+
+
+def normalize_compare_text(value) -> str:
+    return " ".join(clean(value).split()).casefold()
 
 
 def render_popup_customer_summary(row: dict) -> None:
