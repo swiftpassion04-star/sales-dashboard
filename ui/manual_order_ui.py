@@ -274,8 +274,8 @@ def should_check_manual_owner_conflict(user: dict) -> bool:
 
 
 def find_manual_order_owner_conflict(phone1: str, phone2: str, user: dict, owner: str, staff_code: str) -> dict:
-    rows = neon.fetch_existing_owner_rows_by_phones(phone1, phone2)
-    if not rows:
+    row = neon.fetch_current_owner_row_by_phones(phone1, phone2)
+    if not row:
         return {}
 
     current_owner = _normalize_owner_name(owner)
@@ -284,15 +284,13 @@ def find_manual_order_owner_conflict(phone1: str, phone2: str, user: dict, owner
         for value in [staff_code, user.get("staff_code")]
         if normalize_staff_code(neon.clean(value))
     }
-    for row in rows:
-        existing_code = normalize_staff_code(neon.clean(row.get("staff_code"))).casefold()
-        if existing_code and existing_code in allowed_codes:
-            continue
-        existing_owner = _normalize_owner_name(row.get("owner"))
-        if current_owner and existing_owner and existing_owner == current_owner:
-            continue
-        return dict(row)
-    return {}
+    existing_code = normalize_staff_code(neon.clean(row.get("staff_code"))).casefold()
+    if existing_code and existing_code in allowed_codes:
+        return {}
+    existing_owner = _normalize_owner_name(row.get("owner"))
+    if current_owner and existing_owner and existing_owner == current_owner:
+        return {}
+    return dict(row)
 
 
 def _normalize_owner_name(value: object) -> str:

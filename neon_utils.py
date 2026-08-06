@@ -818,6 +818,11 @@ def fetch_existing_owner_rows_by_phones(phone1, phone2, limit: int = 20) -> list
             return cur.fetchall()
 
 
+def fetch_current_owner_row_by_phones(phone1, phone2) -> dict | None:
+    rows = fetch_existing_owner_rows_by_phones(phone1, phone2, limit=1)
+    return dict(rows[0]) if rows else None
+
+
 def fetch_current_user_team_code(user_email: str) -> str | None:
     email = clean(user_email).lower()
     if not email:
@@ -906,18 +911,22 @@ def find_duplicate_valid_order_by_phones(
                 from public.crm_data_imports
                 where import_status = 'valid'
                   and (phone1 = any(%s) or phone2 = any(%s))
-                order by order_date desc nulls last, updated_at desc nulls last, uploaded_at desc, id desc
+                  and (
+                    nullif(trim(coalesce(owner, '')), '') is not null
+                    or nullif(trim(coalesce(staff_code, '')), '') is not null
+                  )
+                order by updated_at desc nulls last, uploaded_at desc nulls last, id desc
                 limit 50
                 """,
                 [phones, phones, phones, phones],
             )
             rows = [dict(row) for row in cur.fetchall()]
-            if owner or staff_code:
-                for row in rows:
-                    if not _is_same_order_owner(row, owner, staff_code):
-                        return row
+            current_owner_row = rows[0] if rows else None
+            if not current_owner_row:
                 return None
-            return rows[0] if rows else None
+            if owner or staff_code:
+                return None if _is_same_order_owner(current_owner_row, owner, staff_code) else current_owner_row
+            return current_owner_row
 
 
 def check_crm_team_duplicate_phone_lock(

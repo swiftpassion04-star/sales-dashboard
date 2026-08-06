@@ -124,9 +124,10 @@ finally:
 
 
 class FakeCursor:
-    def __init__(self):
+    def __init__(self, rows=None):
         self.statement = ""
         self.params = []
+        self.rows = rows or [same_owner_duplicate_row(), duplicate_row()]
 
     def __enter__(self):
         return self
@@ -142,12 +143,12 @@ class FakeCursor:
         return duplicate_row()
 
     def fetchall(self):
-        return [same_owner_duplicate_row(), duplicate_row()]
+        return self.rows
 
 
 class FakeConnection:
-    def __init__(self):
-        self.cursor_instance = FakeCursor()
+    def __init__(self, rows=None):
+        self.cursor_instance = FakeCursor(rows)
 
     def cursor(self):
         return self.cursor_instance
@@ -163,6 +164,11 @@ def fake_neon_connection():
     yield fake_connection
 
 
+@contextmanager
+def fake_neon_connection_for(connection):
+    yield connection
+
+
 try:
     neon.ensure_crm_data_imports_schema = lambda: None
     neon.neon_connection = fake_neon_connection
@@ -176,14 +182,31 @@ finally:
     neon.neon_connection = original_connection
     neon.ensure_crm_data_imports_schema = original_ensure_schema
 
-assert duplicate["matched_phone"] == "0812345678"
+assert duplicate is None
 assert "phone1 = any(%s) or phone2 = any(%s)" in fake_connection.cursor_instance.statement
+assert "order by updated_at desc nulls last, uploaded_at desc nulls last, id desc" in fake_connection.cursor_instance.statement
 assert fake_connection.cursor_instance.params == [
     ["0812345678", "0912345678"],
     ["0812345678", "0912345678"],
     ["0812345678", "0912345678"],
     ["0812345678", "0912345678"],
 ]
+
+current_conflict_connection = FakeConnection([duplicate_row(), same_owner_duplicate_row()])
+try:
+    neon.ensure_crm_data_imports_schema = lambda: None
+    neon.neon_connection = lambda: fake_neon_connection_for(current_conflict_connection)
+    current_conflict = neon.find_duplicate_valid_order_by_phones(
+        "0812345678",
+        "0912345678",
+        "CRM Owner",
+        "CRM01",
+    )
+finally:
+    neon.neon_connection = original_connection
+    neon.ensure_crm_data_imports_schema = original_ensure_schema
+
+assert current_conflict["matched_phone"] == "0812345678"
 
 
 source = Path("neon_utils.py").read_text(encoding="utf-8")

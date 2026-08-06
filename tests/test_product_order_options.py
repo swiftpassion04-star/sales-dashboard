@@ -221,6 +221,7 @@ assert neon._is_same_order_owner({"owner": "", "staff_code": "UP99"}, "Same Staf
 
 original_fetch_current_user_team_code = neon.fetch_current_user_team_code
 original_fetch_existing_owner_rows = neon.fetch_existing_owner_rows_by_phones
+original_fetch_current_owner_row = neon.fetch_current_owner_row_by_phones
 try:
     neon.fetch_current_user_team_code = lambda email: "UPSELL"
     assert manual_ui.should_check_manual_owner_conflict({"email": "upsell@example.com"}) is False
@@ -234,21 +235,7 @@ try:
     neon.fetch_current_user_team_code = raise_team_lookup
     assert manual_ui.should_check_manual_owner_conflict({"email": "unknown@example.com"}) is True
 
-    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
-        {"owner": "Same Staff", "staff_code": "UP14"},
-        {"owner": "Other Staff", "staff_code": "UP16"},
-    ]
-    assert manual_ui.find_manual_order_owner_conflict(
-        "0934137771",
-        "",
-        {"staff_code": "UP14"},
-        "Same Staff",
-        "UP14",
-    ) == {"owner": "Other Staff", "staff_code": "UP16"}
-
-    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
-        {"owner": "Same Staff", "staff_code": "UP14"},
-    ]
+    neon.fetch_current_owner_row_by_phones = lambda phone1, phone2: {"owner": "Same Staff", "staff_code": "UP14"}
     assert manual_ui.find_manual_order_owner_conflict(
         "0934137771",
         "",
@@ -257,9 +244,16 @@ try:
         "UP14",
     ) == {}
 
-    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
-        {"owner": " Same   Staff ", "staff_code": ""},
-    ]
+    neon.fetch_current_owner_row_by_phones = lambda phone1, phone2: {"owner": "Same Staff", "staff_code": "UP14"}
+    assert manual_ui.find_manual_order_owner_conflict(
+        "0934137771",
+        "",
+        {"staff_code": "UP14"},
+        "Same Staff",
+        "UP14",
+    ) == {}
+
+    neon.fetch_current_owner_row_by_phones = lambda phone1, phone2: {"owner": " Same   Staff ", "staff_code": ""}
     assert manual_ui.find_manual_order_owner_conflict(
         "0934137771",
         "",
@@ -268,9 +262,7 @@ try:
         "UP14",
     ) == {}
 
-    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
-        {"owner": "Same Staff", "staff_code": "UP99"},
-    ]
+    neon.fetch_current_owner_row_by_phones = lambda phone1, phone2: {"owner": "Same Staff", "staff_code": "UP99"}
     assert manual_ui.find_manual_order_owner_conflict(
         "0934137771",
         "",
@@ -279,9 +271,7 @@ try:
         "UP14",
     ) == {}
 
-    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
-        {"owner": "Other Staff", "staff_code": "UP99"},
-    ]
+    neon.fetch_current_owner_row_by_phones = lambda phone1, phone2: {"owner": "Other Staff", "staff_code": "UP99"}
     assert manual_ui.find_manual_order_owner_conflict(
         "0934137771",
         "",
@@ -290,9 +280,7 @@ try:
         "UP14",
     ) == {"owner": "Other Staff", "staff_code": "UP99"}
 
-    neon.fetch_existing_owner_rows_by_phones = lambda phone1, phone2: [
-        {"owner": "", "staff_code": "UP99"},
-    ]
+    neon.fetch_current_owner_row_by_phones = lambda phone1, phone2: {"owner": "", "staff_code": "UP99"}
     assert manual_ui.find_manual_order_owner_conflict(
         "0934137771",
         "",
@@ -303,6 +291,7 @@ try:
 finally:
     neon.fetch_current_user_team_code = original_fetch_current_user_team_code
     neon.fetch_existing_owner_rows_by_phones = original_fetch_existing_owner_rows
+    neon.fetch_current_owner_row_by_phones = original_fetch_current_owner_row
 
 manual_source = Path("ui/manual_order_ui.py").read_text(encoding="utf-8")
 followup_source = Path("pages/followup.py").read_text(encoding="utf-8")
@@ -462,6 +451,8 @@ assert '"image_url": image_url' in followup_source
 assert "def build_popup_followup_payload(row: dict, user: dict, prefix: str)" in followup_source
 assert "def popup_followup_row_for_saved_order(row: dict, order_result: dict, items: list[dict] | None = None) -> dict:" in followup_source
 assert "def serialize_popup_followup_date(value)" in followup_source
+assert "find_popup_order_owner_conflict(phone1, phone2, user, owner, staff_code)" in order_dialog_source
+assert "fetch_current_owner_row_by_phones(phone1, phone2)" in followup_source
 assert "followup_row = popup_followup_row_for_saved_order(row, result, st.session_state.get(f\"{prefix}_items\") or [])" in order_dialog_source
 assert "followup_payload, followup_update_errors = build_popup_followup_payload(followup_row, user, prefix)" in order_dialog_source
 assert "upsert_lead_followup(followup_payload)" in order_dialog_source
