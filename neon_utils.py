@@ -37,7 +37,8 @@ FOLLOWUP_PRIORITY_OPTIONS = (
     "Premium",
     "Economy",
     "NEW",
-    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
+    "Upsell",
+    "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
     "Dismiss",
 )
 DEFAULT_FOLLOWUP_PRIORITY = "NEW"
@@ -50,6 +51,7 @@ LEGACY_FOLLOWUP_PRIORITY_MAP = {
     "\u0e1b\u0e01\u0e15\u0e34": "NEW",
     "low": "Economy",
     "\u0e15\u0e48\u0e33": "Economy",
+    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
 }
 FOLLOWUP_PRIORITY_FILTER_ALIASES = {
     "Super VIP": ("Super VIP", "urgent", "\u0e14\u0e48\u0e27\u0e19\u0e21\u0e32\u0e01"),
@@ -57,7 +59,11 @@ FOLLOWUP_PRIORITY_FILTER_ALIASES = {
     "Premium": ("Premium",),
     "Economy": ("Economy", "low", "\u0e15\u0e48\u0e33"),
     "NEW": ("NEW", "normal", "\u0e1b\u0e01\u0e15\u0e34"),
-    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": ("Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",),
+    "Upsell": ("Upsell",),
+    "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": (
+        "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
+        "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
+    ),
     "Dismiss": ("Dismiss",),
 }
 
@@ -2582,7 +2588,8 @@ PRIORITY_PRECEDENCE = {
     "VIP": 4,
     "Premium": 3,
     "Economy": 2,
-    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": 2,
+    "Upsell": 2,
+    "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": 2,
     "NEW": 1,
 }
 
@@ -3501,6 +3508,8 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                     when 'Economy' then 3
                     when 'low' then 3
                     when 'เธ•เนเธณ' then 3
+                    when 'Upsell' then 2
+                    when '\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30' then 2
                     when 'Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30' then 2
                     when 'NEW' then 2
                     when 'normal' then 2

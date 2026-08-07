@@ -435,7 +435,8 @@ assert neon.FOLLOWUP_PRIORITY_OPTIONS == (
     "Premium",
     "Economy",
     "NEW",
-    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
+    "Upsell",
+    "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
     "Dismiss",
 )
 

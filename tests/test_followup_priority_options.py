@@ -6,8 +6,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import neon_utils as neon
 
 
-UPSELL_TRANSFER_PRIORITY = "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30"
-EXPECTED_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", UPSELL_TRANSFER_PRIORITY, "Dismiss"]
+TRANSFER_PRIORITY = "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30"
+LEGACY_UPSELL_TRANSFER_PRIORITY = "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30"
+EXPECTED_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", "Upsell", TRANSFER_PRIORITY, "Dismiss"]
 LEGACY_VALUES = ["urgent", "high", "normal", "low", "\u0e14\u0e48\u0e27\u0e19\u0e21\u0e32\u0e01", "\u0e2a\u0e39\u0e07", "\u0e1b\u0e01\u0e15\u0e34", "\u0e15\u0e48\u0e33"]
 
 
@@ -29,6 +30,7 @@ assert neon.normalize_followup_priority("\u0e15\u0e48\u0e33") == "Economy"
 for priority in EXPECTED_PRIORITIES:
     assert neon.normalize_followup_priority(priority) == priority
 
+assert neon.normalize_followup_priority(LEGACY_UPSELL_TRANSFER_PRIORITY) == TRANSFER_PRIORITY
 assert neon.normalize_followup_priority(None) == "NEW"
 assert neon.normalize_followup_priority("") == "NEW"
 assert neon.normalize_followup_priority("unknown") == "NEW"
@@ -42,7 +44,11 @@ assert set(neon.followup_priority_filter_values("Super VIP")) == {
     "\u0e14\u0e48\u0e27\u0e19\u0e21\u0e32\u0e01",
 }
 assert set(neon.followup_priority_filter_values("NEW")) == {"NEW", "normal", "\u0e1b\u0e01\u0e15\u0e34"}
-assert neon.followup_priority_filter_values(UPSELL_TRANSFER_PRIORITY) == [UPSELL_TRANSFER_PRIORITY]
+assert neon.followup_priority_filter_values("Upsell") == ["Upsell"]
+assert set(neon.followup_priority_filter_values(TRANSFER_PRIORITY)) == {
+    TRANSFER_PRIORITY,
+    LEGACY_UPSELL_TRANSFER_PRIORITY,
+}
 
 root = Path(__file__).resolve().parents[1]
 followup_page = (root / "pages" / "followup.py").read_text(encoding="utf-8", errors="replace")

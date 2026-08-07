@@ -5,10 +5,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FOLLOWUP_SOURCE = (ROOT / "pages" / "followup.py").read_text(encoding="utf-8", errors="replace")
 NEON_SOURCE = (ROOT / "neon_utils.py").read_text(encoding="utf-8", errors="replace")
 
-UPSELL_TRANSFER_PRIORITY = "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30"
-UPSELL_TRANSFER_PRIORITY_SOURCE = "Upsell \\u0e42\\u0e2d\\u0e19\\u0e0a\\u0e33\\u0e23\\u0e30"
-EXPECTED_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", UPSELL_TRANSFER_PRIORITY, "Dismiss"]
-EXPECTED_SOURCE_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", UPSELL_TRANSFER_PRIORITY_SOURCE, "Dismiss"]
+TRANSFER_PRIORITY = "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30"
+TRANSFER_PRIORITY_SOURCE = "\\u0e42\\u0e2d\\u0e19\\u0e0a\\u0e33\\u0e23\\u0e30"
+EXPECTED_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", "Upsell", TRANSFER_PRIORITY, "Dismiss"]
+EXPECTED_SOURCE_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", "Upsell", TRANSFER_PRIORITY_SOURCE, "Dismiss"]
 LEGACY_PRIORITIES = ["urgent", "high", "normal", "low", "ด่วนมาก", "สูง", "ปกติ", "ต่ำ"]
 
 
