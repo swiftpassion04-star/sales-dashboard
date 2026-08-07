@@ -5,7 +5,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FOLLOWUP_SOURCE = (ROOT / "pages" / "followup.py").read_text(encoding="utf-8", errors="replace")
 NEON_SOURCE = (ROOT / "neon_utils.py").read_text(encoding="utf-8", errors="replace")
 
-EXPECTED_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", "Dismiss"]
+UPSELL_TRANSFER_PRIORITY = "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30"
+UPSELL_TRANSFER_PRIORITY_SOURCE = "Upsell \\u0e42\\u0e2d\\u0e19\\u0e0a\\u0e33\\u0e23\\u0e30"
+EXPECTED_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", UPSELL_TRANSFER_PRIORITY, "Dismiss"]
+EXPECTED_SOURCE_PRIORITIES = ["Super VIP", "VIP", "Premium", "Economy", "NEW", UPSELL_TRANSFER_PRIORITY_SOURCE, "Dismiss"]
 LEGACY_PRIORITIES = ["urgent", "high", "normal", "low", "ด่วนมาก", "สูง", "ปกติ", "ต่ำ"]
 
 
@@ -16,7 +19,7 @@ assert "def set_followup_priority_filter_from_tab(priority: str) -> None:" in FO
 assert 'st.session_state["followup_filter_priority"] = normalize_followup_priority(priority)' in FOLLOWUP_SOURCE
 assert "st.session_state.followup_page_v2 = 1" in FOLLOWUP_SOURCE
 
-for priority in EXPECTED_PRIORITIES:
+for priority in EXPECTED_SOURCE_PRIORITIES:
     assert priority in NEON_SOURCE
     assert priority in FOLLOWUP_SOURCE
 

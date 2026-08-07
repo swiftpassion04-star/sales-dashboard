@@ -34,10 +34,6 @@ LEAD_STATUS_OPTIONS = {
 FOLLOWUP_STATUS_OPTIONS = {
     "none": "ยังไม่ตั้งติดตาม",
     "scheduled": "นัดติดตาม",
-    "round_1": "ติดตามรอบ 1",
-    "round_2": "ติดตามรอบ 2",
-    "round_3": "ติดตามรอบ 3",
-    "round_4": "ติดตามรอบ 4",
     "done": "ติดตามแล้ว",
     "missed": "เลยกำหนด",
 }
@@ -350,6 +346,7 @@ def priority_badge(value: str) -> str:
         "Premium": "blue",
         "Economy": "gray",
         "NEW": "yellow",
+        "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": "green",
         "Dismiss": "gray",
     }
     return badge(priority_label(priority), tones.get(priority, "gray"))
@@ -360,7 +357,10 @@ def lead_label(value: str) -> str:
 
 
 def followup_label(value: str) -> str:
-    return FOLLOWUP_STATUS_OPTIONS.get(value, value)
+    text = clean(value)
+    if text.startswith("round_") and text.removeprefix("round_") in {"1", "2", "3", "4"}:
+        return FOLLOWUP_STATUS_OPTIONS["scheduled"]
+    return FOLLOWUP_STATUS_OPTIONS.get(text, text)
 
 
 def priority_label(value: str) -> str:

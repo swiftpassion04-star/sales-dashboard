@@ -42,10 +42,6 @@ LEAD_STATUS_OPTIONS = {
 FOLLOWUP_STATUS_OPTIONS = {
     "none": "ยังไม่ตั้งติดตาม",
     "scheduled": "นัดติดตาม",
-    "round_1": "ติดตามรอบ 1",
-    "round_2": "ติดตามรอบ 2",
-    "round_3": "ติดตามรอบ 3",
-    "round_4": "ติดตามรอบ 4",
     "done": "ติดตามแล้ว",
     "missed": "เลยกำหนด",
 }
@@ -477,7 +473,11 @@ def prepare_followup_form_state(key: str, row: dict) -> None:
     draft = st.session_state.setdefault("followup_drafts_v2", {}).get(key, {})
     defaults = {
         f"followup_lead_status_{key}": draft.get("lead_status", clean(row.get("lead_status")) or "new"),
-        f"followup_status_{key}": draft.get("followup_status", clean(row.get("followup_status")) or "none"),
+        f"followup_status_{key}": followup_option_or_default(
+            draft.get("followup_status", clean(row.get("followup_status"))),
+            FOLLOWUP_STATUS_OPTIONS,
+            "scheduled" if clean(row.get("followup_status")).startswith("round_") else "none",
+        ),
         f"followup_priority_{key}": normalize_followup_priority(draft.get("priority", clean(row.get("priority")))),
         f"followup_next_date_{key}": draft.get("next_followup_date", parse_date(row.get("next_followup_date"))),
         f"followup_clear_date_{key}": draft.get("clear_date", False),
@@ -496,6 +496,7 @@ def priority_badge(value: str) -> str:
         "Premium": "blue",
         "Economy": "gray",
         "NEW": "yellow",
+        "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": "green",
         "Dismiss": "gray",
     }
     return badge(priority_label(priority), tones.get(priority, "gray"))
@@ -506,7 +507,12 @@ def lead_label(value: str) -> str:
 
 
 def followup_label(value: str) -> str:
-    return ALL if value == ALL else FOLLOWUP_STATUS_OPTIONS.get(value, value)
+    text = clean(value)
+    if text == ALL:
+        return ALL
+    if text.startswith("round_") and text.removeprefix("round_") in {"1", "2", "3", "4"}:
+        return FOLLOWUP_STATUS_OPTIONS["scheduled"]
+    return FOLLOWUP_STATUS_OPTIONS.get(text, text)
 
 
 def priority_label(value: str) -> str:
