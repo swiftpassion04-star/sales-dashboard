@@ -408,6 +408,11 @@ assert "upsert_manual_order_items(" in followup_source
 assert "result = upsert_manual_order_items(" in followup_source
 assert "items," in followup_source
 assert "def followup_option_or_default(value: str, options: dict, default: str) -> str:" in followup_source
+prepare_followup_state_source = followup_source.split("def prepare_followup_form_state", 1)[1].split(
+    "def priority_badge",
+    1,
+)[0]
+assert "followup_option_or_default(" in prepare_followup_state_source
 assert "st.session_state[f\"{prefix}_lead_status\"]" in followup_source
 assert "st.session_state[f\"{prefix}_followup_status\"]" in followup_source
 assert "st.session_state[f\"{prefix}_priority\"]" in followup_source
@@ -424,7 +429,15 @@ assert "key=f\"{prefix}_followup_status\"" in followup_source
 assert "key=f\"{prefix}_priority\"" in followup_source
 assert "date_input(" in followup_source
 assert "key=f\"{prefix}_next_followup_date\"" in followup_source
-assert neon.FOLLOWUP_PRIORITY_OPTIONS == ("Super VIP", "VIP", "Premium", "Economy", "NEW", "Dismiss")
+assert neon.FOLLOWUP_PRIORITY_OPTIONS == (
+    "Super VIP",
+    "VIP",
+    "Premium",
+    "Economy",
+    "NEW",
+    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
+    "Dismiss",
+)
 
 order_dialog_source = followup_source.split("def _render_order_dialog", 1)[1].split(
     "def find_popup_order_owner_conflict",

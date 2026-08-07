@@ -31,7 +31,15 @@ from crm_data.products import (
     upsert_product_options,
 )
 
-FOLLOWUP_PRIORITY_OPTIONS = ("Super VIP", "VIP", "Premium", "Economy", "NEW", "Dismiss")
+FOLLOWUP_PRIORITY_OPTIONS = (
+    "Super VIP",
+    "VIP",
+    "Premium",
+    "Economy",
+    "NEW",
+    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",
+    "Dismiss",
+)
 DEFAULT_FOLLOWUP_PRIORITY = "NEW"
 LEGACY_FOLLOWUP_PRIORITY_MAP = {
     "urgent": "Super VIP",
@@ -49,6 +57,7 @@ FOLLOWUP_PRIORITY_FILTER_ALIASES = {
     "Premium": ("Premium",),
     "Economy": ("Economy", "low", "\u0e15\u0e48\u0e33"),
     "NEW": ("NEW", "normal", "\u0e1b\u0e01\u0e15\u0e34"),
+    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": ("Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30",),
     "Dismiss": ("Dismiss",),
 }
 
@@ -2568,7 +2577,14 @@ def update_customer_phones(
             raise
 
 
-PRIORITY_PRECEDENCE = {"Super VIP": 5, "VIP": 4, "Premium": 3, "Economy": 2, "NEW": 1}
+PRIORITY_PRECEDENCE = {
+    "Super VIP": 5,
+    "VIP": 4,
+    "Premium": 3,
+    "Economy": 2,
+    "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": 2,
+    "NEW": 1,
+}
 
 
 def _merge_priority(rows: list[dict]) -> str:
@@ -3485,6 +3501,7 @@ def fetch_followup_page(filters: dict[str, str], user: dict, page_size: int, pag
                     when 'Economy' then 3
                     when 'low' then 3
                     when 'เธ•เนเธณ' then 3
+                    when 'Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30' then 2
                     when 'NEW' then 2
                     when 'normal' then 2
                     when 'เธเธเธ•เธด' then 2
