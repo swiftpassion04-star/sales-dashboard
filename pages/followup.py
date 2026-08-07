@@ -496,7 +496,8 @@ def priority_badge(value: str) -> str:
         "Premium": "blue",
         "Economy": "gray",
         "NEW": "yellow",
-        "Upsell \u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": "green",
+        "Upsell": "blue",
+        "\u0e42\u0e2d\u0e19\u0e0a\u0e33\u0e23\u0e30": "green",
         "Dismiss": "gray",
     }
     return badge(priority_label(priority), tones.get(priority, "gray"))
