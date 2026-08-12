@@ -43,14 +43,14 @@ def inject_daily_matrix_design() -> None:
 }}
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {{
   .stApp:has(.{_MARKER}) .crm-shell-header {{
-    background:linear-gradient(135deg,rgba(232,85,42,.99),rgba(244,116,66,.98));
+    background:linear-gradient(135deg,rgba(255,80,0,.99),rgba(255,110,45,.98));
   }}
 }}
 @media (max-width: 768px) {{
   .stApp:has(.{_MARKER}) .crm-shell-header {{
     backdrop-filter:none;
     -webkit-backdrop-filter:none;
-    background:linear-gradient(135deg,rgba(232,85,42,.98),rgba(244,116,66,.97));
+    background:linear-gradient(135deg,rgba(255,80,0,.98),rgba(255,110,45,.97));
     border-radius:var(--crm-radius);
     padding:16px 18px;
   }}

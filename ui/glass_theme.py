@@ -116,7 +116,7 @@ def inject_liquid_glass(page_marker: str) -> None:
 /* ---- fallback: no backdrop-filter support ---- */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {{
   .stApp:has(.{marker}) .crm-shell-header {{
-    background:linear-gradient(135deg,rgba(232,85,42,.99),rgba(244,116,66,.98));
+    background:linear-gradient(135deg,rgba(255,80,0,.99),rgba(255,110,45,.98));
   }}
   .stApp:has(.{marker}) .crm-card,
   .stApp:has(.{marker}) .crm-detail-card,
@@ -130,7 +130,7 @@ def inject_liquid_glass(page_marker: str) -> None:
   .stApp:has(.{marker}) .crm-shell-header {{
     backdrop-filter:none;
     -webkit-backdrop-filter:none;
-    background:linear-gradient(135deg,rgba(232,85,42,.98),rgba(244,116,66,.97));
+    background:linear-gradient(135deg,rgba(255,80,0,.98),rgba(255,110,45,.97));
     border-radius:var(--crm-radius);
     padding:16px 18px;
   }}
