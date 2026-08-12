@@ -23,9 +23,9 @@ def inject_daily_matrix_design() -> None:
   width:100%;
   max-width:100%;
   overflow-x:auto;
-  border:1px solid rgba(249,115,22,.18);
+  border:1px solid rgba(255,122,26,.18);
   border-radius:14px;
-  box-shadow:0 12px 30px rgba(15,23,42,.06);
+  box-shadow:0 12px 30px rgba(120,70,20,.10);
 }}
 .stApp:has(.{_MARKER}) .dm-table {{
   width:100%;
@@ -33,20 +33,20 @@ def inject_daily_matrix_design() -> None:
   border-spacing:0;
   font-size:12px;
   line-height:1.35;
-  color:#0F172A;
+  color:#1F160F;
 }}
 .stApp:has(.{_MARKER}) .dm-table th,
 .stApp:has(.{_MARKER}) .dm-table td {{
   padding:6px 7px;
-  border-bottom:1px solid rgba(249,115,22,.12);
-  border-right:1px solid rgba(249,115,22,.08);
+  border-bottom:1px solid rgba(255,122,26,.12);
+  border-right:1px solid rgba(255,122,26,.08);
   white-space:nowrap;
   text-align:center;
   font-variant-numeric:tabular-nums;
 }}
 .stApp:has(.{_MARKER}) .dm-table thead th {{
   font-weight:750;
-  color:#7C2D12;
+  color:#8A3D05;
   font-size:11px;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-col-staff {{
@@ -55,16 +55,16 @@ def inject_daily_matrix_design() -> None:
   text-overflow:ellipsis;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-group-upsell {{
-  background:#DBEAFE;
-  color:#1E3A8A;
+  background:#FFE0BF;
+  color:#8A3D05;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-group-crm {{
-  background:#EDE9FE;
-  color:#5B21B6;
+  background:#FFEEDC;
+  color:#9A5A22;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-group-unassigned {{
-  background:#F1F5F9;
-  color:#475569;
+  background:#F6EEE8;
+  color:#7B5C44;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-col-date {{
   text-align:left;
@@ -73,46 +73,52 @@ def inject_daily_matrix_design() -> None:
 .stApp:has(.{_MARKER}) .dm-table .dm-cell-normal {{
   background:rgba(255,255,255,.9);
 }}
+/* Threshold tiers. The palette is orange-only, so tiers are separated by
+   INTENSITY rather than hue: normal (white) < yellow (pale) < green (mid)
+   < blue (deep). The class names still read "yellow"/"blue"/"green"
+   because they come straight from classify_*_cell_tone() in
+   crm_data/daily_matrix.py, whose return values are asserted in
+   tests/test_daily_matrix.py -- renaming them would be a logic change. */
 .stApp:has(.{_MARKER}) .dm-table .dm-cell-yellow {{
-  background:#FFF3CC;
+  background:#FFEBC7;
   color:#8A5A00;
   font-weight:650;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-cell-blue {{
-  background:#D6EAFF;
-  color:#0B5394;
-  font-weight:650;
+  background:#FFB870;
+  color:#6B2800;
+  font-weight:750;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-cell-green {{
-  background:#E9F8EF;
-  color:#166534;
+  background:#FFD4A3;
+  color:#7A3405;
   font-weight:650;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-col-total {{
   font-weight:750;
-  background:rgba(249,115,22,.06);
+  background:rgba(255,122,26,.06);
 }}
 .stApp:has(.{_MARKER}) .dm-table tr.dm-row-holiday td {{
-  background:#FDE4E4 !important;
-  color:#B91C1C !important;
+  background:#FBDCD2 !important;
+  color:#A32D0C !important;
 }}
 .stApp:has(.{_MARKER}) .dm-table td.dm-cell-personal-off {{
-  background:#FDE4E4 !important;
-  color:#B91C1C !important;
+  background:#FBDCD2 !important;
+  color:#A32D0C !important;
   font-weight:650;
   cursor:help;
 }}
 .stApp:has(.{_MARKER}) .dm-table tfoot td {{
   font-weight:750;
   background:#FFF0DF;
-  border-top:2px solid rgba(249,115,22,.25);
+  border-top:2px solid rgba(255,122,26,.25);
 }}
 .stApp:has(.{_MARKER}) .dm-legend {{
   display:flex;
   flex-wrap:wrap;
   gap:14px;
   font-size:12px;
-  color:#64748B;
+  color:#6B5545;
   margin:6px 0 12px 0;
 }}
 .stApp:has(.{_MARKER}) .dm-legend-swatch {{

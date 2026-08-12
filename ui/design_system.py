@@ -12,13 +12,13 @@ def inject_crm_design_system() -> None:
   --crm-surface-glass:rgba(255,255,255,.58);
   --crm-surface-glass-strong:rgba(255,255,255,.76);
   --crm-surface-card:#FFF9F2;
-  --crm-primary:#F97316;
-  --crm-primary-hover:#EA580C;
-  --crm-primary-soft:rgba(249,115,22,.12);
-  --crm-primary-border:rgba(249,115,22,.28);
-  --crm-text-main:#0F172A;
-  --crm-text-muted:#64748B;
-  --crm-text-soft:#94A3B8;
+  --crm-primary:#FF7A1A;
+  --crm-primary-hover:#E85D04;
+  --crm-primary-soft:rgba(255,122,26,.12);
+  --crm-primary-border:rgba(255,122,26,.28);
+  --crm-text-main:#1F160F;
+  --crm-text-muted:#6B5545;
+  --crm-text-soft:#8A7462;
   --crm-border-soft:rgba(251,146,60,.20);
   --crm-border-glass:rgba(255,255,255,.65);
   --crm-warning-bg:rgba(254,249,195,.78);
@@ -33,13 +33,13 @@ def inject_crm_design_system() -> None:
   --crm-table-row-odd:rgba(255,255,255,.94);
   --crm-table-row-even:rgba(255,247,237,.82);
   --crm-table-row-hover:#FFE8CF;
-  --crm-table-grid:rgba(249,115,22,.12);
+  --crm-table-grid:rgba(255,122,26,.12);
   --crm-radius-sm:12px;
   --crm-radius-md:16px;
   --crm-radius-lg:22px;
   --crm-radius-xl:28px;
   --crm-radius-pill:999px;
-  --crm-shadow-glass:0 22px 54px rgba(15,23,42,.09),0 3px 12px rgba(249,115,22,.07);
+  --crm-shadow-glass:0 22px 54px rgba(120,70,20,.09),0 3px 12px rgba(255,122,26,.07);
   --crm-shadow-neu:10px 10px 24px rgba(213,177,136,.28),-10px -10px 24px rgba(255,255,255,.92),inset 1px 1px 0 rgba(255,255,255,.9);
   --crm-shadow-neu-soft:7px 7px 17px rgba(213,177,136,.23),-7px -7px 17px rgba(255,255,255,.88),inset 1px 1px 0 rgba(255,255,255,.82);
   --crm-shadow-neu-hover:12px 12px 28px rgba(213,177,136,.28),-10px -10px 24px rgba(255,255,255,.94),inset 1px 1px 0 rgba(255,255,255,.9);
@@ -115,7 +115,7 @@ def inject_crm_design_system() -> None:
   background:rgba(255,255,255,.46);
   border:1px solid var(--crm-border-soft);
   border-radius:var(--crm-radius-lg);
-  box-shadow:0 10px 28px rgba(15,23,42,.06);
+  box-shadow:0 10px 28px rgba(120,70,20,.06);
   overflow:hidden;
 }
 .crm-warning-glass {
@@ -247,7 +247,7 @@ def inject_crm_design_system() -> None:
   overflow:hidden;
   border:1px solid var(--crm-table-grid);
   border-radius:var(--crm-radius-md);
-  box-shadow:0 12px 30px rgba(15,23,42,.065);
+  box-shadow:0 12px 30px rgba(120,70,20,.065);
   background:rgba(255,255,255,.76);
 }
 .stApp:has(.crm-team-sales-page-marker) .crm-top-products-table {
@@ -281,7 +281,7 @@ def inject_crm_design_system() -> None:
   font-size:11px;
   font-weight:750;
   padding:11px 6px;
-  border-bottom:1px solid rgba(249,115,22,.2);
+  border-bottom:1px solid rgba(255,122,26,.2);
   white-space:nowrap;
 }
 .stApp:has(.crm-team-sales-page-marker) .crm-top-products-table td {

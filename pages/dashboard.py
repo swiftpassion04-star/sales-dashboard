@@ -16,6 +16,7 @@ from neon_utils import (
     fetch_sales_report_rows,
 )
 from permissions import can_delete_order
+from ui.glass_theme import inject_liquid_glass
 from ui.perf import perf_trace
 
 
@@ -36,6 +37,7 @@ def _render_dashboard_page() -> None:
     render_sidebar_nav()
     require_login()
     user = current_user() or {}
+    inject_liquid_glass("crm-dashboard-glass")
     render_page_header("Dashboard", "ภาพรวมงาน CRM รายวันสำหรับทีม Telesales")
 
 
