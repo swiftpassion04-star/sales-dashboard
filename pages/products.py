@@ -16,7 +16,7 @@ from crm_data.products import (
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from permissions import can_edit_products
-from ui.pagination import render_pagination
+from ui.pagination import get_pagination_state, render_pagination
 
 
 st.set_page_config(page_title="สินค้า", layout="wide")
@@ -45,6 +45,7 @@ PRODUCT_DELETE_READINESS_SELECTION_KEY = "product_master_delete_readiness_select
 PRODUCT_ARCHIVE_CONFIRM_KEY = "product_master_archive_confirm"
 PRODUCT_ARCHIVE_REASON_KEY = "product_master_archive_reason"
 PRODUCT_RESTORE_CONFIRM_KEY = "product_master_restore_confirm"
+PRODUCT_PAGE_SIZE_OPTIONS = (PRODUCT_PAGE_SIZE, 50, 100, 250, 500)
 
 
 def clear_product_master_caches() -> None:
@@ -163,12 +164,15 @@ def main() -> None:
         key="product_master_search",
         on_change=reset_product_page,
     )
-    page = max(int(st.session_state.get("product_master_page", 1)), 1)
+    page_size, page = get_pagination_state(
+        key_prefix="product_master",
+        page_size_options=PRODUCT_PAGE_SIZE_OPTIONS,
+    )
     rows, total = fetch_product_page(
         status_filter=PRODUCT_STATUS_OPTIONS[status_label],
         sort_mode=PRODUCT_SORT_OPTIONS[sort_label],
         page=page,
-        page_size=PRODUCT_PAGE_SIZE,
+        page_size=page_size,
         search=query,
     )
 
@@ -181,14 +185,15 @@ def main() -> None:
 
     _, page = render_pagination(
         total_rows=total,
-        page_size=PRODUCT_PAGE_SIZE,
+        page_size=page_size,
         current_page=page,
         key_prefix="product_master",
-        page_size_options=[PRODUCT_PAGE_SIZE],
+        page_size_options=PRODUCT_PAGE_SIZE_OPTIONS,
     )
     sync_product_selection_context(
         (
             page,
+            page_size,
             PRODUCT_STATUS_OPTIONS[status_label],
             PRODUCT_SORT_OPTIONS[sort_label],
             clean(query).casefold(),

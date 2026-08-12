@@ -605,6 +605,11 @@ assert "fetch_product_page," in products_page_source
 assert "neon.fetch_product_options," in products_page_source
 assert "neon.fetch_order_product_options," in products_page_source
 assert products_page_source.count("clear_product_master_caches()") >= 5
+assert "PRODUCT_PAGE_SIZE_OPTIONS = (PRODUCT_PAGE_SIZE, 50, 100, 250, 500)" in products_page_source
+assert "get_pagination_state(" in products_page_source
+assert "page_size_options=PRODUCT_PAGE_SIZE_OPTIONS" in products_page_source
+assert "page_size=page_size" in products_page_source
+assert "page_size_options=[PRODUCT_PAGE_SIZE]" not in products_page_source
 assert "dashboard_auto_refresh" in dashboard_source
 assert 'value=False,\n        key="dashboard_auto_refresh"' in dashboard_source
 assert "dashboard_manual_refresh" in dashboard_source
