@@ -8,6 +8,7 @@ from permissions import can_add_manual_order, can_import_excel
 from ui.customer_export_ui import render_customer_export_panel
 from ui.import_excel_ui import render_excel_import, render_import_history
 from ui.manual_order_ui import render_manual_order_entry
+from ui.glass_theme import inject_liquid_glass
 
 
 st.set_page_config(page_title="Import Excel", layout="wide")
@@ -15,6 +16,7 @@ st.set_page_config(page_title="Import Excel", layout="wide")
 
 def main() -> None:
     render_sidebar_nav()
+    inject_liquid_glass("crm-import-excel-glass")
     auth_user = require_login()
     user = current_user() or auth_user
     is_editor = can_import_excel(user)

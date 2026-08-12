@@ -20,6 +20,7 @@ from neon_utils import (
     upsert_lead_followup,
 )
 from permissions import can_manage_all
+from ui.glass_theme import inject_liquid_glass
 
 
 LEAD_STATUS_OPTIONS = {
@@ -45,6 +46,7 @@ st.set_page_config(page_title="Customer 360", layout="wide")
 
 def main() -> None:
     render_sidebar_nav()
+    inject_liquid_glass("crm-customer-detail-glass")
     require_login()
     user = current_user() or {}
     customer_id = get_customer_id()

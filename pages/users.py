@@ -15,6 +15,7 @@ from neon_utils import (
     upsert_user_role,
 )
 from permissions import can_edit_users
+from ui.glass_theme import inject_liquid_glass
 
 
 ROLE_OPTIONS = ["EDITOR", "ADMIN", "พนักงาน", "TELESELL", "STAFF", "USER", "ทั่วไป"]
@@ -33,6 +34,7 @@ def clear_user_role_caches() -> None:
 
 def main() -> None:
     render_sidebar_nav()
+    inject_liquid_glass("crm-users-glass")
     auth_user = require_login()
     user = current_user() or auth_user or {}
     can_manage = can_edit_users(user)

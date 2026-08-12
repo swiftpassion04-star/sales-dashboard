@@ -132,7 +132,6 @@ def inject_crm_design_system() -> None:
 .stApp:has(.crm-team-sales-page-marker) .block-container {
   max-width:1480px;
 }
-.stApp:has(.crm-team-sales-page-marker) .crm-shell-header,
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_filter_panel,
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_summary_panel,
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_top_products,
@@ -144,16 +143,30 @@ def inject_crm_design_system() -> None:
   backdrop-filter:blur(22px) saturate(118%);
   -webkit-backdrop-filter:blur(22px) saturate(118%);
 }
+/* Header is the page's single strong-orange focal element, matching the
+   pages that use ui/glass_theme.py. It is pulled out of the light-glass
+   group above rather than layered on top of it, so this page still has
+   only one blur layer per element -- ui.glass_theme is deliberately NOT
+   injected here to avoid stacking a second scoped stylesheet. */
 .stApp:has(.crm-team-sales-page-marker) .crm-shell-header {
+  background:var(--crm-glass-hero);
+  border:1px solid var(--crm-glass-hero-border);
+  border-radius:var(--crm-radius-xl);
+  box-shadow:var(--crm-glass-hero-shadow);
+  backdrop-filter:var(--crm-glass-blur);
+  -webkit-backdrop-filter:var(--crm-glass-blur);
   padding:var(--crm-space-lg);
   margin-bottom:var(--crm-space-lg);
 }
-.stApp:has(.crm-team-sales-page-marker) .crm-title {
-  color:var(--crm-text-main) !important;
+.stApp:has(.crm-team-sales-page-marker) .crm-shell-header .crm-title {
+  color:var(--crm-on-orange) !important;
   font-size:30px !important;
   letter-spacing:0 !important;
 }
-.stApp:has(.crm-team-sales-page-marker) .crm-subtitle,
+.stApp:has(.crm-team-sales-page-marker) .crm-shell-header .crm-eyebrow,
+.stApp:has(.crm-team-sales-page-marker) .crm-shell-header .crm-subtitle {
+  color:var(--crm-on-orange-soft) !important;
+}
 .stApp:has(.crm-team-sales-page-marker) [data-testid="stCaptionContainer"] {
   color:var(--crm-text-muted) !important;
 }

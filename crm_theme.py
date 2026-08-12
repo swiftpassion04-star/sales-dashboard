@@ -42,8 +42,21 @@ def inject_saas_theme() -> None:
   --crm-glass-blur-soft:blur(14px) saturate(140%);
   --crm-glass-shadow:0 20px 40px rgba(120,70,20,.14),0 2px 8px rgba(120,70,20,.10),inset 0 1px 1px rgba(255,255,255,.7);
   --crm-glass-shadow-hover:0 26px 52px rgba(120,70,20,.20),0 4px 12px rgba(232,93,4,.16),inset 0 1px 1px rgba(255,255,255,.8);
-  --crm-glass-active:linear-gradient(135deg,rgba(255,122,26,.95),rgba(255,170,80,.82));
+  /* Deep enough that #FFFFFF label text clears WCAG AA (4.5:1) once the
+     translucent layer composites over the cream page background. The
+     lighter orange this replaced measured only 1.7-2.5:1 -- vivid, but
+     the label was effectively unreadable. */
+  --crm-glass-active:linear-gradient(135deg,rgba(180,60,0,.96),rgba(196,68,0,.95));
   --crm-glass-active-glow:0 0 32px rgba(255,122,26,.45),0 0 80px rgba(255,122,26,.20),inset 0 1px 1px rgba(255,255,255,.5);
+  /* Strong orange glass -- reserved for ONE focal element per page (the
+     page header). Anything rendered on top of it must use --crm-on-orange*
+     for text, and a primary button inside it must drop to light glass so
+     we never stack deep orange on deep orange. */
+  --crm-glass-hero:linear-gradient(135deg,rgba(150,48,0,.96),rgba(180,60,0,.94));
+  --crm-glass-hero-border:rgba(255,255,255,.38);
+  --crm-glass-hero-shadow:0 22px 46px rgba(120,70,20,.24),0 3px 10px rgba(120,70,20,.14),inset 0 1px 1px rgba(255,255,255,.42);
+  --crm-on-orange:#FFFFFF;
+  --crm-on-orange-soft:#FFF1E0;
   --crm-radius-glass:28px;
   --crm-ease-glass:cubic-bezier(.4,0,.2,1);
 }

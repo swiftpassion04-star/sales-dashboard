@@ -3,6 +3,7 @@ import streamlit as st
 from auth_utils import can_view_system_page, require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
+from ui.glass_theme import inject_liquid_glass
 
 
 st.set_page_config(page_title="Settings", layout="wide")
@@ -10,6 +11,7 @@ st.set_page_config(page_title="Settings", layout="wide")
 
 def main() -> None:
     render_sidebar_nav()
+    inject_liquid_glass("crm-settings-glass")
     auth_user = require_login()
     if not can_view_system_page(auth_user):
         st.warning("หน้านี้เป็นระบบหลังบ้าน เฉพาะ EDITOR เท่านั้น")

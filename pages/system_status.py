@@ -4,6 +4,7 @@ from app_revision import REVISION_SOURCE_UNAVAILABLE, resolve_app_revision
 from auth_utils import can_view_system_page, require_login
 from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
+from ui.glass_theme import inject_liquid_glass
 
 
 st.set_page_config(page_title="System Status", layout="wide")
@@ -38,6 +39,7 @@ def _render_app_revision_section() -> None:
 
 def main() -> None:
     render_sidebar_nav()
+    inject_liquid_glass("crm-system-status-glass")
     auth_user = require_login()
     if not can_view_system_page(auth_user):
         st.warning("หน้านี้เป็นระบบหลังบ้าน เฉพาะ EDITOR เท่านั้น")

@@ -19,6 +19,42 @@ def inject_daily_matrix_design() -> None:
 .crm-page-shell.{_MARKER} {{
   display:none;
 }}
+/* Header matches the strong-orange focal element used by the pages that
+   inject ui/glass_theme.py. That module is deliberately NOT injected on
+   this page: it would add a second scoped stylesheet and, more
+   importantly, put a blur layer around a very large scrolling table.
+   Only the header is blurred here; .dm-table-wrap below stays unblurred. */
+.stApp:has(.{_MARKER}) .crm-shell-header {{
+  background:var(--crm-glass-hero);
+  border:1px solid var(--crm-glass-hero-border);
+  border-radius:var(--crm-radius-glass);
+  box-shadow:var(--crm-glass-hero-shadow);
+  backdrop-filter:var(--crm-glass-blur);
+  -webkit-backdrop-filter:var(--crm-glass-blur);
+  padding:24px 28px;
+  margin-bottom:24px;
+}}
+.stApp:has(.{_MARKER}) .crm-shell-header .crm-title {{
+  color:var(--crm-on-orange) !important;
+}}
+.stApp:has(.{_MARKER}) .crm-shell-header .crm-eyebrow,
+.stApp:has(.{_MARKER}) .crm-shell-header .crm-subtitle {{
+  color:var(--crm-on-orange-soft) !important;
+}}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {{
+  .stApp:has(.{_MARKER}) .crm-shell-header {{
+    background:linear-gradient(135deg,rgba(150,48,0,.99),rgba(180,60,0,.98));
+  }}
+}}
+@media (max-width: 768px) {{
+  .stApp:has(.{_MARKER}) .crm-shell-header {{
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    background:linear-gradient(135deg,rgba(150,48,0,.98),rgba(180,60,0,.97));
+    border-radius:var(--crm-radius);
+    padding:16px 18px;
+  }}
+}}
 .stApp:has(.{_MARKER}) .dm-table-wrap {{
   width:100%;
   max-width:100%;

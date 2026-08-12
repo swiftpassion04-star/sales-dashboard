@@ -23,6 +23,7 @@ from permissions import can_manage_all, can_view_followup, can_view_followup_own
 from ui.manual_order_ui import parse_price_input, parse_required_price_input
 from ui.pagination import get_pagination_state, render_pagination
 from ui.perf import perf_trace
+from ui.glass_theme import inject_liquid_glass
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
@@ -74,6 +75,7 @@ def main() -> None:
 
 def _render_followup_page() -> None:
     render_sidebar_nav()
+    inject_liquid_glass("crm-followup-glass")
     inject_followup_dialog_css()
     require_login()
     user = current_user() or {}
