@@ -42,21 +42,23 @@ def inject_saas_theme() -> None:
   --crm-glass-blur-soft:blur(14px) saturate(140%);
   --crm-glass-shadow:0 20px 40px rgba(120,70,20,.14),0 2px 8px rgba(120,70,20,.10),inset 0 1px 1px rgba(255,255,255,.7);
   --crm-glass-shadow-hover:0 26px 52px rgba(120,70,20,.20),0 4px 12px rgba(232,93,4,.16),inset 0 1px 1px rgba(255,255,255,.8);
-  /* Deep enough that #FFFFFF label text clears WCAG AA (4.5:1) once the
-     translucent layer composites over the cream page background. The
-     lighter orange this replaced measured only 1.7-2.5:1 -- vivid, but
-     the label was effectively unreadable. */
-  --crm-glass-active:linear-gradient(135deg,rgba(180,60,0,.96),rgba(196,68,0,.95));
-  --crm-glass-active-glow:0 0 32px rgba(255,122,26,.45),0 0 80px rgba(255,122,26,.20),inset 0 1px 1px rgba(255,255,255,.5);
+  /* Pantone 16-1460 TCX "Dragon Fire" (sRGB approx #E8552A), the requested
+     accent. White label text only reaches ~3.5:1 on it, so text sitting on
+     orange is DARK (--crm-on-orange*) rather than white -- that measures
+     ~5:1 and clears WCAG AA. The gradient lightens toward the corner, so
+     Dragon Fire itself is the worst-case contrast point. */
+  --crm-glass-active:linear-gradient(135deg,rgba(232,85,42,.96),rgba(244,116,66,.93));
+  --crm-glass-active-glow:0 0 32px rgba(232,85,42,.42),0 0 80px rgba(232,85,42,.18),inset 0 1px 1px rgba(255,255,255,.5);
   /* Strong orange glass -- reserved for ONE focal element per page (the
      page header). Anything rendered on top of it must use --crm-on-orange*
      for text, and a primary button inside it must drop to light glass so
      we never stack deep orange on deep orange. */
-  --crm-glass-hero:linear-gradient(135deg,rgba(150,48,0,.96),rgba(180,60,0,.94));
-  --crm-glass-hero-border:rgba(255,255,255,.38);
-  --crm-glass-hero-shadow:0 22px 46px rgba(120,70,20,.24),0 3px 10px rgba(120,70,20,.14),inset 0 1px 1px rgba(255,255,255,.42);
-  --crm-on-orange:#FFFFFF;
-  --crm-on-orange-soft:#FFF1E0;
+  --crm-glass-hero:linear-gradient(135deg,rgba(232,85,42,.96),rgba(244,116,66,.93));
+  --crm-glass-hero-border:rgba(255,255,255,.46);
+  --crm-glass-hero-shadow:0 22px 46px rgba(150,60,25,.26),0 3px 10px rgba(150,60,25,.16),inset 0 1px 1px rgba(255,255,255,.5);
+  /* Text that sits ON the orange. Dark, not white -- see --crm-glass-active. */
+  --crm-on-orange:#1F160F;
+  --crm-on-orange-soft:#241A12;
   --crm-radius-glass:28px;
   --crm-ease-glass:cubic-bezier(.4,0,.2,1);
 }
@@ -319,15 +321,15 @@ div.stDownloadButton > button:hover {
 button[kind="formSubmit"],
 .stButton > button[kind="primary"] {
   background:var(--crm-glass-active) !important;
-  color:#FFFFFF !important;
-  border-color:rgba(255,122,26,.62) !important;
+  color:var(--crm-on-orange) !important;
+  border-color:rgba(232,85,42,.62) !important;
   box-shadow:var(--crm-glass-active-glow) !important;
 }
 button[kind="formSubmit"]:hover,
 .stButton > button[kind="primary"]:hover {
-  background:linear-gradient(135deg,var(--crm-primary-hover),rgba(255,150,60,.92)) !important;
-  color:#FFF8F0 !important;
-  border-color:var(--crm-primary-hover) !important;
+  background:linear-gradient(135deg,rgba(244,116,66,.96),rgba(250,140,95,.94)) !important;
+  color:var(--crm-on-orange) !important;
+  border-color:rgba(232,85,42,.72) !important;
   transform:translateY(-2px) !important;
 }
 [data-testid="stExpander"] details,
