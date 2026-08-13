@@ -109,10 +109,15 @@ def inject_daily_matrix_design() -> None:
 .stApp:has(.{_MARKER}) .dm-table .dm-cell-normal {{
   background:rgba(255,255,255,.9);
 }}
-/* Threshold tiers. The palette is orange-only, so tiers are separated by
-   INTENSITY rather than hue: normal (white) < yellow (pale) < green (mid)
-   < blue (deep). The class names still read "yellow"/"blue"/"green"
-   because they come straight from classify_*_cell_tone() in
+/* Threshold tiers. These deliberately break the page's orange-only palette:
+   the tiers encode DIFFERENT MEANINGS (upsell stretch target vs "team hit
+   its goal"), so they need distinct hues, not shades of one colour --
+   intensity alone was not readable as three separate states.
+     yellow = UPSELL per-person over 3,000
+     blue   = UPSELL per-person over 4,500
+     green  = target reached (CRM per-person over 11,000, UPSELL team total
+              over 11,000, CRM team total over 40,000)
+   Class names come straight from classify_*_cell_tone() in
    crm_data/daily_matrix.py, whose return values are asserted in
    tests/test_daily_matrix.py -- renaming them would be a logic change. */
 .stApp:has(.{_MARKER}) .dm-table .dm-cell-yellow {{
@@ -121,18 +126,31 @@ def inject_daily_matrix_design() -> None:
   font-weight:650;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-cell-blue {{
-  background:#FFB870;
-  color:#6B2800;
+  background:#D6EAFF;
+  color:#0B4C87;
   font-weight:750;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-cell-green {{
-  background:#FFD4A3;
-  color:#7A3405;
+  background:#DFF5E7;
+  color:#14663B;
   font-weight:650;
 }}
 .stApp:has(.{_MARKER}) .dm-table .dm-col-total {{
   font-weight:750;
   background:rgba(255,122,26,.06);
+}}
+/* A total cell carries BOTH .dm-col-total and its tone class. These two
+   rules have equal specificity, so without this the later .dm-col-total
+   background silently painted over the tone and the "team hit its goal"
+   highlight never appeared. Combining both classes raises specificity so
+   the tone wins regardless of source order. */
+.stApp:has(.{_MARKER}) .dm-table .dm-col-total.dm-cell-green {{
+  background:#DFF5E7;
+  color:#14663B;
+}}
+.stApp:has(.{_MARKER}) .dm-table .dm-col-total.dm-cell-blue {{
+  background:#D6EAFF;
+  color:#0B4C87;
 }}
 .stApp:has(.{_MARKER}) .dm-table tr.dm-row-holiday td {{
   background:#FBDCD2 !important;

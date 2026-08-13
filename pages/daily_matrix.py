@@ -32,8 +32,9 @@ _THAI_WEEKDAYS = ["จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส.", "อา."]
 _LEGEND_HTML = """
 <div class="dm-legend">
   <span><span class="dm-legend-swatch" style="background:#FFEBC7;"></span>UPSELL รายบุคคล เกิน 3,000 บาท</span>
-  <span><span class="dm-legend-swatch" style="background:#FFB870;"></span>UPSELL รายบุคคล เกิน 4,500 บาท</span>
-  <span><span class="dm-legend-swatch" style="background:#FFD4A3;"></span>CRM รายบุคคล เกิน 11,000 บาท / ยอดรวมทีมถึงเป้า</span>
+  <span><span class="dm-legend-swatch" style="background:#D6EAFF;"></span>UPSELL รายบุคคล เกิน 4,500 บาท</span>
+  <span><span class="dm-legend-swatch" style="background:#DFF5E7;"></span>CRM รายบุคคล เกิน 11,000 บาท</span>
+  <span><span class="dm-legend-swatch" style="background:#DFF5E7;"></span>ยอดรวมทีมถึงเป้า (UPSELL 11,000 / CRM 40,000)</span>
   <span><span class="dm-legend-swatch" style="background:#FBDCD2;"></span>วันหยุด / วันลา (ทุกคน หรือ รายคน)</span>
 </div>
 """
