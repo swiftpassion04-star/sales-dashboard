@@ -42,20 +42,29 @@ def inject_saas_theme() -> None:
   --crm-glass-blur-soft:blur(14px) saturate(140%);
   --crm-glass-shadow:0 20px 40px rgba(120,70,20,.14),0 2px 8px rgba(120,70,20,.10),inset 0 1px 1px rgba(255,255,255,.7);
   --crm-glass-shadow-hover:0 26px 52px rgba(120,70,20,.20),0 4px 12px rgba(255,80,0,.16),inset 0 1px 1px rgba(255,255,255,.8);
-  /* Brand orange #FF5000. White label text only reaches ~3.5:1 on it, so text sitting on
-     orange is DARK (--crm-on-orange*) rather than white -- that measures
-     ~5:1 and clears WCAG AA. The gradient lightens toward the corner, so
-     #FF5000 itself is the worst-case contrast point. */
-  --crm-glass-active:linear-gradient(135deg,rgba(255,80,0,.96),rgba(255,110,45,.93));
-  --crm-glass-active-glow:0 0 32px rgba(255,80,0,.42),0 0 80px rgba(255,80,0,.18),inset 0 1px 1px rgba(255,255,255,.5);
-  /* Strong orange glass -- reserved for ONE focal element per page (the
-     page header). Anything rendered on top of it must use --crm-on-orange*
-     for text, and a primary button inside it must drop to light glass so
-     we never stack deep orange on deep orange. */
-  --crm-glass-hero:linear-gradient(135deg,rgba(255,80,0,.96),rgba(255,110,45,.93));
-  --crm-glass-hero-border:rgba(255,255,255,.46);
-  --crm-glass-hero-shadow:0 22px 46px rgba(160,50,0,.26),0 3px 10px rgba(160,50,0,.16),inset 0 1px 1px rgba(255,255,255,.5);
-  /* Text that sits ON the orange. Dark, not white -- see --crm-glass-active. */
+  /* ---- orange liquid glass -------------------------------------------
+     A translucent pane, NOT a flat #FF5000 fill: the white stop is light
+     catching the top edge, the amber mid-stop is the body of the glass,
+     and the brand core #FF5000 shows through at the base. #FF5000 itself
+     stays available as --crm-primary for borders and accents.
+     Composited over the cream page this lands light, so text on it is
+     DARK (--crm-on-orange) at 7.4-16.6:1. White would be 1.1-2.3:1. */
+  --crm-orange-glass:linear-gradient(135deg,rgba(255,255,255,.34) 0%,rgba(255,150,70,.48) 38%,rgba(255,80,0,.62) 100%);
+  --crm-orange-glass-hover:linear-gradient(135deg,rgba(255,255,255,.42) 0%,rgba(255,150,70,.56) 38%,rgba(255,80,0,.70) 100%);
+  --crm-orange-glass-border:rgba(255,255,255,.52);
+  --crm-orange-glass-shadow:0 18px 36px rgba(255,80,0,.22),0 4px 12px rgba(120,70,20,.14),inset 0 1px 2px rgba(255,255,255,.78),inset 0 -10px 18px rgba(255,80,0,.20);
+  /* Near-opaque stand-in for @supports-not and mobile, where there is no
+     blur to sell the effect and a translucent pane just looks washed out.
+     Still light enough that dark text stays well clear of AA. */
+  --crm-orange-glass-solid:linear-gradient(135deg,rgba(255,226,206,.97) 0%,rgba(255,182,128,.97) 38%,rgba(255,124,54,.97) 100%);
+  /* The older names now just point at the glass, so every orange surface
+     moves together and no raw colour is repeated at the call sites. */
+  --crm-glass-active:var(--crm-orange-glass);
+  --crm-glass-active-glow:var(--crm-orange-glass-shadow);
+  --crm-glass-hero:var(--crm-orange-glass);
+  --crm-glass-hero-border:var(--crm-orange-glass-border);
+  --crm-glass-hero-shadow:var(--crm-orange-glass-shadow);
+  /* Text that sits ON the orange glass. Dark, never white. */
   --crm-on-orange:#1F160F;
   --crm-on-orange-soft:#241A12;
   --crm-radius-glass:28px;
@@ -328,16 +337,23 @@ div.stDownloadButton > button:hover {
 }
 button[kind="formSubmit"],
 .stButton > button[kind="primary"] {
-  background:var(--crm-glass-active) !important;
+  background:var(--crm-orange-glass) !important;
   color:var(--crm-on-orange) !important;
-  border-color:rgba(255,80,0,.62) !important;
-  box-shadow:var(--crm-glass-active-glow) !important;
+  border:1px solid var(--crm-orange-glass-border) !important;
+  box-shadow:var(--crm-orange-glass-shadow) !important;
 }
+/* No extra backdrop-filter is added here on purpose. Every button already
+   inherits blur from the base .stButton > button rule above, and pages
+   like followup/users/team_sales render one st.form PER ROW -- raising the
+   blur on top of that would multiply compositing layers on exactly the
+   pages that scroll most, for no visible gain: a pill sits on flat page
+   background, so there is no detail behind it to refract. The gradient
+   and the inset highlights are what actually sell the glass. */
 button[kind="formSubmit"]:hover,
 .stButton > button[kind="primary"]:hover {
-  background:linear-gradient(135deg,rgba(255,110,45,.96),rgba(255,132,72,.94)) !important;
+  background:var(--crm-orange-glass-hover) !important;
   color:var(--crm-on-orange) !important;
-  border-color:rgba(255,80,0,.72) !important;
+  border-color:rgba(255,255,255,.68) !important;
   transform:translateY(-2px) !important;
 }
 [data-testid="stExpander"] details,

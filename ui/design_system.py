@@ -356,16 +356,18 @@ def inject_crm_design_system() -> None:
   box-shadow:var(--crm-shadow-inset) !important;
 }
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_assignment_panel button[kind="formSubmit"] {
-  background:var(--crm-primary) !important;
-  border-color:var(--crm-primary) !important;
+  /* Orange glass pill rather than a flat --crm-primary fill, matching the
+     primary buttons elsewhere. Label stays dark: white on this orange
+     measures ~2:1 and fails AA. */
+  background:var(--crm-orange-glass) !important;
+  border:1px solid var(--crm-orange-glass-border) !important;
   border-radius:var(--crm-radius-pill) !important;
-  /* Dark, not white: --crm-primary is #FF5000, on which white label text
-     measures only 3.3:1 and fails WCAG AA. Dark gives 5.4:1. */
+  box-shadow:var(--crm-orange-glass-shadow) !important;
   color:var(--crm-on-orange) !important;
 }
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_assignment_panel button[kind="formSubmit"]:hover {
-  background:var(--crm-primary-hover) !important;
-  border-color:var(--crm-primary-hover) !important;
+  background:var(--crm-orange-glass-hover) !important;
+  border-color:rgba(255,255,255,.68) !important;
 }
 @media (max-width:900px) {
   .stApp:has(.crm-team-sales-page-marker) .crm-shell-header,
