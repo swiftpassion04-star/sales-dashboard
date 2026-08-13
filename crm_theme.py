@@ -228,6 +228,15 @@ p, label, span, small, div[data-testid="stMarkdownContainer"] {
   backdrop-filter:var(--crm-glass-blur-soft) !important;
   -webkit-backdrop-filter:var(--crm-glass-blur-soft) !important;
 }
+/* stDataFrame keeps the glass surface but drops the blur: it is the one
+   widget that scrolls a large virtualised grid, and compositing a blur
+   behind it on every scroll frame is the main source of jank on the
+   data-heavy pages. */
+[data-testid="stDataFrame"] {
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  background:rgba(255,255,255,.92) !important;
+}
 [data-testid="stForm"] {
   padding:20px !important;
 }

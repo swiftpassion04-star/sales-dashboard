@@ -359,7 +359,9 @@ def inject_crm_design_system() -> None:
   background:var(--crm-primary) !important;
   border-color:var(--crm-primary) !important;
   border-radius:var(--crm-radius-pill) !important;
-  color:#FFFFFF !important;
+  /* Dark, not white: --crm-primary is #FF5000, on which white label text
+     measures only 3.3:1 and fails WCAG AA. Dark gives 5.4:1. */
+  color:var(--crm-on-orange) !important;
 }
 .stApp:has(.crm-team-sales-page-marker) .st-key-team_sales_assignment_panel button[kind="formSubmit"]:hover {
   background:var(--crm-primary-hover) !important;
