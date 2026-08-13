@@ -17,6 +17,7 @@ from crm_theme import render_page_header
 from nav_utils import render_sidebar_nav
 from permissions import can_edit_products
 from ui.pagination import get_pagination_state, render_pagination
+from ui.glass_theme import inject_liquid_glass
 
 
 st.set_page_config(page_title="สินค้า", layout="wide")
@@ -142,6 +143,7 @@ def reset_product_page() -> None:
 
 def main() -> None:
     render_sidebar_nav()
+    inject_liquid_glass("crm-products-glass")
     auth_user = require_login()
     is_editor = can_edit_products(auth_user)
     render_page_header("สินค้า", "Product Master สำหรับเลือกสินค้าในคำสั่งซื้อ")

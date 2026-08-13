@@ -9,7 +9,7 @@ def inject_saas_theme() -> None:
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap');
 :root {
-  --crm-primary:#FF7A1A;
+  --crm-primary:#FF5000;
   --crm-primary-hover:#E85D04;
   --crm-primary-press:#C94A00;
   --crm-primary-tint:#FDBA74;
@@ -32,18 +32,32 @@ def inject_saas_theme() -> None:
   --crm-pill:999px;
   --crm-shadow:0 18px 42px rgba(120, 70, 20, .14);
   --crm-shadow-soft:0 4px 14px rgba(120, 70, 20, .075);
-  --crm-shadow-focus:0 0 0 4px rgba(255,122,26,.18);
+  --crm-shadow-focus:0 0 0 4px rgba(255,80,0,.20);
   --crm-glass-bg:rgba(255,255,255,.18);
   --crm-glass-bg-strong:rgba(255,255,255,.28);
   --crm-glass-bg-solid:rgba(255,255,255,.82);
   --crm-glass-border:rgba(255,255,255,.42);
-  --crm-glass-border-warm:rgba(255,138,42,.55);
+  --crm-glass-border-warm:rgba(255,80,0,.55);
   --crm-glass-blur:blur(24px) saturate(180%);
   --crm-glass-blur-soft:blur(14px) saturate(140%);
   --crm-glass-shadow:0 20px 40px rgba(120,70,20,.14),0 2px 8px rgba(120,70,20,.10),inset 0 1px 1px rgba(255,255,255,.7);
-  --crm-glass-shadow-hover:0 26px 52px rgba(120,70,20,.20),0 4px 12px rgba(232,93,4,.16),inset 0 1px 1px rgba(255,255,255,.8);
-  --crm-glass-active:linear-gradient(135deg,rgba(255,122,26,.95),rgba(255,170,80,.82));
-  --crm-glass-active-glow:0 0 32px rgba(255,122,26,.45),0 0 80px rgba(255,122,26,.20),inset 0 1px 1px rgba(255,255,255,.5);
+  --crm-glass-shadow-hover:0 26px 52px rgba(120,70,20,.20),0 4px 12px rgba(255,80,0,.16),inset 0 1px 1px rgba(255,255,255,.8);
+  /* Brand orange #FF5000. White label text only reaches ~3.5:1 on it, so text sitting on
+     orange is DARK (--crm-on-orange*) rather than white -- that measures
+     ~5:1 and clears WCAG AA. The gradient lightens toward the corner, so
+     #FF5000 itself is the worst-case contrast point. */
+  --crm-glass-active:linear-gradient(135deg,rgba(255,80,0,.96),rgba(255,110,45,.93));
+  --crm-glass-active-glow:0 0 32px rgba(255,80,0,.42),0 0 80px rgba(255,80,0,.18),inset 0 1px 1px rgba(255,255,255,.5);
+  /* Strong orange glass -- reserved for ONE focal element per page (the
+     page header). Anything rendered on top of it must use --crm-on-orange*
+     for text, and a primary button inside it must drop to light glass so
+     we never stack deep orange on deep orange. */
+  --crm-glass-hero:linear-gradient(135deg,rgba(255,80,0,.96),rgba(255,110,45,.93));
+  --crm-glass-hero-border:rgba(255,255,255,.46);
+  --crm-glass-hero-shadow:0 22px 46px rgba(160,50,0,.26),0 3px 10px rgba(160,50,0,.16),inset 0 1px 1px rgba(255,255,255,.5);
+  /* Text that sits ON the orange. Dark, not white -- see --crm-glass-active. */
+  --crm-on-orange:#1F160F;
+  --crm-on-orange-soft:#241A12;
   --crm-radius-glass:28px;
   --crm-ease-glass:cubic-bezier(.4,0,.2,1);
 }
@@ -214,6 +228,15 @@ p, label, span, small, div[data-testid="stMarkdownContainer"] {
   backdrop-filter:var(--crm-glass-blur-soft) !important;
   -webkit-backdrop-filter:var(--crm-glass-blur-soft) !important;
 }
+/* stDataFrame keeps the glass surface but drops the blur: it is the one
+   widget that scrolls a large virtualised grid, and compositing a blur
+   behind it on every scroll frame is the main source of jank on the
+   data-heavy pages. */
+[data-testid="stDataFrame"] {
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  background:rgba(255,255,255,.92) !important;
+}
 [data-testid="stForm"] {
   padding:20px !important;
 }
@@ -306,15 +329,15 @@ div.stDownloadButton > button:hover {
 button[kind="formSubmit"],
 .stButton > button[kind="primary"] {
   background:var(--crm-glass-active) !important;
-  color:#FFFFFF !important;
-  border-color:rgba(255,122,26,.62) !important;
+  color:var(--crm-on-orange) !important;
+  border-color:rgba(255,80,0,.62) !important;
   box-shadow:var(--crm-glass-active-glow) !important;
 }
 button[kind="formSubmit"]:hover,
 .stButton > button[kind="primary"]:hover {
-  background:linear-gradient(135deg,var(--crm-primary-hover),rgba(255,150,60,.92)) !important;
-  color:#FFF8F0 !important;
-  border-color:var(--crm-primary-hover) !important;
+  background:linear-gradient(135deg,rgba(255,110,45,.96),rgba(255,132,72,.94)) !important;
+  color:var(--crm-on-orange) !important;
+  border-color:rgba(255,80,0,.72) !important;
   transform:translateY(-2px) !important;
 }
 [data-testid="stExpander"] details,

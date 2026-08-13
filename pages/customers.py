@@ -37,6 +37,7 @@ from permissions import (
     can_manage_customer_records,
 )
 from ui.pagination import get_pagination_state, render_pagination
+from ui.glass_theme import inject_liquid_glass
 
 
 PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
@@ -98,6 +99,7 @@ def clear_customer_editor_action_caches() -> None:
 
 def main() -> None:
     render_sidebar_nav()
+    inject_liquid_glass("crm-customers-glass")
     require_login()
     user = current_user() or {}
     render_page_header("ลูกค้า", "ค้นหาและดูข้อมูลลูกค้าจาก Neon แบบ server-side")
