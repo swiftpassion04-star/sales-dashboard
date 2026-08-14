@@ -163,6 +163,32 @@ def inject_login_css() -> None:
     st.markdown(
         """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap');
+/* The login screen renders before crm_theme.inject_saas_theme() ever runs,
+   so it used to inherit Streamlit's default stack -- which has no Thai
+   glyphs, and every Thai label came out as tofu boxes. The local fallbacks
+   (Leelawadee UI on Windows, Tahoma) cover Thai on their own, and
+   display=swap means text paints in them immediately rather than waiting
+   on the webfont, so Thai is readable even if Google Fonts is slow or
+   blocked. */
+.stApp,
+body,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stForm"],
+[data-testid="stForm"] *,
+.stApp input,
+.stApp button,
+.stApp label,
+.stApp p,
+.stApp span,
+.stApp h1,
+.stApp h2,
+.stApp h3,
+[class^="crm-login-"],
+[class*=" crm-login-"] {
+  font-family:"Noto Sans Thai","Leelawadee UI",Tahoma,"Segoe UI",sans-serif !important;
+}
 .stApp,
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"] {
@@ -292,7 +318,10 @@ def _auth_headers(key: str) -> dict[str, str]:
 
 def _supabase_auth_request(method: str, url: str, **kwargs) -> requests.Response:
     try:
-        return requests.request(method, url, timeout=20, **kwargs)
+        # (connect, read): fail fast when Supabase is unreachable instead of
+        # making the user stare at a frozen button for 20s, while still
+        # allowing a slow-but-alive auth response to finish.
+        return requests.request(method, url, timeout=(4, 12), **kwargs)
     except requests.Timeout as exc:
         raise RuntimeError("เชื่อมต่อ Supabase Auth timeout กรุณาลองใหม่อีกครั้ง") from exc
     except requests.RequestException as exc:
@@ -487,10 +516,14 @@ def require_login() -> dict:
 
     if submitted:
         try:
-            payload = login_with_password(email, password)
-            auth_user = payload.get("user") or {}
-            user_email = (auth_user.get("email") or email).strip().lower()
-            role = fetch_user_role(user_email)
+            # The spinner is the only feedback between submit and redraw --
+            # without it the button just sits there during the round-trip.
+            with st.spinner("กำลังเชื่อมต่อ..."):
+                payload = login_with_password(email, password)
+                auth_user = payload.get("user") or {}
+                user_email = (auth_user.get("email") or email).strip().lower()
+                # Role still comes from Neon, never from the browser payload.
+                role = fetch_user_role(user_email)
             st.session_state.auth_access_token = payload.get("access_token")
             st.session_state.auth_refresh_token = payload.get("refresh_token")
             st.session_state.auth_user = auth_user
@@ -498,11 +531,19 @@ def require_login() -> dict:
             st.session_state.auth_session_expires_at = int(time.time()) + LOCAL_STORAGE_TTL_SECONDS
             st.session_state.pop("auth_skip_restore", None)
             st.session_state.pop("auth_clear_browser_session", None)
+            # A later logout must be able to re-check localStorage.
+            st.session_state.pop("auth_browser_session_checked", None)
             save_browser_session(payload, role)
-            user = current_user()
-            if user:
-                render_user_box(user)
-                return user
+            if current_user():
+                # One deliberate redraw. Returning here instead would finish
+                # the run with the sidebar still in its logged-out (disabled)
+                # state; rerunning means the whole app repaints once, already
+                # authenticated, and this branch is not reached again.
+                # Safe inside the try: st.rerun() raises a control exception
+                # derived from BaseException, not Exception, so the handler
+                # below cannot swallow a successful login.
+                st.session_state.crm_sidebar_nav_last_disabled = False
+                st.rerun()
         except Exception as exc:
             error_reference_id = log_exception(
                 "auth_login_failed",
@@ -597,6 +638,25 @@ def clear_browser_session() -> None:
 def restore_browser_session() -> str:
     if current_email() or streamlit_js_eval is None:
         return "ready"
+    # Once the bridge has reported that there is nothing usable in
+    # localStorage, stop asking for the rest of this Streamlit session.
+    # Previously every rerun on the login screen -- each keystroke in the
+    # form, each failed submit -- fired another JS round-trip, which is
+    # what made the login page feel like it stutters. Note this only
+    # short-circuits the *terminal* answers; "pending" still re-polls,
+    # because that means the bridge has not answered yet.
+    if st.session_state.get("auth_browser_session_checked"):
+        return "empty"
+    status = _read_browser_session()
+    if status == "empty":
+        # Terminal answer: nothing usable is stored (or what was stored was
+        # expired/invalid and has just been cleared). Remember it so the
+        # block above short-circuits every later rerun.
+        st.session_state.auth_browser_session_checked = True
+    return status
+
+
+def _read_browser_session() -> str:
     stored = streamlit_js_eval(
         js_expressions=(
             "JSON.stringify({"
