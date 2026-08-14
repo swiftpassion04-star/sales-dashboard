@@ -18,6 +18,7 @@ from neon_utils import (
 from permissions import can_delete_order
 from ui.glass_theme import inject_liquid_glass
 from ui.perf import perf_trace
+from ui.sales_export_ui import render_sales_report_download
 
 
 st.set_page_config(page_title="Dashboard", layout="wide")
@@ -169,7 +170,14 @@ def render_sales_report(user: dict) -> None:
     cols[1].metric("จำนวนออเดอร์รวม", f"{int(total.get('order_count') or 0):,}")
     cols[2].metric("AOV", format_money(total.get("aov")))
 
-    render_sales_order_table(rows, total.get("sales_amount"), total.get("order_count"), user)
+    render_sales_order_table(
+        rows,
+        total.get("sales_amount"),
+        total.get("order_count"),
+        user,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
     daily = report.get("daily") or []
     if not daily:
@@ -185,7 +193,15 @@ def render_sales_report(user: dict) -> None:
     st.line_chart(pivot, use_container_width=True)
 
 
-def render_sales_order_table(rows: list[dict], total_amount, total_orders, user: dict | None) -> None:
+def render_sales_order_table(
+    rows: list[dict],
+    total_amount,
+    total_orders,
+    user: dict | None,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> None:
     st.markdown("##### ตารางรายการขาย")
     if not rows:
         st.info("ยังไม่มีรายการ NEW_ORDER / UPSELL ในช่วงเวลานี้")
@@ -305,6 +321,9 @@ def render_sales_order_table(rows: list[dict], total_amount, total_orders, user:
             html_parts.append(f'<div class="{classes}">{html.escape(value)}</div>')
     html_parts.append("</div>")
     st.markdown("".join(html_parts), unsafe_allow_html=True)
+    # Exports exactly `display_rows` -- the rows rendered above, after the
+    # "จำนวนแถวที่แสดง" limit -- so the file matches what is on screen.
+    render_sales_report_download(display_rows, start_date=start_date, end_date=end_date)
     render_sales_delete_controls(rows, user)
     st.markdown(
         f"""
