@@ -12,7 +12,6 @@ from neon_utils import (
     FOLLOWUP_PRIORITY_OPTIONS,
     fetch_followup_filter_options,
     fetch_followup_page,
-    fetch_current_owner_row_by_phones,
     fetch_order_product_options,
     normalize_followup_priority,
     upsert_lead_followup,
@@ -915,23 +914,15 @@ def _render_order_dialog(row: dict, user: dict) -> None:
 
 
 def find_popup_order_owner_conflict(phone1: str, phone2: str, user: dict, owner: str, staff_code: str) -> dict:
-    row = fetch_current_owner_row_by_phones(phone1, phone2)
-    if not row:
+    try:
+        team_code = neon.fetch_current_user_team_code(clean((user or {}).get("email")))
+    except Exception:
         return {}
 
-    current_owner = normalize_compare_text(owner)
-    allowed_codes = {
-        clean(value).casefold()
-        for value in [staff_code, (user or {}).get("staff_code")]
-        if clean(value)
-    }
-    existing_code = clean(row.get("staff_code")).casefold()
-    if existing_code and existing_code in allowed_codes:
+    if not neon.should_enforce_duplicate_phone_lock(team_code):
         return {}
-    existing_owner = normalize_compare_text(row.get("owner"))
-    if current_owner and existing_owner and existing_owner == current_owner:
-        return {}
-    return dict(row)
+
+    return neon.find_duplicate_valid_order_by_phones(phone1, phone2, owner, staff_code) or {}
 
 
 def normalize_compare_text(value) -> str:

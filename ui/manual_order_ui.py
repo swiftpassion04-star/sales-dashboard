@@ -269,28 +269,12 @@ def should_check_manual_owner_conflict(user: dict) -> bool:
     try:
         team_code = neon.fetch_current_user_team_code(neon.clean((user or {}).get("email")))
     except Exception:
-        return True
+        return False
     return neon.should_enforce_duplicate_phone_lock(team_code)
 
 
 def find_manual_order_owner_conflict(phone1: str, phone2: str, user: dict, owner: str, staff_code: str) -> dict:
-    row = neon.fetch_current_owner_row_by_phones(phone1, phone2)
-    if not row:
-        return {}
-
-    current_owner = _normalize_owner_name(owner)
-    allowed_codes = {
-        normalize_staff_code(neon.clean(value)).casefold()
-        for value in [staff_code, user.get("staff_code")]
-        if normalize_staff_code(neon.clean(value))
-    }
-    existing_code = normalize_staff_code(neon.clean(row.get("staff_code"))).casefold()
-    if existing_code and existing_code in allowed_codes:
-        return {}
-    existing_owner = _normalize_owner_name(row.get("owner"))
-    if current_owner and existing_owner and existing_owner == current_owner:
-        return {}
-    return dict(row)
+    return neon.find_duplicate_valid_order_by_phones(phone1, phone2, owner, staff_code) or {}
 
 
 def _normalize_owner_name(value: object) -> str:

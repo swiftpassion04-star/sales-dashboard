@@ -918,12 +918,31 @@ def find_duplicate_valid_order_by_phones(
                   owner,
                   staff_code,
                   uploaded_by,
+                  coalesce(staff_team.team_code, uploaded_team.team_code) as current_team_code,
                   case
                     when phone1 = any(%s) then phone1
                     when phone2 = any(%s) then phone2
                     else ''
                   end as matched_phone
-                from public.crm_data_imports
+                from public.crm_data_imports d
+                left join lateral (
+                  select a.team_code
+                  from public.crm_user_team_assignments a
+                  where a.user_email = lower(btrim(d.uploaded_by))
+                    and a.effective_to is null
+                  order by a.effective_from desc
+                  limit 1
+                ) uploaded_team on true
+                left join lateral (
+                  select a.team_code
+                  from public.crm_user_roles r
+                  join public.crm_user_team_assignments a
+                    on a.user_email = lower(btrim(r.email))
+                   and a.effective_to is null
+                  where upper(btrim(r.staff_code)) = upper(btrim(d.staff_code))
+                  order by a.effective_from desc
+                  limit 1
+                ) staff_team on nullif(btrim(coalesce(d.staff_code, '')), '') is not null
                 where import_status = 'valid'
                   and (phone1 = any(%s) or phone2 = any(%s))
                   and (
@@ -936,12 +955,13 @@ def find_duplicate_valid_order_by_phones(
                 [phones, phones, phones, phones],
             )
             rows = [dict(row) for row in cur.fetchall()]
-            current_owner_row = rows[0] if rows else None
-            if not current_owner_row:
-                return None
-            if owner or staff_code:
-                return None if _is_same_order_owner(current_owner_row, owner, staff_code) else current_owner_row
-            return current_owner_row
+            for row in rows:
+                if owner or staff_code:
+                    if _is_same_order_owner(row, owner, staff_code):
+                        continue
+                if should_enforce_duplicate_phone_lock(row.get("current_team_code")):
+                    return row
+            return None
 
 
 def check_crm_team_duplicate_phone_lock(

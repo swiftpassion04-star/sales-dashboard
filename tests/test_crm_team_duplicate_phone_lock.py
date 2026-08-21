@@ -26,6 +26,7 @@ def duplicate_row():
         "order_id": "ORDER-10",
         "owner": "Other Owner",
         "staff_code": "OTHER01",
+        "current_team_code": "CRM_TEAM",
         "matched_phone": "0812345678",
     }
 
@@ -36,6 +37,29 @@ def same_owner_duplicate_row():
         "order_id": "ORDER-11",
         "owner": "CRM Owner",
         "staff_code": "CRM01",
+        "current_team_code": "CRM_TEAM",
+        "matched_phone": "0812345678",
+    }
+
+
+def upsell_duplicate_row():
+    return {
+        "id": "12",
+        "order_id": "ORDER-12",
+        "owner": "Upsell Owner",
+        "staff_code": "UP01",
+        "current_team_code": "UPSELL_TEAM",
+        "matched_phone": "0812345678",
+    }
+
+
+def unassigned_duplicate_row():
+    return {
+        "id": "13",
+        "order_id": "ORDER-13",
+        "owner": "No Team Owner",
+        "staff_code": "NO01",
+        "current_team_code": None,
         "matched_phone": "0812345678",
     }
 
@@ -182,9 +206,14 @@ finally:
     neon.neon_connection = original_connection
     neon.ensure_crm_data_imports_schema = original_ensure_schema
 
-assert duplicate is None
+assert duplicate == duplicate_row()
 assert "phone1 = any(%s) or phone2 = any(%s)" in fake_connection.cursor_instance.statement
 assert "order by updated_at desc nulls last, uploaded_at desc nulls last, id desc" in fake_connection.cursor_instance.statement
+assert "public.crm_user_team_assignments" in fake_connection.cursor_instance.statement
+assert "public.crm_user_roles" in fake_connection.cursor_instance.statement
+assert "coalesce(staff_team.team_code, uploaded_team.team_code)" in fake_connection.cursor_instance.statement
+assert "lower(btrim(d.uploaded_by))" in fake_connection.cursor_instance.statement
+assert "effective_to is null" in fake_connection.cursor_instance.statement
 assert fake_connection.cursor_instance.params == [
     ["0812345678", "0912345678"],
     ["0812345678", "0912345678"],
@@ -192,7 +221,7 @@ assert fake_connection.cursor_instance.params == [
     ["0812345678", "0912345678"],
 ]
 
-current_conflict_connection = FakeConnection([duplicate_row(), same_owner_duplicate_row()])
+current_conflict_connection = FakeConnection([upsell_duplicate_row(), unassigned_duplicate_row(), duplicate_row()])
 try:
     neon.ensure_crm_data_imports_schema = lambda: None
     neon.neon_connection = lambda: fake_neon_connection_for(current_conflict_connection)
@@ -207,6 +236,23 @@ finally:
     neon.ensure_crm_data_imports_schema = original_ensure_schema
 
 assert current_conflict["matched_phone"] == "0812345678"
+assert current_conflict["current_team_code"] == "CRM_TEAM"
+
+non_crm_conflict_connection = FakeConnection([upsell_duplicate_row(), unassigned_duplicate_row()])
+try:
+    neon.ensure_crm_data_imports_schema = lambda: None
+    neon.neon_connection = lambda: fake_neon_connection_for(non_crm_conflict_connection)
+    non_crm_conflict = neon.find_duplicate_valid_order_by_phones(
+        "0812345678",
+        "0912345678",
+        "CRM Owner",
+        "CRM01",
+    )
+finally:
+    neon.neon_connection = original_connection
+    neon.ensure_crm_data_imports_schema = original_ensure_schema
+
+assert non_crm_conflict is None
 
 
 source = Path("neon_utils.py").read_text(encoding="utf-8")
