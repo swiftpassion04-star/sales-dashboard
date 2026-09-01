@@ -290,6 +290,23 @@ create index if not exists idx_crm_user_roles_staff_code
 """
 
 CRM_TEAM_CODE = "CRM_TEAM"
+
+
+# Which crm_data_imports row represents a customer right now. The customer
+# directory and the duplicate-phone lock must both order by this helper, or the
+# lock blocks on an owner the directory never shows.
+# The alias is required, not cosmetic: these queries expose "id::text as id", and
+# an unqualified "id" in ORDER BY binds to that text output column, which sorts
+# "9" after "10". Qualifying it keeps the bigint input column.
+# alias is always an internal, static table alias -- never user input.
+def _current_customer_row_order(alias: str = "") -> str:
+    prefix = f"{alias}." if alias else ""
+    return (
+        f"{prefix}order_date desc nulls last, "
+        f"{prefix}uploaded_at desc, "
+        f"{prefix}id desc"
+    )
+
 CRM_TEAM_DUPLICATE_PHONE_LOCK_MESSAGE = (
     "เบอร์นี้มีอยู่ในระบบแล้ว ทีม CRM ไม่สามารถเพิ่มคำสั่งซื้อซ้ำได้ "
     "หากต้องการดำเนินการต่อ กรุณาให้หัวหน้าทีมหรือผู้มีสิทธิ์ตรวจสอบ"
@@ -911,7 +928,7 @@ def find_duplicate_valid_order_by_phones(
     with neon_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 select
                   id::text as id,
                   order_id,
@@ -949,19 +966,22 @@ def find_duplicate_valid_order_by_phones(
                     nullif(trim(coalesce(owner, '')), '') is not null
                     or nullif(trim(coalesce(staff_code, '')), '') is not null
                   )
-                order by updated_at desc nulls last, uploaded_at desc nulls last, id desc
-                limit 50
+                order by {_current_customer_row_order("d")}
+                limit 1
                 """,
                 [phones, phones, phones, phones],
             )
-            rows = [dict(row) for row in cur.fetchall()]
-            for row in rows:
-                if owner or staff_code:
-                    if _is_same_order_owner(row, owner, staff_code):
-                        continue
-                if should_enforce_duplicate_phone_lock(row.get("current_team_code")):
-                    return row
-            return None
+            # Only the newest row counts: it is the customer's current owner.
+            # Older rows are history and must never block a reassigned customer.
+            row = cur.fetchone()
+            if not row:
+                return None
+            current_row = dict(row)
+            if (owner or staff_code) and _is_same_order_owner(current_row, owner, staff_code):
+                return None
+            if not should_enforce_duplicate_phone_lock(current_row.get("current_team_code")):
+                return None
+            return current_row
 
 
 def check_crm_team_duplicate_phone_lock(
@@ -1654,7 +1674,7 @@ def fetch_customer_page(
                     keyed.*,
                     row_number() over (
                       partition by phone_key
-                      order by order_date desc nulls last, uploaded_at desc, id desc
+                      order by {_current_customer_row_order("keyed")}
                     ) as rn
                   {source_sql}
                 )
@@ -1678,7 +1698,7 @@ def fetch_customer_page(
                   limit 1
                 ) latest_followup on true
                 where rn = 1
-                order by order_date desc nulls last, uploaded_at desc, id desc
+                order by {_current_customer_row_order("ranked")}
                 limit %s offset %s
                 """,
                 params + [limit, offset],
