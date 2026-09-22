@@ -194,8 +194,9 @@ def customer_export_row(row: dict, *, include_latest_owner: bool = False) -> dic
         "พนักงานเปิดบิล": pick("billing_staff", "พนักงานเปิดบิล", "ผู้ขาย"),
         "พนักงานอัพเซลล์": pick("upsell_staff", "พนักงานอัพเซลล์", "พนักงาน UPSELL"),
         "พนักงานดูแล": pick("owner", "พนักงานดูแล", "ผู้ดูแล"),
-        # Same value the follow-up page badge shows for this row: legacy
-        # values are mapped and a row with no follow-up record reads "NEW".
+        # The customer's current priority -- what the follow-up page badge
+        # shows for them -- on every order row of that customer. Legacy
+        # values are mapped; a customer with no follow-up record reads "NEW".
         "ความสำคัญ": normalize_followup_priority(row.get("priority")),
     }
     if include_latest_owner:

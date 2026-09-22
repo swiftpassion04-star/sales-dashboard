@@ -1706,6 +1706,42 @@ def fetch_customer_page(
             return cur.fetchall(), total
 
 
+# A customer's current follow-up priority, one row per phone_key, chosen the
+# way the follow-up page chooses it (fetch_followup_page): the customer is the
+# phone_key over valid rows, the current row is rn = 1 under
+# _current_customer_row_order, and the priority is the follow-up record keyed to
+# that row. Other follow-up records of the same customer (older order rows,
+# phone-keyed ones) are ignored there too. No record gives null, which
+# normalize_followup_priority turns into "NEW" -- the page's default.
+_CUSTOMER_CURRENT_PRIORITY_SQL = f"""
+  select cust_row.phone_key, cust_fu.priority
+  from (
+    select
+      v.id,
+      v.phone_key,
+      row_number() over (
+        partition by v.phone_key
+        order by {_current_customer_row_order("v")}
+      ) as rn
+    from (
+      select
+        id,
+        order_date,
+        uploaded_at,
+        case
+          when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+          else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+        end as phone_key
+      from public.crm_data_imports
+      where import_status = 'valid'
+    ) v
+  ) cust_row
+  left join public.crm_lead_followups cust_fu
+    on cust_fu.customer_key = concat('customer_id:', cust_row.id::text)
+  where cust_row.rn = 1
+"""
+
+
 def fetch_customer_export_rows(
     filters: dict[str, str],
     user: dict | None = None,
@@ -1736,7 +1772,8 @@ def fetch_customer_export_rows(
             if latest_owner_only:
                 cur.execute(
                     f"""
-                    with keyed as (
+                    with current_priority as ({_CUSTOMER_CURRENT_PRIORITY_SQL}),
+                    keyed as (
                       select
                         d.id::text as id,
                         d.order_date,
@@ -1763,14 +1800,11 @@ def fetch_customer_export_rows(
                         d.uploaded_at,
                         d.created_at,
                         d.updated_at,
-                        lf.priority,
                         case
                           when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
                           else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
                         end as phone_key
                       from public.crm_data_imports d
-                      left join public.crm_lead_followups lf
-                        on lf.customer_key = concat('customer_id:', d.id::text)
                       {where_sql}
                     ),
                     ranked as (
@@ -1807,8 +1841,10 @@ def fetch_customer_export_rows(
                       raw_data,
                       created_at,
                       updated_at,
-                      priority
+                      cp.priority as priority
                     from ranked
+                    left join current_priority cp
+                      on cp.phone_key = ranked.phone_key
                     where rn = 1
                     order by order_date desc nulls last, uploaded_at desc, id desc
                     """,
@@ -1817,6 +1853,7 @@ def fetch_customer_export_rows(
                 return cur.fetchall()
             cur.execute(
                 f"""
+                with current_priority as ({_CUSTOMER_CURRENT_PRIORITY_SQL})
                 select
                   d.id::text as id,
                   d.order_date,
@@ -1841,10 +1878,13 @@ def fetch_customer_export_rows(
                   d.raw_data,
                   d.created_at,
                   d.updated_at,
-                  lf.priority
+                  cp.priority as priority
                 from public.crm_data_imports d
-                left join public.crm_lead_followups lf
-                  on lf.customer_key = concat('customer_id:', d.id::text)
+                left join current_priority cp
+                  on cp.phone_key = case
+                    when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
+                    else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
+                  end
                 {where_sql}
                 order by d.created_at desc nulls last, d.order_date desc nulls last, d.id desc
                 """,
