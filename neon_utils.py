@@ -1706,6 +1706,111 @@ def fetch_customer_page(
             return cur.fetchall(), total
 
 
+# Customer-level priority levels for the export, highest first. A customer's
+# priority is the highest of these found anywhere in their follow-up history,
+# so a new order without a follow-up never drops them back to NEW. With none of
+# these it is NEW. Upsell / โอนชำระ / Dismiss are not levels here.
+CUSTOMER_PRIORITY_LEVELS = ("Super VIP", "VIP", "Premium", "Economy")
+
+
+def _customer_priority_rank_sql(column: str) -> str:
+    # Every stored spelling -- canonical and legacy -- ranked by the level
+    # normalize_followup_priority maps it to (e.g. "urgent" -> Super VIP), so
+    # SQL compares exactly the values the follow-up page displays. Else 0.
+    whens = []
+    for raw in sorted({*FOLLOWUP_PRIORITY_OPTIONS, *LEGACY_FOLLOWUP_PRIORITY_MAP}):
+        level = normalize_followup_priority(raw)
+        if level in CUSTOMER_PRIORITY_LEVELS:
+            rank = len(CUSTOMER_PRIORITY_LEVELS) - CUSTOMER_PRIORITY_LEVELS.index(level)
+            literal = raw.replace("'", "''")
+            whens.append(f"when '{literal}' then {rank}")
+    return f"case btrim({column}) {' '.join(whens)} else 0 end"
+
+
+def _customer_priority_level_sql(rank: str) -> str:
+    whens = [
+        f"when {len(CUSTOMER_PRIORITY_LEVELS) - index} then '{level}'"
+        for index, level in enumerate(CUSTOMER_PRIORITY_LEVELS)
+    ]
+    return f"case {rank} {' '.join(whens)} else '{DEFAULT_FOLLOWUP_PRIORITY}' end"
+
+
+# One row per customer phone_key (the identity every customer query uses, over
+# valid rows) -> the highest priority level in the follow-up history of every
+# phone_key linked to it by a shared phone number.
+#
+# phone_key = least(phone1, phone2) can put one phone number under two keys: an
+# order that also carries a lower-numbered backup phone keys on the backup,
+# while orders with the phone alone key on the phone itself. Keys sharing any
+# phone -- directly or through a chain (linked_keys is the transitive closure)
+# -- form one group, and every key in the group gets the group's level, so all
+# orders of a phone number read the same value. Rows are still keyed by
+# phone_key, so the export's row identity does not change.
+#
+# A key's history: follow-up records keyed to any of its valid orders
+# ("customer_id:<id>") plus ones keyed by the bare phone_key, which
+# pages/customers.py writes and merge_customer_phone_collision updates.
+# Records of deleted orders match no row and are ignored. A key whose group has
+# no record has no row here; the export's left join gives null, which
+# normalize_followup_priority turns into "NEW".
+_CUSTOMER_CURRENT_PRIORITY_SQL = f"""
+  with recursive customer_rows as (
+    select
+      id,
+      phone1,
+      phone2,
+      case
+        when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+        else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+      end as phone_key
+    from public.crm_data_imports
+    where import_status = 'valid'
+  ),
+  key_phones as (
+    select phone_key, phone1 as phone from customer_rows where nullif(phone1, '') is not null
+    union
+    select phone_key, phone2 as phone from customer_rows where nullif(phone2, '') is not null
+  ),
+  key_links as (
+    select distinct a.phone_key as from_key, b.phone_key as to_key
+    from key_phones a
+    join key_phones b on b.phone = a.phone and b.phone_key <> a.phone_key
+  ),
+  linked_keys as (
+    select distinct phone_key, phone_key as linked_key from customer_rows
+    union
+    select linked_keys.phone_key, key_links.to_key
+    from linked_keys
+    join key_links on key_links.from_key = linked_keys.linked_key
+  ),
+  customer_groups as (
+    select phone_key, min(linked_key) as group_key
+    from linked_keys
+    group by phone_key
+  ),
+  priority_history as (
+    select customer_rows.phone_key, {_customer_priority_rank_sql("fu.priority")} as priority_rank
+    from customer_rows
+    join public.crm_lead_followups fu
+      on fu.customer_key = concat('customer_id:', customer_rows.id::text)
+    union all
+    select customer_rows.phone_key, {_customer_priority_rank_sql("fu.priority")} as priority_rank
+    from customer_rows
+    join public.crm_lead_followups fu
+      on fu.customer_key = customer_rows.phone_key
+  ),
+  group_priority as (
+    select customer_groups.group_key, max(priority_history.priority_rank) as priority_rank
+    from priority_history
+    join customer_groups on customer_groups.phone_key = priority_history.phone_key
+    group by customer_groups.group_key
+  )
+  select customer_groups.phone_key, {_customer_priority_level_sql("group_priority.priority_rank")} as priority
+  from customer_groups
+  join group_priority on group_priority.group_key = customer_groups.group_key
+"""
+
+
 def fetch_customer_export_rows(
     filters: dict[str, str],
     user: dict | None = None,
@@ -1736,7 +1841,8 @@ def fetch_customer_export_rows(
             if latest_owner_only:
                 cur.execute(
                     f"""
-                    with keyed as (
+                    with current_priority as ({_CUSTOMER_CURRENT_PRIORITY_SQL}),
+                    keyed as (
                       select
                         d.id::text as id,
                         d.order_date,
@@ -1803,8 +1909,11 @@ def fetch_customer_export_rows(
                       order_status,
                       raw_data,
                       created_at,
-                      updated_at
+                      updated_at,
+                      cp.priority as priority
                     from ranked
+                    left join current_priority cp
+                      on cp.phone_key = ranked.phone_key
                     where rn = 1
                     order by order_date desc nulls last, uploaded_at desc, id desc
                     """,
@@ -1813,6 +1922,7 @@ def fetch_customer_export_rows(
                 return cur.fetchall()
             cur.execute(
                 f"""
+                with current_priority as ({_CUSTOMER_CURRENT_PRIORITY_SQL})
                 select
                   d.id::text as id,
                   d.order_date,
@@ -1836,8 +1946,14 @@ def fetch_customer_export_rows(
                   d.order_status,
                   d.raw_data,
                   d.created_at,
-                  d.updated_at
+                  d.updated_at,
+                  cp.priority as priority
                 from public.crm_data_imports d
+                left join current_priority cp
+                  on cp.phone_key = case
+                    when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
+                    else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
+                  end
                 {where_sql}
                 order by d.created_at desc nulls last, d.order_date desc nulls last, d.id desc
                 """,

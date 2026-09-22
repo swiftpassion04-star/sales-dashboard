@@ -6,7 +6,7 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-from neon_utils import fetch_customer_export_rows
+from neon_utils import fetch_customer_export_rows, normalize_followup_priority
 from permissions import can_export_customers
 
 
@@ -37,6 +37,7 @@ CRM_EXPORT_HEADERS = [
     "พนักงานเปิดบิล",
     "พนักงานอัพเซลล์",
     "พนักงานดูแล",
+    "ความสำคัญ",
 ]
 CRM_LATEST_OWNER_HEADER = "ผู้ดูแลล่าสุด"
 
@@ -193,6 +194,11 @@ def customer_export_row(row: dict, *, include_latest_owner: bool = False) -> dic
         "พนักงานเปิดบิล": pick("billing_staff", "พนักงานเปิดบิล", "ผู้ขาย"),
         "พนักงานอัพเซลล์": pick("upsell_staff", "พนักงานอัพเซลล์", "พนักงาน UPSELL"),
         "พนักงานดูแล": pick("owner", "พนักงานดูแล", "ผู้ดูแล"),
+        # The customer's priority -- the highest level in the whole follow-up
+        # history of every phone_key sharing a phone number with them
+        # (neon_utils.CUSTOMER_PRIORITY_LEVELS) -- on every order row of that
+        # customer. With no level anywhere it reads "NEW".
+        "ความสำคัญ": normalize_followup_priority(row.get("priority")),
     }
     if include_latest_owner:
         export_row[CRM_LATEST_OWNER_HEADER] = pick("latest_owner", "พนักงานดูแล", "ผู้ดูแล")
