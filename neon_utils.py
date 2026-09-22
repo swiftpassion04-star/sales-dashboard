@@ -1706,39 +1706,67 @@ def fetch_customer_page(
             return cur.fetchall(), total
 
 
-# A customer's current follow-up priority, one row per phone_key, chosen the
-# way the follow-up page chooses it (fetch_followup_page): the customer is the
-# phone_key over valid rows, the current row is rn = 1 under
-# _current_customer_row_order, and the priority is the follow-up record keyed to
-# that row. Other follow-up records of the same customer (older order rows,
-# phone-keyed ones) are ignored there too. No record gives null, which
-# normalize_followup_priority turns into "NEW" -- the page's default.
+# Customer-level priority levels for the export, highest first. A customer's
+# priority is the highest of these found anywhere in their follow-up history,
+# so a new order without a follow-up never drops them back to NEW. With none of
+# these it is NEW. Upsell / โอนชำระ / Dismiss are not levels here.
+CUSTOMER_PRIORITY_LEVELS = ("Super VIP", "VIP", "Premium", "Economy")
+
+
+def _customer_priority_rank_sql(column: str) -> str:
+    # Every stored spelling -- canonical and legacy -- ranked by the level
+    # normalize_followup_priority maps it to (e.g. "urgent" -> Super VIP), so
+    # SQL compares exactly the values the follow-up page displays. Else 0.
+    whens = []
+    for raw in sorted({*FOLLOWUP_PRIORITY_OPTIONS, *LEGACY_FOLLOWUP_PRIORITY_MAP}):
+        level = normalize_followup_priority(raw)
+        if level in CUSTOMER_PRIORITY_LEVELS:
+            rank = len(CUSTOMER_PRIORITY_LEVELS) - CUSTOMER_PRIORITY_LEVELS.index(level)
+            literal = raw.replace("'", "''")
+            whens.append(f"when '{literal}' then {rank}")
+    return f"case btrim({column}) {' '.join(whens)} else 0 end"
+
+
+def _customer_priority_level_sql(rank: str) -> str:
+    whens = [
+        f"when {len(CUSTOMER_PRIORITY_LEVELS) - index} then '{level}'"
+        for index, level in enumerate(CUSTOMER_PRIORITY_LEVELS)
+    ]
+    return f"case {rank} {' '.join(whens)} else '{DEFAULT_FOLLOWUP_PRIORITY}' end"
+
+
+# One row per customer: phone_key (the identity every customer query uses,
+# over valid rows) -> highest priority level in their follow-up history.
+# A customer's records are those keyed to any of their orders
+# ("customer_id:<id>") plus ones keyed by the bare phone_key, which
+# pages/customers.py writes and merge_customer_phone_collision updates.
+# A customer with no record has no row here; the export's left join gives
+# null, which normalize_followup_priority turns into "NEW".
 _CUSTOMER_CURRENT_PRIORITY_SQL = f"""
-  select cust_row.phone_key, cust_fu.priority
-  from (
+  with customer_rows as (
     select
-      v.id,
-      v.phone_key,
-      row_number() over (
-        partition by v.phone_key
-        order by {_current_customer_row_order("v")}
-      ) as rn
-    from (
-      select
-        id,
-        order_date,
-        uploaded_at,
-        case
-          when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
-          else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
-        end as phone_key
-      from public.crm_data_imports
-      where import_status = 'valid'
-    ) v
-  ) cust_row
-  left join public.crm_lead_followups cust_fu
-    on cust_fu.customer_key = concat('customer_id:', cust_row.id::text)
-  where cust_row.rn = 1
+      id,
+      case
+        when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
+        else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
+      end as phone_key
+    from public.crm_data_imports
+    where import_status = 'valid'
+  ),
+  priority_history as (
+    select customer_rows.phone_key, {_customer_priority_rank_sql("fu.priority")} as priority_rank
+    from customer_rows
+    join public.crm_lead_followups fu
+      on fu.customer_key = concat('customer_id:', customer_rows.id::text)
+    union all
+    select customer_rows.phone_key, {_customer_priority_rank_sql("fu.priority")} as priority_rank
+    from customer_rows
+    join public.crm_lead_followups fu
+      on fu.customer_key = customer_rows.phone_key
+  )
+  select phone_key, {_customer_priority_level_sql("max(priority_rank)")} as priority
+  from priority_history
+  group by phone_key
 """
 
 
