@@ -1763,11 +1763,14 @@ def fetch_customer_export_rows(
                         d.uploaded_at,
                         d.created_at,
                         d.updated_at,
+                        lf.priority,
                         case
                           when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
                           else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
                         end as phone_key
                       from public.crm_data_imports d
+                      left join public.crm_lead_followups lf
+                        on lf.customer_key = concat('customer_id:', d.id::text)
                       {where_sql}
                     ),
                     ranked as (
@@ -1803,7 +1806,8 @@ def fetch_customer_export_rows(
                       order_status,
                       raw_data,
                       created_at,
-                      updated_at
+                      updated_at,
+                      priority
                     from ranked
                     where rn = 1
                     order by order_date desc nulls last, uploaded_at desc, id desc
@@ -1836,8 +1840,11 @@ def fetch_customer_export_rows(
                   d.order_status,
                   d.raw_data,
                   d.created_at,
-                  d.updated_at
+                  d.updated_at,
+                  lf.priority
                 from public.crm_data_imports d
+                left join public.crm_lead_followups lf
+                  on lf.customer_key = concat('customer_id:', d.id::text)
                 {where_sql}
                 order by d.created_at desc nulls last, d.order_date desc nulls last, d.id desc
                 """,
