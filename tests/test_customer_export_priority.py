@@ -2,7 +2,9 @@
 
 The column is a customer-level value: the highest priority level found in the
 customer's whole follow-up history (Super VIP > VIP > Premium > Economy, else
-NEW), shown on every one of their order rows in both export modes.
+NEW), shown on every one of their order rows in both export modes. When one
+phone number falls under several phone_keys, their histories are pooled, so
+every order of that phone number shows the same value.
 
 The query tests run the real fetch_customer_export_rows against an in-memory
 SQLite database. Only the connection is swapped, and the SQL goes through a
@@ -68,6 +70,36 @@ EXTRA_ORDERS = [
     (35, "0810000016", "", "invalid"),
     # No phone: the row is its own customer (phone_key = id).
     (38, "", "", "valid"),
+    # --- one phone number under several phone_keys --------------------------
+    # An order that also carries a lower-numbered backup phone keys on the
+    # backup (least), orders with the phone alone key on the phone itself.
+    # Premium + NEW -> Premium
+    (50, "0930000001", "0930000002", "valid"),
+    (51, "0930000002", "", "valid"),
+    (52, "0930000002", "", "valid"),
+    # VIP + Super VIP -> Super VIP
+    (53, "0930000011", "0930000012", "valid"),
+    (54, "0930000012", "", "valid"),
+    # three keys on one phone: Economy + Premium + VIP -> VIP
+    (55, "0930000021", "0930000029", "valid"),
+    (56, "0930000022", "0930000029", "valid"),
+    (57, "0930000029", "", "valid"),
+    # chain: key ...41 shares ...42 with key ...42, which shares ...43 with
+    # key ...43 (Super VIP). ...41 and ...43 share no phone directly.
+    (58, "0930000041", "0930000042", "valid"),
+    (59, "0930000042", "", "valid"),
+    (60, "0930000042", "0930000043", "valid"),
+    (61, "0930000043", "", "valid"),
+    # one key without any follow-up, the other VIP -> VIP everywhere
+    (62, "0930000051", "0930000052", "valid"),
+    (63, "0930000052", "", "valid"),
+    (64, "0930000052", "", "valid"),
+    # Premium now; a DELETED order (customer_id:9999, no row) was Super VIP
+    (65, "0930000061", "0930000062", "valid"),
+    (66, "0930000062", "", "valid"),
+    # bare-phone record on one key + order record on another -> highest
+    (67, "0930000071", "0930000072", "valid"),
+    (68, "0930000072", "", "valid"),
 ]
 ORDERS = sorted(
     [(row_id, phone, "", "valid") for rows in CUSTOMERS.values() for row_id, phone in rows] + EXTRA_ORDERS
@@ -105,6 +137,22 @@ FOLLOWUPS = {
     "customer_id:37": "low",
     "customer_id:38": "Economy",
     "38": "VIP",  # no-phone customer keyed by the bare row id
+    # split phone keys
+    "customer_id:50": "Premium",
+    "customer_id:51": "NEW",
+    "customer_id:53": "VIP",
+    "customer_id:54": "Super VIP",
+    "customer_id:55": "Economy",
+    "customer_id:56": "Premium",
+    "customer_id:57": "VIP",
+    "customer_id:58": "NEW",
+    "customer_id:61": "Super VIP",
+    "customer_id:62": "VIP",
+    "customer_id:65": "Premium",
+    "customer_id:9999": "Super VIP",  # deleted order: no crm_data_imports row
+    "customer_id:67": "Economy",
+    "0930000072": "VIP",  # bare phone_key of the other key
+    "0930000071": "NEW",  # bare phone_key of the first key
 }
 VALID_IDS = [str(o[0]) for o in ORDERS if o[3] == "valid"]
 
@@ -243,8 +291,10 @@ def _key_of(row_id: int) -> str:
 def _assert_customer(row_ids: list[int], expected: str):
     all_orders = {str(r["id"]): _priority(r) for r in _export()}
     assert [all_orders[str(i)] for i in row_ids] == [expected] * len(row_ids), (row_ids, all_orders)
+    # Latest-owner sheet: one row per phone_key -- check every key the orders fall under.
     latest = {_phone_key(r, r["id"]): _priority(r) for r in _export(latest_owner_only=True)}
-    assert latest[_key_of(row_ids[0])] == expected, (row_ids, latest)
+    keys = sorted({_key_of(i) for i in row_ids})
+    assert [latest[k] for k in keys] == [expected] * len(keys), (row_ids, keys, latest)
 
 
 def _ids(name: str) -> list[int]:
@@ -412,6 +462,66 @@ def test_every_order_of_a_customer_shows_the_same_value_in_both_sheets():
     assert all(len(values) == 1 for values in by_customer.values()), by_customer
     latest = {_phone_key(r, r["id"]): _priority(r) for r in _export(latest_owner_only=True)}
     assert {key: values.pop() for key, values in by_customer.items()} == latest
+
+
+# --- one phone number under several phone_keys ---------------------------------
+
+def _distinct_keys(row_ids: list[int]) -> int:
+    return len({_key_of(i) for i in row_ids})
+
+
+def test_split_phone_premium_and_new_reads_premium():
+    assert _distinct_keys([50, 51, 52]) == 2
+    _assert_customer([50, 51, 52], "Premium")
+
+
+def test_split_phone_vip_and_super_vip_reads_super_vip():
+    assert _distinct_keys([53, 54]) == 2
+    _assert_customer([53, 54], "Super VIP")
+
+
+def test_three_keys_on_one_phone_economy_premium_vip_reads_vip():
+    assert _distinct_keys([55, 56, 57]) == 3
+    _assert_customer([55, 56, 57], "VIP")
+
+
+def test_key_without_followup_takes_the_linked_keys_vip():
+    assert _distinct_keys([62, 63, 64]) == 2
+    _assert_customer([62, 63, 64], "VIP")
+
+
+def test_deleted_order_super_vip_is_ignored_and_current_premium_wins():
+    assert "customer_id:9999" in FOLLOWUPS and 9999 not in {o[0] for o in ORDERS}
+    _assert_customer([65, 66], "Premium")
+
+
+def test_bare_phone_record_counts_across_linked_keys():
+    assert _distinct_keys([67, 68]) == 2
+    _assert_customer([67, 68], "VIP")
+
+
+def test_keys_linked_through_a_chain_share_one_level():
+    # ...41 and ...43 share no phone; they are linked only through key ...42.
+    assert _distinct_keys([58, 59, 60, 61]) == 3
+    _assert_customer([58, 59, 60, 61], "Super VIP")
+
+
+def test_every_row_sharing_a_phone_number_shows_one_value_in_both_sheets():
+    values_by_phone: dict[str, set] = {}
+    for sheet in (_export(), _export(latest_owner_only=True)):
+        for row in sheet:
+            for phone in (row.get("phone1"), row.get("phone2")):
+                if phone:
+                    values_by_phone.setdefault(phone, set()).add(_priority(row))
+    split_phones = [p for p, v in values_by_phone.items() if len(v) > 1]
+    assert split_phones == [], {p: values_by_phone[p] for p in split_phones}
+
+
+def test_lookup_links_keys_transitively():
+    sql = " ".join(neon_utils._CUSTOMER_CURRENT_PRIORITY_SQL.split())
+    assert sql.startswith("with recursive customer_rows as (")
+    assert "join key_links on key_links.from_key = linked_keys.linked_key" in sql
+    assert "select phone_key, min(linked_key) as group_key from linked_keys group by phone_key" in sql
 
 
 # --- row count / duplication ---------------------------------------------------
