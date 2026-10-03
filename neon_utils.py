@@ -891,6 +891,23 @@ def should_enforce_duplicate_phone_lock(team_code: str | None) -> bool:
     return normalize_team_code(team_code) == CRM_TEAM_CODE
 
 
+# How a team reads for a person: the same three choices the team dropdown
+# offers. An unrecognised code is shown as stored rather than being called
+# "no team", which would hide a real assignment.
+TEAM_DISPLAY_LABELS = {
+    CRM_TEAM_CODE: "CRM Team",
+    UPSELL_TEAM_CODE: "Upsell Team",
+}
+NO_TEAM_DISPLAY_LABEL = "ยังไม่เลือกทีม"
+
+
+def team_display_label(team_code: str | None) -> str:
+    code = normalize_team_code(team_code)
+    if not code:
+        return NO_TEAM_DISPLAY_LABEL
+    return TEAM_DISPLAY_LABELS.get(code, code)
+
+
 def ownership_side_for_team(team_code: str | None) -> str:
     """CRM team on one side, Upsell team and "no team yet" on the other."""
     if normalize_team_code(team_code) == CRM_TEAM_CODE:
@@ -912,27 +929,43 @@ def ownership_side_for_user_email(user_email: str | None) -> str:
 def _order_team_joins(alias: str = "d") -> str:
     # One small lookup per user, hash-joined once -- a lateral per row turned
     # the customer directory's count query into a per-row scan.
-    # "distinct on" keeps the newest active assignment, like the per-row
-    # "order by effective_from desc limit 1" it replaces.
+    # row_number() keeps the newest active assignment, like the per-row
+    # "order by effective_from desc limit 1" it replaces. Plain window
+    # functions rather than "distinct on", so the same SQL also runs under the
+    # tests' SQLite harness.
     return f"""
         left join (
-          select distinct on (lower(btrim(a.user_email)))
-                 lower(btrim(a.user_email)) as team_email_key,
-                 a.team_code
-          from public.crm_user_team_assignments a
-          where a.effective_to is null
-          order by lower(btrim(a.user_email)), a.effective_from desc
+          select team_email_key, team_code
+          from (
+            select
+              lower(btrim(a.user_email)) as team_email_key,
+              a.team_code,
+              row_number() over (
+                partition by lower(btrim(a.user_email))
+                order by a.effective_from desc
+              ) as rn
+            from public.crm_user_team_assignments a
+            where a.effective_to is null
+          ) ranked_email_team
+          where rn = 1
         ) uploaded_team on uploaded_team.team_email_key = lower(btrim({alias}.uploaded_by))
         left join (
-          select distinct on (upper(btrim(r.staff_code)))
-                 upper(btrim(r.staff_code)) as team_staff_key,
-                 a.team_code
-          from public.crm_user_roles r
-          join public.crm_user_team_assignments a
-            on a.user_email = lower(btrim(r.email))
-           and a.effective_to is null
-          where nullif(btrim(coalesce(r.staff_code, '')), '') is not null
-          order by upper(btrim(r.staff_code)), a.effective_from desc
+          select team_staff_key, team_code
+          from (
+            select
+              upper(btrim(r.staff_code)) as team_staff_key,
+              a.team_code,
+              row_number() over (
+                partition by upper(btrim(r.staff_code))
+                order by a.effective_from desc
+              ) as rn
+            from public.crm_user_roles r
+            join public.crm_user_team_assignments a
+              on a.user_email = lower(btrim(r.email))
+             and a.effective_to is null
+            where nullif(btrim(coalesce(r.staff_code, '')), '') is not null
+          ) ranked_staff_team
+          where rn = 1
         ) staff_team
           on staff_team.team_staff_key = upper(btrim({alias}.staff_code))
          and nullif(btrim(coalesce({alias}.staff_code, '')), '') is not null
@@ -1960,11 +1993,13 @@ def fetch_customer_export_rows(
                         d.uploaded_at,
                         d.created_at,
                         d.updated_at,
+                        {_ORDER_TEAM_CODE_SQL} as team_code,
                         case
                           when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
                           else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
                         end as phone_key
                       from public.crm_data_imports d
+                      {_order_team_joins("d")}
                       {where_sql}
                     ),
                     ranked as (
@@ -2001,6 +2036,7 @@ def fetch_customer_export_rows(
                       raw_data,
                       created_at,
                       updated_at,
+                      team_code,
                       cp.priority as priority
                     from ranked
                     left join current_priority cp
@@ -2038,8 +2074,10 @@ def fetch_customer_export_rows(
                   d.raw_data,
                   d.created_at,
                   d.updated_at,
-                  cp.priority as priority
+                  cp.priority as priority,
+                  {_ORDER_TEAM_CODE_SQL} as team_code
                 from public.crm_data_imports d
+                {_order_team_joins("d")}
                 left join current_priority cp
                   on cp.phone_key = case
                     when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)

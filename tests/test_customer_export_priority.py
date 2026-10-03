@@ -156,6 +156,33 @@ FOLLOWUPS = {
 }
 VALID_IDS = [str(o[0]) for o in ORDERS if o[3] == "valid"]
 
+# Which team an order row belongs to: staff_code resolved through crm_user_roles
+# first, else whoever uploaded it. row id -> (staff_code, uploaded_by)
+TEAM_SOURCE = {
+    1: ("CRMA", "crm.a@example.com"),       # CRM via staff_code
+    2: ("", "crm.a@example.com"),           # CRM via uploaded_by only
+    3: ("UP01", "crm.a@example.com"),       # staff_code wins over uploader
+    5: ("UP01", ""),                        # Upsell via staff_code
+    6: ("", "upsell.b@example.com"),        # Upsell via uploaded_by only
+    7: ("", "nobody@example.com"),          # known user, no team row
+    8: ("GHOST", "ghost@example.com"),      # unknown everywhere
+    9: ("CRMOLD", ""),                      # staff whose assignment moved teams
+}
+ROLES = [
+    ("crm.a@example.com", "CRMA"),
+    ("upsell.b@example.com", "UP01"),
+    ("old@example.com", "CRMOLD"),
+]
+TEAM_ASSIGNMENTS = [
+    ("crm.a@example.com", "CRM_TEAM", "2026-01-01", None),
+    ("upsell.b@example.com", "UPSELL_TEAM", "2026-01-01", None),
+    # moved from CRM to Upsell: only the newest active row counts
+    ("old@example.com", "CRM_TEAM", "2026-01-01", None),
+    ("old@example.com", "UPSELL_TEAM", "2026-06-01", None),
+    # an ended assignment must be ignored entirely
+    ("nobody@example.com", "CRM_TEAM", "2026-01-01", "2026-05-01"),
+]
+
 
 def _order_date(row_id: int) -> str:
     return (date(2026, 7, 1) + timedelta(days=row_id)).isoformat()
@@ -174,22 +201,40 @@ def _build_db() -> sqlite3.Connection:
           product_name text, quantity numeric, total_amount numeric, amount numeric,
           carrier text, tracking_no text, url text, customer_name text,
           phone1 text, phone2 text, address text, city text, province text,
-          postal_code text, owner text, staff_code text, order_status text,
-          raw_data text, import_status text, uploaded_at text, created_at text,
-          updated_at text
+          postal_code text, owner text, staff_code text, uploaded_by text,
+          order_status text, raw_data text, import_status text, uploaded_at text,
+          created_at text, updated_at text
         )
         """
     )
     db.execute("create table crm_lead_followups (customer_key text primary key, priority text)")
+    db.execute(
+        """
+        create table crm_user_team_assignments (
+          user_email text, team_code text, effective_from text, effective_to text
+        )
+        """
+    )
+    db.execute("create table crm_user_roles (email text, staff_code text)")
     for row_id, phone1, phone2, status in ORDERS:
         stamp = _timestamp(row_id)
+        staff_code, uploaded_by = TEAM_SOURCE.get(row_id, ("", ""))
         db.execute(
-            "insert into crm_data_imports (id, order_date, order_id, sku, phone1, phone2, owner,"
-            " import_status, uploaded_at, created_at, updated_at) values (?,?,?,?,?,?,?,?,?,?,?)",
-            (row_id, _order_date(row_id), f"ORD{row_id}", f"SKU{row_id}", phone1, phone2, f"owner{row_id}", status, stamp, stamp, stamp),
+            "insert into crm_data_imports (id, order_date, order_id, sku, phone1, phone2, owner, staff_code,"
+            " uploaded_by, import_status, uploaded_at, created_at, updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (row_id, _order_date(row_id), f"ORD{row_id}", f"SKU{row_id}", phone1, phone2, f"owner{row_id}",
+             staff_code, uploaded_by, status, stamp, stamp, stamp),
         )
     for key, priority in FOLLOWUPS.items():
         db.execute("insert into crm_lead_followups (customer_key, priority) values (?, ?)", (key, priority))
+    for email, staff_code in ROLES:
+        db.execute("insert into crm_user_roles (email, staff_code) values (?, ?)", (email, staff_code))
+    for email, team_code, effective_from, effective_to in TEAM_ASSIGNMENTS:
+        db.execute(
+            "insert into crm_user_team_assignments (user_email, team_code, effective_from, effective_to)"
+            " values (?,?,?,?)",
+            (email, team_code, effective_from, effective_to),
+        )
     return db
 
 
@@ -309,10 +354,11 @@ def _function_source(name: str) -> str:
 
 # --- column shape -------------------------------------------------------------
 
-def test_priority_header_sits_right_after_owner():
+def test_owner_is_followed_by_team_then_priority():
     assert CRM_EXPORT_HEADERS.count("ความสำคัญ") == 1
+    assert CRM_EXPORT_HEADERS.count("ทีม") == 1
     owner_index = CRM_EXPORT_HEADERS.index("พนักงานดูแล")
-    assert CRM_EXPORT_HEADERS[owner_index + 1] == "ความสำคัญ"
+    assert CRM_EXPORT_HEADERS[owner_index + 1 : owner_index + 3] == ["ทีม", "ความสำคัญ"]
 
 
 def test_latest_owner_mode_keeps_its_column_last():
@@ -341,6 +387,75 @@ def test_xlsx_contains_priority_column():
     assert ws.cell(row=2, column=column).value == "Premium"
     assert ws.cell(row=3, column=column).value == "NEW"
     assert ws.max_row == 3
+
+
+# --- team column ----------------------------------------------------------------
+
+def _team_by_id(rows) -> dict[str, str]:
+    return {str(r["id"]): customer_export_row(r)["ทีม"] for r in rows}
+
+
+def test_team_label_mapping():
+    assert neon_utils.team_display_label("CRM_TEAM") == "CRM Team"
+    assert neon_utils.team_display_label("UPSELL_TEAM") == "Upsell Team"
+    assert neon_utils.team_display_label(None) == "ยังไม่เลือกทีม"
+    assert neon_utils.team_display_label("") == "ยังไม่เลือกทีม"
+    assert neon_utils.team_display_label("crm team") == "CRM Team"  # normalised
+    # an unrecognised code is shown as stored, not hidden as "no team"
+    assert neon_utils.team_display_label("NIGHT_TEAM") == "NIGHT_TEAM"
+
+
+def test_team_comes_from_staff_code_then_uploader():
+    teams = _team_by_id(_export())
+    assert teams["1"] == "CRM Team"     # staff_code CRMA
+    assert teams["2"] == "CRM Team"     # uploader only
+    assert teams["3"] == "Upsell Team"  # staff_code wins over the CRM uploader
+    assert teams["5"] == "Upsell Team"
+    assert teams["6"] == "Upsell Team"
+
+
+def test_rows_without_a_team_read_not_chosen_yet():
+    teams = _team_by_id(_export())
+    assert teams["7"] == "ยังไม่เลือกทีม"   # assignment ended
+    assert teams["8"] == "ยังไม่เลือกทีม"   # unknown staff and uploader
+    assert teams["10"] == "ยังไม่เลือกทีม"  # no staff_code, no uploader
+
+
+def test_newest_active_assignment_wins_when_someone_changed_team():
+    assert _team_by_id(_export())["9"] == "Upsell Team"
+
+
+def test_team_appears_in_both_sheets():
+    for rows in (_export(), _export(latest_owner_only=True)):
+        exported = [customer_export_row(r) for r in rows]
+        assert all("ทีม" in row for row in exported)
+        assert {row["ทีม"] for row in exported} <= {"CRM Team", "Upsell Team", "ยังไม่เลือกทีม"}
+    # The latest-owner sheet keeps the newest row per customer, so it carries
+    # that row's team: row 2 (CRM uploader) and row 6 (Upsell uploader).
+    latest = {str(r["id"]): customer_export_row(r)["ทีม"] for r in _export(latest_owner_only=True)}
+    assert latest["2"] == "CRM Team"
+    assert latest["6"] == "Upsell Team"
+    assert "3" not in latest  # superseded by row 4 for that customer
+
+
+def test_team_column_lands_in_the_xlsx():
+    data = build_customer_export_xlsx([{"order_id": "1", "team_code": "CRM_TEAM"}, {"order_id": "2"}])
+    ws = openpyxl.load_workbook(BytesIO(data)).active
+    header = [c.value for c in ws[1]]
+    column = header.index("ทีม") + 1
+    assert header[column - 2] == "พนักงานดูแล"
+    assert ws.cell(row=2, column=column).value == "CRM Team"
+    assert ws.cell(row=3, column=column).value == "ยังไม่เลือกทีม"
+
+
+def test_team_join_does_not_change_the_exported_rows():
+    # The team lookup is one row per user, so it must not add or drop orders.
+    for mode in (False, True):
+        rows = _export(latest_owner_only=mode)
+        baseline = _export_without_priority(latest_owner_only=mode)
+        ids = [str(r["id"]) for r in rows]
+        assert ids == [str(r["id"]) for r in baseline]
+        assert len(ids) == len(set(ids))
 
 
 # --- ranking ------------------------------------------------------------------
