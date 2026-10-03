@@ -290,6 +290,13 @@ create index if not exists idx_crm_user_roles_staff_code
 """
 
 CRM_TEAM_CODE = "CRM_TEAM"
+UPSELL_TEAM_CODE = "UPSELL_TEAM"
+
+# Ownership runs on two sides that never overwrite each other: the CRM team, and
+# everyone else (Upsell team plus users with no team yet). A customer reached by
+# both sides has one owner per side, not one shared owner.
+OWNERSHIP_SIDE_CRM = "CRM"
+OWNERSHIP_SIDE_OPEN = "OPEN"
 
 
 # Which crm_data_imports row represents a customer right now. The customer
@@ -884,6 +891,80 @@ def should_enforce_duplicate_phone_lock(team_code: str | None) -> bool:
     return normalize_team_code(team_code) == CRM_TEAM_CODE
 
 
+def ownership_side_for_team(team_code: str | None) -> str:
+    """CRM team on one side, Upsell team and "no team yet" on the other."""
+    if normalize_team_code(team_code) == CRM_TEAM_CODE:
+        return OWNERSHIP_SIDE_CRM
+    return OWNERSHIP_SIDE_OPEN
+
+
+def ownership_side_for_user_email(user_email: str | None) -> str:
+    try:
+        return ownership_side_for_team(fetch_current_user_team_code(user_email))
+    except Exception:
+        # Unknown team is the open side: it must never silently gain CRM rights.
+        return OWNERSHIP_SIDE_OPEN
+
+
+# The team that owns an order row: the row's staff_code resolved through
+# crm_user_roles, else whoever uploaded it. Aliases are fixed, so a query may
+# use these joins once per crm_data_imports alias.
+def _order_team_joins(alias: str = "d") -> str:
+    # One small lookup per user, hash-joined once -- a lateral per row turned
+    # the customer directory's count query into a per-row scan.
+    # "distinct on" keeps the newest active assignment, like the per-row
+    # "order by effective_from desc limit 1" it replaces.
+    return f"""
+        left join (
+          select distinct on (lower(btrim(a.user_email)))
+                 lower(btrim(a.user_email)) as team_email_key,
+                 a.team_code
+          from public.crm_user_team_assignments a
+          where a.effective_to is null
+          order by lower(btrim(a.user_email)), a.effective_from desc
+        ) uploaded_team on uploaded_team.team_email_key = lower(btrim({alias}.uploaded_by))
+        left join (
+          select distinct on (upper(btrim(r.staff_code)))
+                 upper(btrim(r.staff_code)) as team_staff_key,
+                 a.team_code
+          from public.crm_user_roles r
+          join public.crm_user_team_assignments a
+            on a.user_email = lower(btrim(r.email))
+           and a.effective_to is null
+          where nullif(btrim(coalesce(r.staff_code, '')), '') is not null
+          order by upper(btrim(r.staff_code)), a.effective_from desc
+        ) staff_team
+          on staff_team.team_staff_key = upper(btrim({alias}.staff_code))
+         and nullif(btrim(coalesce({alias}.staff_code, '')), '') is not null
+    """
+
+
+_ORDER_TEAM_CODE_SQL = "coalesce(staff_team.team_code, uploaded_team.team_code)"
+_ORDER_TEAM_SIDE_SQL = (
+    f"case when upper(btrim(coalesce({_ORDER_TEAM_CODE_SQL}, ''))) = '{CRM_TEAM_CODE}'"
+    f" then '{OWNERSHIP_SIDE_CRM}' else '{OWNERSHIP_SIDE_OPEN}' end"
+)
+
+
+# Every phone reachable from the given ones through valid orders: an order that
+# carries two phones links them, so A-B plus B-C makes one customer group. The
+# lock reads the whole group, otherwise a CRM-owned customer stays open through
+# a second phone number.
+_LINKED_PHONES_SQL = """
+  with recursive linked_phones as (
+    select unnest(%s::text[]) as phone
+    union
+    select linked.phone
+    from linked_phones
+    join public.crm_data_imports d
+      on d.import_status = 'valid'
+     and (d.phone1 = linked_phones.phone or d.phone2 = linked_phones.phone)
+    cross join lateral (values (d.phone1), (d.phone2)) as linked(phone)
+    where nullif(linked.phone, '') is not null
+  )
+"""
+
+
 def _valid_duplicate_lock_phones(phone1: str | None, phone2: str | None) -> list[str]:
     phones: list[str] = []
     for value in (phone1, phone2):
@@ -929,50 +1010,40 @@ def find_duplicate_valid_order_by_phones(
         with conn.cursor() as cur:
             cur.execute(
                 f"""
+                {_LINKED_PHONES_SQL}
                 select
-                  id::text as id,
-                  order_id,
-                  owner,
-                  staff_code,
-                  uploaded_by,
-                  coalesce(staff_team.team_code, uploaded_team.team_code) as current_team_code,
+                  d.id::text as id,
+                  d.order_id,
+                  d.owner,
+                  d.staff_code,
+                  d.uploaded_by,
+                  {_ORDER_TEAM_CODE_SQL} as current_team_code,
                   case
-                    when phone1 = any(%s) then phone1
-                    when phone2 = any(%s) then phone2
+                    when d.phone1 in (select phone from linked_phones) then d.phone1
+                    when d.phone2 in (select phone from linked_phones) then d.phone2
                     else ''
                   end as matched_phone
                 from public.crm_data_imports d
-                left join lateral (
-                  select a.team_code
-                  from public.crm_user_team_assignments a
-                  where a.user_email = lower(btrim(d.uploaded_by))
-                    and a.effective_to is null
-                  order by a.effective_from desc
-                  limit 1
-                ) uploaded_team on true
-                left join lateral (
-                  select a.team_code
-                  from public.crm_user_roles r
-                  join public.crm_user_team_assignments a
-                    on a.user_email = lower(btrim(r.email))
-                   and a.effective_to is null
-                  where upper(btrim(r.staff_code)) = upper(btrim(d.staff_code))
-                  order by a.effective_from desc
-                  limit 1
-                ) staff_team on nullif(btrim(coalesce(d.staff_code, '')), '') is not null
-                where import_status = 'valid'
-                  and (phone1 = any(%s) or phone2 = any(%s))
+                {_order_team_joins("d")}
+                where d.import_status = 'valid'
                   and (
-                    nullif(trim(coalesce(owner, '')), '') is not null
-                    or nullif(trim(coalesce(staff_code, '')), '') is not null
+                    d.phone1 in (select phone from linked_phones)
+                    or d.phone2 in (select phone from linked_phones)
                   )
+                  and (
+                    nullif(trim(coalesce(d.owner, '')), '') is not null
+                    or nullif(trim(coalesce(d.staff_code, '')), '') is not null
+                  )
+                  and {_ORDER_TEAM_SIDE_SQL} = %s
                 order by {_current_customer_row_order("d")}
                 limit 1
                 """,
-                [phones, phones, phones, phones],
+                [phones, OWNERSHIP_SIDE_CRM],
             )
-            # Only the newest row counts: it is the customer's current owner.
-            # Older rows are history and must never block a reassigned customer.
+            # The newest CRM-side row in the linked phone group is the CRM owner.
+            # Reading only the newest row of any team would hand the customer
+            # over as soon as Upsell adds a newer order, and reading older CRM
+            # rows would block a customer CRM has since reassigned.
             row = cur.fetchone()
             if not row:
                 return None
@@ -1089,6 +1160,7 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
     if not lock_result.get("allowed", True):
         raise ValueError(format_duplicate_phone_lock_error(lock_result.get("duplicate")))
     duplicate_lock_warning = clean(lock_result.get("warning"))
+    actor_side = ownership_side_for_team(lock_result.get("team_code"))
 
     has_quantity = neon_column_exists("crm_data_imports", "quantity")
     has_amount = neon_column_exists("crm_data_imports", "amount")
@@ -1114,17 +1186,27 @@ def upsert_manual_order_items(payload: dict, items: list[dict]) -> dict:
         try:
             with conn.cursor() as cur:
                 if force_owner_update and phones and owner:
+                    # Adding an order moves ownership only on the actor's own
+                    # side. An Upsell (or no-team) order must never rewrite the
+                    # CRM owner, and vice versa; crossing sides stays a
+                    # deliberate assignment on the customer page.
                     cur.execute(
-                        """
+                        f"""
                         update public.crm_data_imports
                         set owner = %s,
                             staff_code = %s,
                             updated_by = %s,
                             updated_at = %s
-                        where import_status = 'valid'
-                          and (phone1 = any(%s) or phone2 = any(%s))
+                        where id in (
+                          select d.id
+                          from public.crm_data_imports d
+                          {_order_team_joins("d")}
+                          where d.import_status = 'valid'
+                            and (d.phone1 = any(%s) or d.phone2 = any(%s))
+                            and {_ORDER_TEAM_SIDE_SQL} = %s
+                        )
                         """,
-                        [owner, staff_code, updated_by, now, phones, phones],
+                        [owner, staff_code, updated_by, now, phones, phones, actor_side],
                     )
 
                 crm_order_id = None
@@ -1656,16 +1738,24 @@ def fetch_customer_page(
           uploaded_at,
           updated_at,
           case
-            when nullif(phone1, '') is not null and nullif(phone2, '') is not null then least(phone1, phone2)
-            else coalesce(nullif(phone1, ''), nullif(phone2, ''), id::text)
-          end as phone_key
+            when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
+            else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
+          end as phone_key,
+          {_ORDER_TEAM_SIDE_SQL} as team_side
         from public.crm_data_imports d
+        {_order_team_joins("d")}
         {where}
       ) keyed
     """
     with neon_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"select count(distinct phone_key) as total {source_sql}", params)
+            # One entry per customer per side: a customer both teams have
+            # ordered for appears twice, so the CRM owner is never hidden
+            # behind a newer Upsell order.
+            cur.execute(
+                f"select count(*) as total from (select distinct phone_key, team_side {source_sql}) entries",
+                params,
+            )
             total = int(cur.fetchone()["total"] or 0)
             cur.execute(
                 f"""
@@ -1673,13 +1763,14 @@ def fetch_customer_page(
                   select
                     keyed.*,
                     row_number() over (
-                      partition by phone_key
+                      partition by phone_key, team_side
                       order by {_current_customer_row_order("keyed")}
                     ) as rn
                   {source_sql}
                 )
                 select
                   {select_cols},
+                  ranked.team_side,
                   coalesce(latest_followup.followup_status, '0') as followup_status
                 from ranked
                 left join lateral (
