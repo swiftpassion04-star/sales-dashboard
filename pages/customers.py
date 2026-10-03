@@ -267,6 +267,18 @@ def customer_export_row(row: dict) -> dict:
     }
 
 
+# A customer both teams have ordered for appears once per side, so the row has
+# to say which side it is -- otherwise the two entries look identical.
+TEAM_SIDE_LABELS = {
+    neon.OWNERSHIP_SIDE_CRM: "CRM",
+    neon.OWNERSHIP_SIDE_OPEN: "Upsell / ไม่มีทีม",
+}
+
+
+def team_side_label(value) -> str:
+    return TEAM_SIDE_LABELS.get(clean(value), "-")
+
+
 def render_customer_table(rows: list[dict], user: dict) -> None:
     can_assign_owner = can_assign_customer_owner(user)
     owner_options = []
@@ -279,14 +291,14 @@ def render_customer_table(rows: list[dict], user: dict) -> None:
             owner_name_to_staff_code = {}
     selected_id = clean(st.session_state.get("customers_selected_id"))
     st.markdown('<div class="crm-table-header-soft">', unsafe_allow_html=True)
-    header_cols = st.columns([0.75, 1.35, 1, 1.35, 1, 1, 0.8])
-    for col, label in zip(header_cols, ["ประวัติ", "ชื่อลูกค้า", "เบอร์โทร", "สินค้า", "ผู้ดูแล", "ติดตาม", "URL"]):
+    header_cols = st.columns([0.75, 1.35, 1, 1.35, 1, 0.9, 1, 0.8])
+    for col, label in zip(header_cols, ["ประวัติ", "ชื่อลูกค้า", "เบอร์โทร", "สินค้า", "ผู้ดูแล", "ทีม", "ติดตาม", "URL"]):
         col.markdown(f"**{label}**")
     st.markdown("</div>", unsafe_allow_html=True)
     for row in rows:
         record_id = clean(row.get("id"))
         url = clean(row.get("product_url"))
-        cols = st.columns([0.75, 1.35, 1, 1.35, 1, 1, 0.8])
+        cols = st.columns([0.75, 1.35, 1, 1.35, 1, 0.9, 1, 0.8])
         cols[0].button(
             "ดูประวัติ",
             key=f"open_customer_history_{record_id}",
@@ -298,11 +310,12 @@ def render_customer_table(rows: list[dict], user: dict) -> None:
         cols[2].write(clean(row.get("phone1")) or clean(row.get("phone2")) or "-")
         cols[3].write(clean(row.get("product_name")) or "-")
         cols[4].write(clean(row.get("sales_staff")) or "-")
-        cols[5].write(follow_marker_display(row.get("followup_status")))
+        cols[5].write(team_side_label(row.get("team_side")))
+        cols[6].write(follow_marker_display(row.get("followup_status")))
         if url:
-            cols[6].markdown(f"[เปิดลิงก์]({url})")
+            cols[7].markdown(f"[เปิดลิงก์]({url})")
         else:
-            cols[6].write("-")
+            cols[7].write("-")
         if selected_id == record_id:
             render_customer_detail(row, owner_options, owner_name_to_staff_code, user, can_assign_owner)
 

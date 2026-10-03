@@ -217,11 +217,11 @@ class FakeCursor:
 
     def ordered_rows(self):
         if "order by " not in self.statement:
-            return list(self.rows)
+            return self.visible_rows()
         main_order = self.statement.rsplit(" limit ", 1)[0].rsplit("order by ", 1)[-1]
         keys = parse_order_keys(main_order)
         return sorted(
-            self.rows,
+            self.visible_rows(),
             key=cmp_to_key(lambda left, right: compare_order_keys(left, right, keys)),
         )
 
@@ -234,6 +234,23 @@ class FakeCursor:
     def execute(self, statement, params):
         self.statement = " ".join(statement.split()).lower()
         self.params = params
+        # The real query keeps only one ownership side; mirror that here so the
+        # canned rows behave the way the database would hand them back.
+        self.side = (
+            params[-1]
+            if params and params[-1] in (neon.OWNERSHIP_SIDE_CRM, neon.OWNERSHIP_SIDE_OPEN)
+            else None
+        )
+
+    def visible_rows(self):
+        if not getattr(self, "side", None):
+            return list(self.rows)
+        want_crm = self.side == neon.OWNERSHIP_SIDE_CRM
+        return [
+            row
+            for row in self.rows
+            if (neon.normalize_team_code(row.get("current_team_code")) == neon.CRM_TEAM_CODE) == want_crm
+        ]
 
     def fetchone(self):
         rows = self.ordered_rows()
@@ -280,7 +297,10 @@ finally:
     neon.ensure_crm_data_imports_schema = original_ensure_schema
 
 assert duplicate == duplicate_row()
-assert "phone1 = any(%s) or phone2 = any(%s)" in fake_connection.cursor_instance.statement
+# The lock reads the whole linked phone group, not just the two phones typed in.
+assert "with recursive linked_phones as" in fake_connection.cursor_instance.statement
+assert "d.phone1 in (select phone from linked_phones)" in fake_connection.cursor_instance.statement
+assert "d.phone2 in (select phone from linked_phones)" in fake_connection.cursor_instance.statement
 assert "order by d.order_date desc nulls last, d.uploaded_at desc, d.id desc" in fake_connection.cursor_instance.statement
 assert "public.crm_user_team_assignments" in fake_connection.cursor_instance.statement
 assert "public.crm_user_roles" in fake_connection.cursor_instance.statement
@@ -289,9 +309,7 @@ assert "lower(btrim(d.uploaded_by))" in fake_connection.cursor_instance.statemen
 assert "effective_to is null" in fake_connection.cursor_instance.statement
 assert fake_connection.cursor_instance.params == [
     ["0812345678", "0912345678"],
-    ["0812345678", "0912345678"],
-    ["0812345678", "0912345678"],
-    ["0812345678", "0912345678"],
+    neon.OWNERSHIP_SIDE_CRM,
 ]
 
 
@@ -339,12 +357,22 @@ own_history_row = row_with(
 )
 assert find_conflict_for_rows([crm_current_row, own_history_row]) == crm_current_row
 
-# newest order belongs to Upsell, CRM appears only in history -> allowed
+# A newer order from the other side does NOT hand the customer over: ownership
+# runs per side, so the newest CRM row still decides the CRM side. Upsell and
+# no-team orders are simply invisible to this query.
 crm_history_row = row_with(duplicate_row(), order_date="2026-01-01", updated_at="2026-08-30")
-assert find_conflict_for_rows([row_with(upsell_duplicate_row(), order_date="2026-08-01"), crm_history_row]) is None
+assert (
+    find_conflict_for_rows([row_with(upsell_duplicate_row(), order_date="2026-08-01"), crm_history_row])
+    == crm_history_row
+)
+assert (
+    find_conflict_for_rows([row_with(unassigned_duplicate_row(), order_date="2026-08-01"), crm_history_row])
+    == crm_history_row
+)
 
-# newest order has no team at all, CRM appears only in history -> allowed
-assert find_conflict_for_rows([row_with(unassigned_duplicate_row(), order_date="2026-08-01"), crm_history_row]) is None
+# ...and with no CRM row anywhere in the group, nothing blocks.
+assert find_conflict_for_rows([row_with(upsell_duplicate_row(), order_date="2026-08-01")]) is None
+assert find_conflict_for_rows([row_with(unassigned_duplicate_row(), order_date="2026-08-01")]) is None
 
 # same staff_code on the current row -> allowed even when the display name differs
 assert find_conflict_for_rows([row_with(same_staff_code_duplicate_row(), order_date="2026-08-01"), crm_history_row]) is None
