@@ -1815,30 +1815,45 @@ def fetch_customer_page(
                     ) as rn
                   from keyed
                   join customer_groups on customer_groups.phone_key = keyed.phone_key
+                ),
+                page as (
+                  select *
+                  from ranked
+                  where rn = 1
+                  order by {_current_customer_row_order("ranked")}
+                  limit %s offset %s
+                ),
+                followup as (
+                  -- Only the rows this page shows: this lookup has no index to
+                  -- use (it matches an id OR either phone column), so running
+                  -- it before the limit meant one scan of crm_lead_followups
+                  -- per customer in the whole directory.
+                  select
+                    page.id as followup_page_id,
+                    (
+                      select coalesce(l.followup_status, l.follow_up_status)
+                      from public.crm_lead_followups l
+                      where l.crm_data_import_id = page.id
+                         or (
+                           nullif(l.phone1, '') is not null
+                           and (l.phone1 = page.phone1 or l.phone1 = page.phone2)
+                         )
+                         or (
+                           nullif(l.phone2, '') is not null
+                           and (l.phone2 = page.phone1 or l.phone2 = page.phone2)
+                         )
+                      order by l.updated_at desc nulls last, l.created_at desc nulls last
+                      limit 1
+                    ) as followup_status
+                  from page
                 )
                 select
                   {select_cols},
-                  ranked.team_side,
-                  coalesce(latest_followup.followup_status, '0') as followup_status
-                from ranked
-                left join lateral (
-                  select coalesce(l.followup_status, l.follow_up_status) as followup_status
-                  from public.crm_lead_followups l
-                  where l.crm_data_import_id = ranked.id
-                     or (
-                       nullif(l.phone1, '') is not null
-                       and (l.phone1 = ranked.phone1 or l.phone1 = ranked.phone2)
-                     )
-                     or (
-                       nullif(l.phone2, '') is not null
-                       and (l.phone2 = ranked.phone1 or l.phone2 = ranked.phone2)
-                     )
-                  order by l.updated_at desc nulls last, l.created_at desc nulls last
-                  limit 1
-                ) latest_followup on true
-                where rn = 1
-                order by {_current_customer_row_order("ranked")}
-                limit %s offset %s
+                  page.team_side,
+                  coalesce(followup.followup_status, '0') as followup_status
+                from page
+                left join followup on followup.followup_page_id = page.id
+                order by {_current_customer_row_order("page")}
                 """,
                 params + [limit, offset],
             )

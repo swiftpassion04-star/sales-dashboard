@@ -221,7 +221,7 @@ def test_directory_lists_one_entry_per_customer_per_side():
     assert "partition by customer_groups.group_key, keyed.team_side" in DIRECTORY_SOURCE
     assert "select distinct customer_groups.group_key, keyed.team_side" in DIRECTORY_SOURCE
     assert "{_ORDER_TEAM_SIDE_SQL} as team_side" in DIRECTORY_SOURCE
-    assert "ranked.team_side," in DIRECTORY_SOURCE
+    assert "page.team_side," in DIRECTORY_SOURCE  # selected from the page CTE
 
 
 def test_newest_row_wins_within_a_side():
