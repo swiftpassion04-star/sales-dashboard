@@ -155,4 +155,36 @@ def test_grouping_runs_over_all_valid_rows_not_the_filtered_page():
 
 def test_both_sides_still_get_their_own_entry():
     assert "keyed.team_side" in DIRECTORY_SOURCE
-    assert "ranked.team_side," in DIRECTORY_SOURCE
+    assert "page.team_side," in DIRECTORY_SOURCE
+
+
+# --- the follow-up status lookup runs on the page, not the whole directory -------
+
+def test_the_page_is_cut_before_the_followup_status_is_looked_up():
+    # That lookup matches an id OR either phone column, so no index can serve
+    # it; running it before the limit meant one scan of crm_lead_followups per
+    # customer in the whole directory (~25k) instead of per row shown.
+    page_cte = DIRECTORY_SOURCE.index("page as (")
+    followup_cte = DIRECTORY_SOURCE.index("followup as (")
+    lookup = DIRECTORY_SOURCE.index("public.crm_lead_followups l")
+    assert page_cte < followup_cte < lookup
+    assert DIRECTORY_SOURCE.index("limit %s offset %s") < followup_cte
+
+
+def test_the_followup_lookup_reads_only_page_rows():
+    followup_part = DIRECTORY_SOURCE.split("followup as (", 1)[1].split("select {select_cols}", 1)[0]
+    assert "from page" in followup_part
+    assert "page.id" in followup_part and "page.phone1" in followup_part
+    assert "ranked" not in followup_part
+
+
+def test_the_page_order_is_applied_again_on_the_outer_select():
+    # A CTE does not guarantee row order, so the final select repeats it.
+    assert '{_current_customer_row_order("ranked")}' in DIRECTORY_SOURCE
+    assert '{_current_customer_row_order("page")}' in DIRECTORY_SOURCE
+
+
+def test_the_followup_join_cannot_duplicate_a_page_row():
+    assert "page.id as followup_page_id" in DIRECTORY_SOURCE
+    assert "left join followup on followup.followup_page_id = page.id" in DIRECTORY_SOURCE
+    assert "coalesce(followup.followup_status, '0') as followup_status" in DIRECTORY_SOURCE
