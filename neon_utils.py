@@ -972,6 +972,53 @@ def _order_team_joins(alias: str = "d") -> str:
     """
 
 
+# Whether the person who owns an order row is still an active user, resolved
+# the way the owning team is: by the row's staff_code, falling back to whoever
+# uploaded it. Aliases are fixed, so a query uses these joins once per
+# crm_data_imports alias.
+def _owner_activity_joins(alias: str = "d") -> str:
+    return f"""
+        left join (
+          select upper(btrim(r.staff_code)) as owner_staff_key, bool_or(r.is_active) as owner_active
+          from public.crm_user_roles r
+          where nullif(btrim(coalesce(r.staff_code, '')), '') is not null
+          group by upper(btrim(r.staff_code))
+        ) owner_by_staff
+          on owner_by_staff.owner_staff_key = upper(btrim({alias}.staff_code))
+         and nullif(btrim(coalesce({alias}.staff_code, '')), '') is not null
+        left join (
+          select lower(btrim(r.email)) as owner_email_key, bool_or(r.is_active) as owner_active
+          from public.crm_user_roles r
+          group by lower(btrim(r.email))
+        ) owner_by_email
+          on owner_by_email.owner_email_key = lower(btrim({alias}.uploaded_by))
+    """
+
+
+# Deactivating a user releases their customers: the owner reads as empty and
+# the duplicate-phone lock stops holding the customer, so whoever adds the next
+# order takes over. Nothing is written -- staff_code stays on the row, so the
+# sales reports keep counting that person's past orders, and reactivating the
+# user brings their customers back on its own.
+#
+# Only a positively inactive user counts. An owner who is not a user at all
+# (imported names, staff who never had a login) keeps their ownership, which is
+# why the staff_code verdict wins and uploaded_by is consulted only when the
+# row carries no staff_code of a known user.
+_OWNER_IS_INACTIVE_SQL = """
+  coalesce(
+    owner_by_staff.owner_active,
+    case when owner_by_staff.owner_staff_key is null then owner_by_email.owner_active end,
+    true
+  ) = false
+"""
+
+
+def _active_owner_sql(column: str) -> str:
+    """The owner as it should read: empty once that user is deactivated."""
+    return f"case when {_OWNER_IS_INACTIVE_SQL} then '' else {column} end"
+
+
 _ORDER_TEAM_CODE_SQL = "coalesce(staff_team.team_code, uploaded_team.team_code)"
 _ORDER_TEAM_SIDE_SQL = (
     f"case when upper(btrim(coalesce({_ORDER_TEAM_CODE_SQL}, ''))) = '{CRM_TEAM_CODE}'"
@@ -1058,6 +1105,7 @@ def find_duplicate_valid_order_by_phones(
                   end as matched_phone
                 from public.crm_data_imports d
                 {_order_team_joins("d")}
+                {_owner_activity_joins("d")}
                 where d.import_status = 'valid'
                   and (
                     d.phone1 in (select phone from linked_phones)
@@ -1067,6 +1115,9 @@ def find_duplicate_valid_order_by_phones(
                     nullif(trim(coalesce(d.owner, '')), '') is not null
                     or nullif(trim(coalesce(d.staff_code, '')), '') is not null
                   )
+                  -- A deactivated user does not hold the customer: the next
+                  -- CRM member to add an order takes over.
+                  and not ({_OWNER_IS_INACTIVE_SQL})
                   and {_ORDER_TEAM_SIDE_SQL} = %s
                 order by {_current_customer_row_order("d")}
                 limit 1
@@ -1752,6 +1803,7 @@ def fetch_customer_page(
           id,
           customer_name,
           owner,
+          {_active_owner_sql("d.owner")} as active_owner,
           staff_code,
           order_id,
           url,
@@ -1777,6 +1829,7 @@ def fetch_customer_page(
           {_ORDER_TEAM_SIDE_SQL} as team_side
         from public.crm_data_imports d
         {_order_team_joins("d")}
+        {_owner_activity_joins("d")}
         {where}
       ) keyed
     """
@@ -2024,8 +2077,8 @@ def fetch_customer_export_rows(
                         d.city,
                         d.province,
                         d.postal_code,
-                        d.owner,
-                        d.owner as latest_owner,
+                        {_active_owner_sql("d.owner")} as owner,
+                        {_active_owner_sql("d.owner")} as latest_owner,
                         d.order_status,
                         d.raw_data,
                         d.uploaded_at,
@@ -2038,6 +2091,7 @@ def fetch_customer_export_rows(
                         end as phone_key
                       from public.crm_data_imports d
                       {_order_team_joins("d")}
+                      {_owner_activity_joins("d")}
                       {where_sql}
                     ),
                     ranked as (
@@ -2107,7 +2161,7 @@ def fetch_customer_export_rows(
                   d.city,
                   d.province,
                   d.postal_code,
-                  d.owner,
+                  {_active_owner_sql("d.owner")} as owner,
                   d.order_status,
                   d.raw_data,
                   d.created_at,
@@ -2116,6 +2170,7 @@ def fetch_customer_export_rows(
                   {_ORDER_TEAM_CODE_SQL} as team_code
                 from public.crm_data_imports d
                 {_order_team_joins("d")}
+                {_owner_activity_joins("d")}
                 left join current_priority cp
                   on cp.phone_key = case
                     when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
@@ -2176,7 +2231,7 @@ def customer_select_columns() -> str:
       id::text as id,
       id::text as customer_id,
       customer_name as customer,
-      owner as sales_staff,
+      active_owner as sales_staff,
       staff_code,
       order_id,
       url as product_url,
@@ -2206,10 +2261,14 @@ def fetch_customer_by_id(customer_id: str) -> list[dict]:
             cur.execute(
                 """
                 select
-                  """ + customer_select_columns() + """
-                from public.crm_data_imports
-                where id = %s
-                limit 1
+                  """ + customer_select_columns() + f"""
+                from (
+                  select d.*, {_active_owner_sql("d.owner")} as active_owner
+                  from public.crm_data_imports d
+                  {_owner_activity_joins("d")}
+                  where d.id = %s
+                  limit 1
+                ) owned
                 """,
                 [customer_id],
             )
@@ -2226,10 +2285,14 @@ def fetch_customer_360_base(customer_id: str) -> list[dict]:
             cur.execute(
                 """
                 select
-                  """ + customer_select_columns() + """
-                from public.crm_data_imports
-                where id = %s
-                limit 1
+                  """ + customer_select_columns() + f"""
+                from (
+                  select d.*, {_active_owner_sql("d.owner")} as active_owner
+                  from public.crm_data_imports d
+                  {_owner_activity_joins("d")}
+                  where d.id = %s
+                  limit 1
+                ) owned
                 """,
                 [customer_id],
             )
