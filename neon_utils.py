@@ -1782,24 +1782,39 @@ def fetch_customer_page(
     """
     with neon_connection() as conn:
         with conn.cursor() as cur:
-            # One entry per customer per side: a customer both teams have
-            # ordered for appears twice, so the CRM owner is never hidden
-            # behind a newer Upsell order.
+            # One entry per customer per side. The customer is the phone group,
+            # not the single phone_key: an order that adds a lower-numbered
+            # backup phone lands under a different key, and grouping by key
+            # alone listed one person twice. Grouping runs over all valid rows,
+            # so a filter that hides the linking order cannot split them again.
+            # Both sides still get their own entry, so the CRM owner is never
+            # hidden behind a newer Upsell order.
             cur.execute(
-                f"select count(*) as total from (select distinct phone_key, team_side {source_sql}) entries",
+                f"""
+                with recursive {_CUSTOMER_PHONE_GROUP_CTES},
+                keyed as (select * {source_sql})
+                select count(*) as total from (
+                  select distinct customer_groups.group_key, keyed.team_side
+                  from keyed
+                  join customer_groups on customer_groups.phone_key = keyed.phone_key
+                ) entries
+                """,
                 params,
             )
             total = int(cur.fetchone()["total"] or 0)
             cur.execute(
                 f"""
-                with ranked as (
+                with recursive {_CUSTOMER_PHONE_GROUP_CTES},
+                keyed as (select * {source_sql}),
+                ranked as (
                   select
                     keyed.*,
                     row_number() over (
-                      partition by phone_key, team_side
+                      partition by customer_groups.group_key, keyed.team_side
                       order by {_current_customer_row_order("keyed")}
                     ) as rn
-                  {source_sql}
+                  from keyed
+                  join customer_groups on customer_groups.phone_key = keyed.phone_key
                 )
                 select
                   {select_cols},
@@ -1877,8 +1892,12 @@ def _customer_priority_level_sql(rank: str) -> str:
 # Records of deleted orders match no row and are ignored. A key whose group has
 # no record has no row here; the export's left join gives null, which
 # normalize_followup_priority turns into "NEW".
-_CUSTOMER_CURRENT_PRIORITY_SQL = f"""
-  with recursive customer_rows as (
+# phone_key -> group_key over valid rows: one customer, however many keys their
+# orders ended up under. Written once here and used by every query that has to
+# treat a customer as one person; the caller supplies "with recursive" because
+# linked_keys is the transitive closure of keys sharing a phone number.
+_CUSTOMER_PHONE_GROUP_CTES = """
+  customer_rows as (
     select
       id,
       phone1,
@@ -1911,7 +1930,11 @@ _CUSTOMER_CURRENT_PRIORITY_SQL = f"""
     select phone_key, min(linked_key) as group_key
     from linked_keys
     group by phone_key
-  ),
+  )
+"""
+
+_CUSTOMER_CURRENT_PRIORITY_SQL = f"""
+  with recursive {_CUSTOMER_PHONE_GROUP_CTES},
   priority_history as (
     select customer_rows.phone_key, {_customer_priority_rank_sql("fu.priority")} as priority_rank
     from customer_rows

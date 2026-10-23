@@ -216,8 +216,10 @@ def test_the_save_layer_enforces_the_lock_itself_not_just_the_ui():
 
 
 def test_directory_lists_one_entry_per_customer_per_side():
-    assert "partition by phone_key, team_side" in DIRECTORY_SOURCE
-    assert "select distinct phone_key, team_side" in DIRECTORY_SOURCE
+    # The customer is the phone group, not a single phone_key -- see
+    # tests/test_customer_directory_grouping.py. The side split is unchanged.
+    assert "partition by customer_groups.group_key, keyed.team_side" in DIRECTORY_SOURCE
+    assert "select distinct customer_groups.group_key, keyed.team_side" in DIRECTORY_SOURCE
     assert "{_ORDER_TEAM_SIDE_SQL} as team_side" in DIRECTORY_SOURCE
     assert "ranked.team_side," in DIRECTORY_SOURCE
 
@@ -235,7 +237,7 @@ def test_directory_sql_carries_the_side_split_when_executed():
     with _patched([{"total": 0, "id": "1", "order_date": "2026-08-01"}]) as connection:
         neon.fetch_customer_page({}, 10, 1, user=None, enforce_user_scope=False)
     statement = connection.cursor_instance.statement
-    assert "partition by phone_key, team_side" in statement
+    assert "partition by customer_groups.group_key, keyed.team_side" in statement
     assert "crm_user_team_assignments" in statement
     assert "as team_side" in statement
 
