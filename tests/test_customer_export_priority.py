@@ -215,7 +215,9 @@ def _build_db() -> sqlite3.Connection:
         )
         """
     )
-    db.execute("create table crm_user_roles (email text, staff_code text)")
+    # is_active drives whether a deactivated user's customers still show an
+    # owner; every user in this fixture is active.
+    db.execute("create table crm_user_roles (email text, staff_code text, is_active int not null default 1)")
     for row_id, phone1, phone2, status in ORDERS:
         stamp = _timestamp(row_id)
         staff_code, uploaded_by = TEAM_SOURCE.get(row_id, ("", ""))
@@ -243,6 +245,7 @@ def _to_sqlite(sql: str) -> str:
     sql = re.sub(r"([A-Za-z_][\w.]*)::(\w+)", r"cast(\1 as \2)", sql)
     sql = re.sub(r"\bleast\(", "min(", sql)
     sql = re.sub(r"\bbtrim\(", "trim(", sql)
+    sql = re.sub(r"\bbool_or\(", "max(", sql)  # SQLite has no bool_or
     return sql.replace("%s", "?")
 
 
