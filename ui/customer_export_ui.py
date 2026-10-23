@@ -39,8 +39,31 @@ CRM_EXPORT_HEADERS = [
     "พนักงานดูแล",
     "ทีม",
     "ความสำคัญ",
+    "วันนัดติดตาม",
+    "โน้ตติดตาม",
 ]
 CRM_LATEST_OWNER_HEADER = "ผู้ดูแลล่าสุด"
+
+# พ.ศ. = ค.ศ. + 543. Written as text in วว/ดด/ปปปป, which is how the office
+# reads a date -- Excel then sorts this column as text, not by date.
+BUDDHIST_YEAR_OFFSET = 543
+
+
+def followup_date_display(value) -> str:
+    """A follow-up appointment date as วว/ดด/ปปปป in พ.ศ., or blank."""
+    if value in (None, ""):
+        return ""
+    if isinstance(value, datetime):
+        value = value.date()
+    if not isinstance(value, date):
+        text = str(value).strip()
+        if not text:
+            return ""
+        try:
+            value = date.fromisoformat(text[:10])
+        except ValueError:
+            return text
+    return f"{value.day:02d}/{value.month:02d}/{value.year + BUDDHIST_YEAR_OFFSET}"
 
 
 def render_customer_export_panel(
@@ -204,6 +227,10 @@ def customer_export_row(row: dict, *, include_latest_owner: bool = False) -> dic
         # (neon_utils.CUSTOMER_PRIORITY_LEVELS) -- on every order row of that
         # customer. With no level anywhere it reads "NEW".
         "ความสำคัญ": normalize_followup_priority(row.get("priority")),
+        # From the customer's most recently updated follow-up record, so both
+        # read together: the note explains the date next to it.
+        "วันนัดติดตาม": followup_date_display(row.get("followup_date")),
+        "โน้ตติดตาม": clean(row.get("followup_note")),
     }
     if include_latest_owner:
         export_row[CRM_LATEST_OWNER_HEADER] = pick("latest_owner", "พนักงานดูแล", "ผู้ดูแล")

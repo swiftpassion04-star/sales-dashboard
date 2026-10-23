@@ -156,6 +156,25 @@ FOLLOWUPS = {
 }
 VALID_IDS = [str(o[0]) for o in ORDERS if o[3] == "valid"]
 
+# Appointment date and note per follow-up record. The export reads the
+# customer's most recently touched record, so updated_at decides.
+FOLLOWUP_DETAILS = {
+    "customer_id:1": {"next_followup_date": "2026-10-07", "followup_note": "โทรเช้า", "updated_at": "2026-09-01 10:00:00"},
+    # same customer, two records: the newer one wins
+    "customer_id:17": {"next_followup_date": "2026-08-01", "followup_note": "เก่า", "updated_at": "2026-08-01 09:00:00"},
+    "customer_id:18": {"next_followup_date": "2026-12-25", "followup_note": "ล่าสุด", "updated_at": "2026-09-20 09:00:00"},
+    # only the legacy columns are filled
+    "customer_id:3": {"follow_up_date": "2026-11-30", "follow_up_note": "คอลัมน์เก่า", "updated_at": "2026-09-05 08:00:00"},
+    # the newest record cleared the date but kept a note
+    "customer_id:5": {"followup_note": "ไม่มีวันนัด", "updated_at": "2026-09-10 08:00:00"},
+    "customer_id:6": {"next_followup_date": "2026-07-07", "updated_at": "2026-01-01 08:00:00"},
+    # split phone keys: the newer record sits on the other key of the same customer
+    "customer_id:50": {"next_followup_date": "2026-05-05", "followup_note": "คีย์แรก", "updated_at": "2026-02-01 08:00:00"},
+    "customer_id:51": {"next_followup_date": "2026-06-06", "followup_note": "คีย์ที่สอง", "updated_at": "2026-09-30 08:00:00"},
+    # no updated_at: created_at still counts
+    "customer_id:13": {"next_followup_date": "2026-03-03", "created_at": "2026-03-01 08:00:00"},
+}
+
 # Which team an order row belongs to: staff_code resolved through crm_user_roles
 # first, else whoever uploaded it. row id -> (staff_code, uploaded_by)
 TEAM_SOURCE = {
@@ -207,7 +226,16 @@ def _build_db() -> sqlite3.Connection:
         )
         """
     )
-    db.execute("create table crm_lead_followups (customer_key text primary key, priority text)")
+    db.execute(
+        """
+        create table crm_lead_followups (
+          customer_key text primary key, priority text,
+          next_followup_date text, follow_up_date text,
+          followup_note text, follow_up_note text,
+          updated_at text, created_at text
+        )
+        """
+    )
     db.execute(
         """
         create table crm_user_team_assignments (
@@ -228,7 +256,17 @@ def _build_db() -> sqlite3.Connection:
              staff_code, uploaded_by, status, stamp, stamp, stamp),
         )
     for key, priority in FOLLOWUPS.items():
-        db.execute("insert into crm_lead_followups (customer_key, priority) values (?, ?)", (key, priority))
+        extra = FOLLOWUP_DETAILS.get(key, {})
+        db.execute(
+            "insert into crm_lead_followups (customer_key, priority, next_followup_date, follow_up_date,"
+            " followup_note, follow_up_note, updated_at, created_at) values (?,?,?,?,?,?,?,?)",
+            (
+                key, priority,
+                extra.get("next_followup_date"), extra.get("follow_up_date"),
+                extra.get("followup_note"), extra.get("follow_up_note"),
+                extra.get("updated_at"), extra.get("created_at"),
+            ),
+        )
     for email, staff_code in ROLES:
         db.execute("insert into crm_user_roles (email, staff_code) values (?, ?)", (email, staff_code))
     for email, team_code, effective_from, effective_to in TEAM_ASSIGNMENTS:
@@ -459,6 +497,100 @@ def test_team_join_does_not_change_the_exported_rows():
         ids = [str(r["id"]) for r in rows]
         assert ids == [str(r["id"]) for r in baseline]
         assert len(ids) == len(set(ids))
+
+
+# --- follow-up date and note ------------------------------------------------------
+
+def _followup_by_id(rows) -> dict[str, tuple[str, str]]:
+    out = {}
+    for row in rows:
+        exported = customer_export_row(row)
+        out[str(row["id"])] = (exported["วันนัดติดตาม"], exported["โน้ตติดตาม"])
+    return out
+
+
+def test_followup_columns_come_last_after_priority():
+    assert CRM_EXPORT_HEADERS[-3:] == ["ความสำคัญ", "วันนัดติดตาม", "โน้ตติดตาม"]
+    row = customer_export_row({}, include_latest_owner=True)
+    assert list(row)[-1] == CRM_LATEST_OWNER_HEADER  # stays last in that sheet
+
+
+def test_date_is_written_as_thai_buddhist_day_month_year():
+    from ui.customer_export_ui import followup_date_display
+    assert followup_date_display(date(2026, 10, 7)) == "07/10/2569"
+    assert followup_date_display("2026-12-25") == "25/12/2569"
+    assert followup_date_display(datetime(2026, 1, 5, 13, 30)) == "05/01/2569"
+    assert followup_date_display(None) == ""
+    assert followup_date_display("") == ""
+    assert followup_date_display("ไม่ใช่วันที่") == "ไม่ใช่วันที่"  # shown as stored
+
+
+def test_date_and_note_reach_the_export():
+    got = _followup_by_id(_export())
+    assert got["1"] == ("07/10/2569", "โทรเช้า")
+
+
+def test_the_most_recently_updated_record_of_the_customer_wins():
+    got = _followup_by_id(_export())
+    # ids 17-19 are one customer: record 18 was touched after 17
+    assert got["17"] == got["18"] == got["19"] == ("25/12/2569", "ล่าสุด")
+
+
+def test_legacy_columns_are_used_when_the_new_ones_are_empty():
+    got = _followup_by_id(_export())
+    assert got["3"] == ("30/11/2569", "คอลัมน์เก่า")
+
+
+def test_a_cleared_date_on_the_newest_record_shows_as_cleared():
+    # record 5 is newer than 6 and has no date, so the date reads blank
+    got = _followup_by_id(_export())
+    assert got["5"] == ("", "ไม่มีวันนัด")
+
+
+def test_a_customer_without_any_followup_record_gets_two_blanks():
+    got = _followup_by_id(_export())
+    assert got["15"] == ("", "")
+    assert got["16"] == ("", "")
+
+
+def test_the_newest_record_wins_across_a_split_phone_customer():
+    # ids 50-52 are one customer under two phone keys; 51's record is newer
+    got = _followup_by_id(_export())
+    assert got["50"] == got["51"] == got["52"] == ("06/06/2569", "คีย์ที่สอง")
+
+
+def test_created_at_counts_when_a_record_has_no_updated_at():
+    got = _followup_by_id(_export())
+    assert got["13"] == ("03/03/2569", "")
+
+
+def test_both_sheets_carry_the_two_columns():
+    for mode in (False, True):
+        rows = _export(latest_owner_only=mode)
+        exported = [customer_export_row(r, include_latest_owner=mode) for r in rows]
+        assert all("วันนัดติดตาม" in row and "โน้ตติดตาม" in row for row in exported)
+    latest = _followup_by_id(_export(latest_owner_only=True))
+    assert latest["19"] == ("25/12/2569", "ล่าสุด")
+
+
+def test_the_followup_lookup_does_not_change_the_exported_rows():
+    for mode in (False, True):
+        rows = _export(latest_owner_only=mode)
+        baseline = _export_without_priority(latest_owner_only=mode)
+        assert [str(r["id"]) for r in rows] == [str(r["id"]) for r in baseline]
+
+
+def test_the_columns_land_in_the_xlsx():
+    data = build_customer_export_xlsx([
+        {"order_id": "1", "followup_date": "2026-10-07", "followup_note": "โทรเช้า"},
+        {"order_id": "2"},
+    ])
+    ws = openpyxl.load_workbook(BytesIO(data)).active
+    header = [c.value for c in ws[1]]
+    d, n = header.index("วันนัดติดตาม") + 1, header.index("โน้ตติดตาม") + 1
+    assert ws.cell(row=2, column=d).value == "07/10/2569"
+    assert ws.cell(row=2, column=n).value == "โทรเช้า"
+    assert ws.cell(row=3, column=d).value in (None, "")
 
 
 # --- ranking ------------------------------------------------------------------

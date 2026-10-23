@@ -2026,6 +2026,56 @@ _CUSTOMER_CURRENT_PRIORITY_SQL = f"""
 """
 
 
+# One row per customer phone_key -> the appointment date and note from that
+# customer's most recently updated follow-up record. The customer is the phone
+# group and the history is the same one the priority column reads, so both
+# columns describe the same person. The newest record is taken as it stands:
+# if whoever updated it last cleared the date, the export shows it cleared,
+# which is what the follow-up page shows too.
+_CUSTOMER_LATEST_FOLLOWUP_SQL = f"""
+  with recursive {_CUSTOMER_PHONE_GROUP_CTES},
+  followup_history as (
+    select
+      customer_rows.phone_key,
+      coalesce(fu.next_followup_date, fu.follow_up_date) as followup_date,
+      coalesce(nullif(btrim(fu.followup_note), ''), nullif(btrim(fu.follow_up_note), '')) as followup_note,
+      coalesce(fu.updated_at, fu.created_at) as touched_at
+    from customer_rows
+    join public.crm_lead_followups fu
+      on fu.customer_key = concat('customer_id:', customer_rows.id::text)
+    union all
+    select
+      customer_rows.phone_key,
+      coalesce(fu.next_followup_date, fu.follow_up_date) as followup_date,
+      coalesce(nullif(btrim(fu.followup_note), ''), nullif(btrim(fu.follow_up_note), '')) as followup_note,
+      coalesce(fu.updated_at, fu.created_at) as touched_at
+    from customer_rows
+    join public.crm_lead_followups fu
+      on fu.customer_key = customer_rows.phone_key
+  ),
+  group_followup as (
+    select
+      customer_groups.group_key,
+      followup_history.followup_date,
+      followup_history.followup_note,
+      row_number() over (
+        partition by customer_groups.group_key
+        order by followup_history.touched_at desc nulls last
+      ) as rn
+    from followup_history
+    join customer_groups on customer_groups.phone_key = followup_history.phone_key
+  )
+  select
+    customer_groups.phone_key,
+    group_followup.followup_date,
+    group_followup.followup_note
+  from customer_groups
+  join group_followup
+    on group_followup.group_key = customer_groups.group_key
+   and group_followup.rn = 1
+"""
+
+
 def fetch_customer_export_rows(
     filters: dict[str, str],
     user: dict | None = None,
@@ -2057,6 +2107,7 @@ def fetch_customer_export_rows(
                 cur.execute(
                     f"""
                     with current_priority as ({_CUSTOMER_CURRENT_PRIORITY_SQL}),
+                    latest_followup as ({_CUSTOMER_LATEST_FOLLOWUP_SQL}),
                     keyed as (
                       select
                         d.id::text as id,
@@ -2129,10 +2180,14 @@ def fetch_customer_export_rows(
                       created_at,
                       updated_at,
                       team_code,
-                      cp.priority as priority
+                      cp.priority as priority,
+                      lf.followup_date as followup_date,
+                      lf.followup_note as followup_note
                     from ranked
                     left join current_priority cp
                       on cp.phone_key = ranked.phone_key
+                    left join latest_followup lf
+                      on lf.phone_key = ranked.phone_key
                     where rn = 1
                     order by order_date desc nulls last, uploaded_at desc, id desc
                     """,
@@ -2141,7 +2196,8 @@ def fetch_customer_export_rows(
                 return cur.fetchall()
             cur.execute(
                 f"""
-                with current_priority as ({_CUSTOMER_CURRENT_PRIORITY_SQL})
+                with current_priority as ({_CUSTOMER_CURRENT_PRIORITY_SQL}),
+                     latest_followup as ({_CUSTOMER_LATEST_FOLLOWUP_SQL})
                 select
                   d.id::text as id,
                   d.order_date,
@@ -2167,12 +2223,19 @@ def fetch_customer_export_rows(
                   d.created_at,
                   d.updated_at,
                   cp.priority as priority,
+                  lf.followup_date as followup_date,
+                  lf.followup_note as followup_note,
                   {_ORDER_TEAM_CODE_SQL} as team_code
                 from public.crm_data_imports d
                 {_order_team_joins("d")}
                 {_owner_activity_joins("d")}
                 left join current_priority cp
                   on cp.phone_key = case
+                    when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
+                    else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
+                  end
+                left join latest_followup lf
+                  on lf.phone_key = case
                     when nullif(d.phone1, '') is not null and nullif(d.phone2, '') is not null then least(d.phone1, d.phone2)
                     else coalesce(nullif(d.phone1, ''), nullif(d.phone2, ''), d.id::text)
                   end
