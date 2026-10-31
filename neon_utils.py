@@ -4299,3 +4299,133 @@ def delete_staff_option(option_id: str) -> None:
         except Exception:
             conn.rollback()
             raise
+
+
+# ---------------------------------------------------------------------------
+# Owner sync from an uploaded xlsx
+#
+# The customer export is edited offline and uploaded back to move customers
+# between CRM owners. It never creates or deletes anything: only the owner and
+# staff_code of rows that already exist, on the CRM side only, are rewritten.
+# ---------------------------------------------------------------------------
+
+OWNER_SYNC_SOURCE_PAGE = "import_excel.owner_sync"
+
+
+def fetch_crm_side_rows_by_phones(phones: list[str]) -> list[dict]:
+    """Valid CRM-side order rows carrying any of these phone numbers.
+
+    Read-only. The open side (Upsell and no team) is deliberately left out:
+    an upload of CRM rows must not touch the other side's owner.
+    """
+    wanted = sorted({normalize_phone(phone) for phone in phones if normalize_phone(phone)})
+    if not wanted:
+        return []
+    ensure_crm_data_imports_schema()
+    with neon_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select
+                  d.id::text as id,
+                  d.phone1,
+                  d.phone2,
+                  d.owner,
+                  d.staff_code,
+                  d.customer_name
+                from public.crm_data_imports d
+                {_order_team_joins("d")}
+                where d.import_status = 'valid'
+                  and (d.phone1 = any(%s) or d.phone2 = any(%s))
+                  and {_ORDER_TEAM_SIDE_SQL} = %s
+                """,
+                [wanted, wanted, OWNERSHIP_SIDE_CRM],
+            )
+            return cur.fetchall()
+
+
+def apply_owner_sync_updates(
+    updates: list[dict],
+    user: dict | None,
+    request_id: str,
+) -> dict:
+    """Rewrite owner/staff_code on the given row ids, in one transaction.
+
+    `updates` comes straight from the preview, so what the person approved is
+    exactly what runs. Each entry is {"phone", "owner", "staff_code",
+    "row_ids", "previous"}. No row is ever inserted or deleted.
+    """
+    _assert_editor_customer_record_action(user)
+    request_id = clean(request_id)
+    if not request_id:
+        raise ValueError("request_id is required")
+    cleaned: list[dict] = []
+    for update in updates or []:
+        owner = clean(update.get("owner"))
+        staff_code = clean(update.get("staff_code"))
+        row_ids = [clean(row_id) for row_id in update.get("row_ids") or [] if clean(row_id)]
+        if not owner or not staff_code or not row_ids:
+            continue
+        cleaned.append(
+            {
+                "phone": clean(update.get("phone")),
+                "owner": owner,
+                "staff_code": staff_code,
+                "row_ids": row_ids,
+                "previous": update.get("previous") or [],
+            }
+        )
+    if not cleaned:
+        return {"updated_rows": 0, "updated_customers": 0, "audit_logged": 0}
+
+    ensure_crm_data_imports_schema()
+    ensure_crm_data_audit_log_schema()
+    updated_by = clean((user or {}).get("email"))
+    now = now_iso()
+    updated_rows = 0
+    audit_logged = 0
+    with neon_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                for update in cleaned:
+                    cur.execute(
+                        """
+                        update public.crm_data_imports
+                        set owner = %s,
+                            staff_code = %s,
+                            updated_by = %s,
+                            updated_at = %s
+                        where id::text = any(%s)
+                          and import_status = 'valid'
+                        """,
+                        [update["owner"], update["staff_code"], updated_by, now, update["row_ids"]],
+                    )
+                    updated_rows += int(cur.rowcount or 0)
+                    if _insert_crm_audit_log(
+                        cur,
+                        request_id=f"{request_id}:{update['phone'] or update['row_ids'][0]}",
+                        action_type="OWNER_SYNC_FROM_FILE",
+                        entity_type="customer_phone",
+                        entity_key=update["phone"] or update["row_ids"][0],
+                        actor=user,
+                        source_page=OWNER_SYNC_SOURCE_PAGE,
+                        before_snapshot=update["previous"],
+                        after_snapshot={"owner": update["owner"], "staff_code": update["staff_code"]},
+                        metadata={"row_ids": update["row_ids"], "side": OWNERSHIP_SIDE_CRM},
+                    ):
+                        audit_logged += 1
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    clear_cached_data_functions(
+        fetch_customer_page,
+        fetch_customer_export_rows,
+        fetch_filter_options,
+        fetch_crm_owner_options,
+    )
+    return {
+        "updated_rows": updated_rows,
+        "updated_customers": len(cleaned),
+        "audit_logged": audit_logged,
+    }
